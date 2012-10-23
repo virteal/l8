@@ -32,7 +32,6 @@ step, one can wait for something and retry later.
     .state              -- return state of task, I->[Q|R]*->C/E/D
     .raise( error )     -- raise an error in task
     .spawn( block )     -- starts a new sub task
-    .queue( block )     -- schedule a new sub task
     .cancel             -- cancel task & its sub tasks, brutal
     .stop               -- gentle cancel
     .timeout( milli )   -- cancel task if not done in time
@@ -91,7 +90,7 @@ Two steps.
         })
       )
     })
-    .final( function(){ callback( this.err, result_b) }) 
+    .final( function(){ callback( this.err, result_b) })
   .end}
 ```
 
@@ -99,7 +98,7 @@ Coffeescript, shorter, also thanks to scope() functor
 
 ```
   fetch_this_and_that = l8.scope (a,b,cb) ->
-    r_a = r_b = undefined 
+    r_a = r_b = undefined
     @step  -> fetch a, @walk (err,content) -> r_a = {err,content}
     @step  ->
       @raise r_a.err if r_a.err
@@ -125,7 +124,7 @@ Multiple steps, dynamically created, run in parallel
       .final( function(){ callback( results ) })
     .end
   }
-  
+
   fetch_all = l8.scope (urls, callback) ->
     result = []
     @step ->
@@ -134,7 +133,7 @@ Multiple steps, dynamically created, run in parallel
         fetch url, @spawn (err, content) ->
           result.push {url, err, content}
       @end
-    @final -> callback results    
+    @final -> callback results
 ```
 
 Multiple steps, dynamically created, run sequentially
@@ -156,7 +155,7 @@ Multiple steps, dynamically created, run sequentially
       .final( function(){ callback( results ) })
     .end
   }
-  
+
   fetch_all_seq = l8.scope (urls, callback) ->
     results = []
     @step ->
@@ -175,12 +174,12 @@ Repeated step, externally terminated, gently
       @step -> url = queue.shift
       @step -> @delay 10000 if @parent.tasks.length > 10
       @step ->
-        @_break if @stopping   
+        @_break if @stopping
         fetch url, @walk (err,urls) ->
           return if err
           for url in urls
             queue.unshift url unless url in queue
-  
+
   spider_task = l8.spawn -> spider( "http://xxx.com")
   ...
   stop_spider -> spider_task.stop
