@@ -180,6 +180,8 @@ Repeated step, externally terminated, gently
           return if err
           for url in urls
             queue.unshift url unless url in queue
-   
-  stop_spider -> spider.stop
+  
+  spider_task = l8.spawn -> spider( "http://xxx.com")
+  ...
+  stop_spider -> spider_task.stop
 ```
