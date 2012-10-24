@@ -3,18 +3,21 @@ l8
 
 Light task manager for javascript/coffeescript/livescript...
 
-"Let's walk these steps"
+"Let's walk these steps on multiple paths to do our tasks"
 
 Schedule the execution of multiple "tasks". A task is made of "steps", much
-like a function is made of statements. Tasks can nest, much like blocks of
-statements. The main flow control structures are the sequential execution of
-steps, steps that loop until they exit, steps that wait for something and
-error propagation similar to exception handling.
+like a function is made of statements. Steps are walked on multiple "paths".
+Tasks and paths can nest, much like blocks of statements.
 
 Execution goes from "step" to "step" by way of "walk". If one cannot walk a
 step, one can wait for something and maybe retry later.
 
-l8 tasks are a kind of user level non preemptive threads. They are neither
+The main flow control structures are the sequential execution of steps,
+the execution of forked steps on parallel paths, steps that loop until they
+exit, steps that wait for something and error propagation similar to exception
+handling.
+
+l8 paths are a kind of user level non preemptive threads. They are neither
 native threads, nor worker threads, nor fibers nor the result of some CPS
 transformation. Just a bunch of cooperating closures.
 
@@ -24,16 +27,18 @@ API
 ```
   l8.begin              -- enter new L8 scope
     .step( block )      -- queue a new step
-    .walk( block )      -- walk a step, at most once per step
+    .fork( block )      -- queue a new step on a new parallel path
+    .walk( block )      -- walk a step on its path, at most once per step
     .loop               -- enter a non blocking loop, made of iterative steps
     .next               -- enter next iteration step in a non blocking loop
-    .repeat( block )    -- enter a blocking loop
+    .repeat( block )    -- queue a blocking loop step
     ._continue          -- like "continue", for blocking loops
-    ._break             -- "break" for blocking loops
+    ._break             -- "break" for blocking loops and forked steps
     ._return            -- like "return" in normal flow
     .raise( error )     -- raise an error in task
     .spawn( blk [, q] ) -- start a new sub task, maybe suspended
     .then( ... )        -- Promise/A protocol
+    .success( block )   -- block to run when task is done without error
     .error( block )     -- block to run when task is done but with error
     .progress( block )  -- block to run when some task is done or step walked
     .final( block )     -- block to run when task is all done
@@ -52,12 +57,12 @@ API
     .stop               -- gentle cancel
     .stopping           -- true after a gentle cancel, until task is done
     .stopped            -- true if task was gently canceled (gracefull)
-    .done               -- true if task done, else it either wait or runs
+    .done               -- true if task done, else it either waits or runs
     .succeed            -- true if task done without error
-    .failed             -- true if task done but with an error
+    .fail               -- true if task done but with an error
     .err                -- return last raised error
     .timeout( milli )   -- cancel task if not done in time
-    .delay( milli )     -- block for a while, then reschedule step
+    .sleep( milli )     -- block for a while, then reschedule task
     .wait( lock )       -- queue step until some lock opens, then retry
     .end                -- leave scope or loop
     .scope( function )  -- return the L8 scope guarded version of a function
@@ -105,15 +110,14 @@ Two steps.
   .end}
 ```
 
-Coffeescript, shorter, also thanks to scope() functor
+Coffeescript, much shorter, also thanks to scope() functor
 
 ```
   fetch_this_and_that = l8.scope (a,b,cb) ->
     r_a = r_b = {content:null}
     @step  -> fetch a, @walk (err,content) -> r_a = {err,content}
-    @step  ->
-      @raise r_a.err if r_a.err
-      fetch b, @walk (err,content) -> r_b = {err,content}
+    @step  -> @raise r_a.err if r_a.err ;\
+              fetch b, @walk (err,content) -> r_b = {err,content}
     @final -> cb @err, r_b.content
 ```
 
@@ -126,24 +130,23 @@ Multiple steps, dynamically created, run in parallel
       .step( function(){
         this.loop; for( var url in urls ){
           this.next
-          fetch( url, this.walk( function( err, content ){
-            result.push({ url: url, err: err, content: content })
-          }))
+          (function( url ){
+            fetch( url, this.walk( function( err, content ){
+              result.push({ url: url, err: err, content: content })
+            }))
+          })( url )
         }
-        this.end
       })
       .final( function(){ callback( results ) })
     .end
   }
 
   fetch_all = l8.scope (urls, callback) ->
-    result = []
+    results = []
     @step ->
       @loop; for url in urls
-        @next
-        fetch url, @walk (err, content) ->
-          result.push {url, err, content}
-      @end
+        @next; do (url) ->
+        fetch url, @walk (err, content) -> results.push {url, err, content}
     @final -> callback results
 ```
 
@@ -155,13 +158,14 @@ Multiple steps, dynamically created, run sequentially
     l8.begin
       .step( function(){
         this.loop; for( var url in urls ){
-          this.step( function(){
-            fetch( url, this.walk( function( err, content ){
-              result.push({ url: url, err: err, content: content })
-            }))
-          })
+          (function( url ){
+            this.step( function(){
+              fetch( url, this.walk( function( err, content ){
+                result.push({ url: url, err: err, content: content })
+              }))
+            })
+          })( url )
         }
-        this.end
       })
       .final( function(){ callback( results ) })
     .end
@@ -171,8 +175,8 @@ Multiple steps, dynamically created, run sequentially
     results = []
     @step ->
       @loop; for url in urls
-        @step -> fetch url, @walk -> result.push {url, err, content}
-      @end
+        do (url) ->
+          @step -> fetch url, @walk -> result.push {url, err, content}
     @final -> callback results
 ```
 
@@ -182,6 +186,7 @@ Repeated step, externally terminated, gently
   spider = l8.scope (urls) ->
     queue = urls
     @repeat ->
+      url = null
       @step -> url = queue.shift
       @step -> @delay 10000 if @parent.tasks.length > 10
       @step ->
@@ -195,6 +200,45 @@ Repeated step, externally terminated, gently
   ...
   stop_spider = -> spider_task.stop
 ```
+
+StratifiedJs example, see http://onilabs.com/stratifiedjs
+
+```
+var news;
+waitfor {
+  news = http.get("http://news.bbc.co.uk");
+}
+or {
+  hold(1000);
+  news = http.get("http://news.cnn.com");
+}
+or {
+  hold(1000*60);
+  throw "sorry, no news. timeout";
+}
+show(news);
+```
+```
+show_news = l8.scope ->
+  news = null
+  @fork ->
+    http.get "http://news.bbc.co.uk", @walk (err,item) ->
+      news = item
+      @_return
+  @fork ->
+    @step -> @sleep 1000
+    @step ->
+      http.get "http://news.cnn.com", @walk (err, item ) ->
+        news = item
+        @_return
+  @fork ->
+    @step -> @sleep 1000 * 60
+    @step -> throw "sorry, no news. timeout"
+  @success -> show news
+
+```
+
+
 
 Design
 ------
@@ -212,7 +256,34 @@ Once the AST (abstact syntax tree) is built, I interpret it.
 
 This becomes really interesting when the AST gets dynamically modified!
 
-Nodes in the AST are called "steps". They are the smallest non interruptible
-executable entities.
+Executable nodes in the AST are called "steps". They are the smallest non
+interruptible executable entities. Each Step belongs to a Path. Task can
+involve sub tasks that cooperate across multiple paths.
 
-Each Step belongs to a Task. Task can involve sub tasks that cooperate.
+Example:
+
+MainTask
+  Task.1 - a task with a single path with a loop
+    MainPath
+      Step
+      Step
+      RepeatStep
+        Step
+        Step
+      Step
+  Task.2 - a task with two paths
+    MainPath.2.1
+      Step
+      Step
+    ForkedPath.2.2
+      Step
+  Task.3 - a task with two simple sub tasks
+    MainPath
+      Step
+        SubTask
+          MainPath
+            Step
+        SubTask
+          MainPath
+            Step
+
