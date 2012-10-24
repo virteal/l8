@@ -285,4 +285,38 @@ MainTask
             Step
 ```
 
+Extensions
+----------
+
+The l8 API defines a concept of Task/Path/Step entities that works nicely in
+the async/callback dominated world of Javascript and yet manage to provide some
+useful tools (hopefully) to address the infamous "callback hell" issue.
+
+However these tool are very basic. Suspend/Resume are building blocks only.
+
+What is also needed is more sophisticated yet simpler to use solutions. There
+are many style of coding regarding the orchestration of complex interactions
+between fragments on code. Were are no longer restricted to the signal/kill
+mechanism from the 70s in Unix!
+
+In addition to the classics (semaphores, mutexes, message queues, conditional
+variables, signals, events...) newer mechanisms are experimented or
+rediscovered. Things like channels in Go, actors in Erlang, reactive system in
+Angular, these things are interesting to explore.
+
+I believe l8 may help do that. Sure the granularity is not the same as in
+native implementations. Instead of dealing with statements or even machine
+code level instructions, l8 deals with much bigger "steps". However, regarding
+synchronisation, this difference of scale does not imply a difference of
+nature. As a consequence, solutions that work at the machine level may prove
+also productive at the "step" higher level. l8 makes it possible to use these
+solutions in Javascript, today (well... in a few months, if things go well).
+
+Proposal for extensions are welcome. Let's get to paradize ;)
+
+Enjoys.
+
+   Jean Hugues Robert, aka @jhr, october 2012.
+
+
 
