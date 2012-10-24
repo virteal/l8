@@ -30,7 +30,7 @@ API
     .fork( block )      -- queue a new step on a new parallel path
     .walk( block )      -- walk a step on its path, at most once per step
     .loop               -- enter a non blocking loop, made of iterative steps
-    .next               -- enter next iteration step in a non blocking loop
+    .each               -- enter next iteration step in a non blocking loop
     .repeat( block )    -- queue a blocking loop step
     ._continue          -- like "continue", for blocking loops
     ._break             -- "break" for blocking loops and forked steps
@@ -130,8 +130,7 @@ Multiple steps, dynamically created, run in parallel
     l8.begin
       .step( function(){
         this.loop; for( var url in urls ){
-          this.next
-          (function( url ){
+          this.each; (function( url ){
             fetch( url, this.walk( function( err, content ){
               result.push({ url: url, err: err, content: content })
             }))
@@ -146,7 +145,7 @@ Multiple steps, dynamically created, run in parallel
     results = []
     @step ->
       @loop; for url in urls
-        @next; do (url) ->
+        @each; do (url) ->
         fetch url, @walk (err, content) -> results.push {url, err, content}
     @final -> callback results
 ```
@@ -191,7 +190,7 @@ Repeated step, externally terminated, gently
       @step -> url = queue.shift
       @step -> @delay 10000 if @parent.tasks.length > 10
       @step ->
-        @_break if @stopping
+        @break if @stopping
         fetch url, @walk (err,urls) ->
           return if err or @stopping
           for url in urls
