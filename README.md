@@ -1,5 +1,5 @@
-l8
-==
+l8 0.1.1
+========
 
 Light task manager for javascript/coffeescript/livescript...
 
@@ -17,7 +17,7 @@ the execution of forked steps on parallel paths, steps that loop until they
 exit, steps that wait for something and error propagation similar to exception
 handling.
 
-l8 paths are a kind of user level non preemptive threads. They are neither
+l8 paths are kind of user level non preemptive threads. They are neither
 native threads, nor worker threads, nor fibers nor the result of some CPS
 transformation. Just a bunch of cooperating closures.
 
@@ -26,7 +26,7 @@ API
 
 ```
   l8.begin              -- enter new L8 scope
-    .step( block )      -- queue a new step
+    .step( block )      -- queue a new step on the path to task's completion
     .fork( block )      -- queue a new step on a new parallel path
     .walk( block )      -- walk a step on its path, at most once per step
     .loop               -- enter a non blocking loop, made of iterative steps
@@ -34,10 +34,10 @@ API
     .repeat( block )    -- queue a blocking loop step
     ._continue          -- like "continue", for blocking loops
     ._break             -- "break" for blocking loops and forked steps
-    ._return            -- like "return" in normal flow
+    ._return( [val] )   -- like "return" in normal flow
     .raise( error )     -- raise an error in task
     .spawn( blk [, q] ) -- start a new sub task, maybe suspended
-    .then( ... )        -- Promise/A protocol
+    .then( ... )        -- Promise/A protocol, tasks are promises
     .success( block )   -- block to run when task is done without error
     .error( block )     -- block to run when task is done but with error
     .progress( block )  -- block to run when some task is done or step walked
@@ -61,6 +61,7 @@ API
     .succeed            -- true if task done without error
     .fail               -- true if task done but with an error
     .err                -- return last raised error
+    .result             -- "return" value of task, see _return
     .timeout( milli )   -- cancel task if not done in time
     .sleep( milli )     -- block for a while, then reschedule task
     .wait( lock )       -- queue step until some lock opens, then retry
@@ -221,16 +222,12 @@ show(news);
 ```
 show_news = l8.scope ->
   news = null
-  @fork ->
-    http.get "http://news.bbc.co.uk", @walk (err,item) ->
-      news = item
-      @_return
+  @fork -> http.get "http://news.bbc.co.uk",
+      @walk (err,item) -> @return news = item
   @fork ->
     @step -> @sleep 1000
-    @step ->
-      http.get "http://news.cnn.com", @walk (err, item ) ->
-        news = item
-        @_return
+    @step -> http.get "http://news.cnn.com",
+       @walk (err, item ) -> @return news = item
   @fork ->
     @step -> @sleep 1000 * 60
     @step -> throw "sorry, no news. timeout"
@@ -262,6 +259,7 @@ involve sub tasks that cooperate across multiple paths.
 
 Example:
 
+```
 MainTask
   Task.1 - a task with a single path with a loop
     MainPath
@@ -272,10 +270,10 @@ MainTask
         Step
       Step
   Task.2 - a task with two paths
-    MainPath.2.1
+    MainPath
       Step
       Step
-    ForkedPath.2.2
+    ForkedPath
       Step
   Task.3 - a task with two simple sub tasks
     MainPath
@@ -286,4 +284,6 @@ MainTask
         SubTask
           MainPath
             Step
+```
+
 
