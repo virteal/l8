@@ -36,7 +36,7 @@ API
     ._break             -- "break" for blocking loops and forked steps
     ._return( [val] )   -- like "return" in normal flow
     .raise( error )     -- raise an error in task
-    .spawn( blk [, q] ) -- start a new sub task, maybe suspended
+    .spawn( blk [, q] ) -- start a new sub task, maybe paused
     .then( ... )        -- Promise/A protocol, tasks are promises
     .success( block )   -- block to run when task is done without error
     .error( block )     -- block to run when task is done but with error
@@ -48,9 +48,11 @@ API
     .tasks              -- return sub tasks
     .top                -- return top task of sub task
     .state              -- return state of task, I->[Q|R]*->C/E/D
-    .suspend            -- queue step, waiting until task is resumed
+    .pause              -- queue step, waiting until task is resumed
     .waiting            -- true if task waiting while running (ie is queued)
     .resume             -- resume execution of a task waiting at some step
+    .yield( value )     -- like "pause" but provides a value and returns one
+    .run( value )       -- like "resume" but provides a value and returns one
     .running            -- true if task not done nor waiting
     .cancel             -- cancel task & its sub tasks, brutal
     .canceled           -- true if task was canceled
@@ -61,7 +63,7 @@ API
     .succeed            -- true if task done without error
     .fail               -- true if task done but with an error
     .err                -- return last raised error
-    .result             -- "return" value of task, see _return
+    .result             -- "return" value of task, see _return and yield()
     .timeout( milli )   -- cancel task if not done in time
     .sleep( milli )     -- block for a while, then reschedule task
     .wait( lock )       -- queue step until some lock opens, then retry
@@ -292,7 +294,7 @@ The l8 API defines a concept of Task/Path/Step entities that works nicely in
 the async/callback dominated world of Javascript and yet manage to provide some
 useful tools (hopefully) to address the infamous "callback hell" issue.
 
-However these tool are very basic. Suspend/Resume are building blocks only.
+However these tool are very basic. Pause/Resume are building blocks only.
 
 What is also needed is more sophisticated yet simpler to use solutions. There
 are many style of coding regarding the orchestration of complex interactions
@@ -312,7 +314,7 @@ nature. As a consequence, solutions that work at the machine level may prove
 also productive at the "step" higher level. l8 makes it possible to use these
 solutions in Javascript, today (well... in a few months, if things go well).
 
-Proposal for extensions are welcome. Let's get to paradize ;)
+Proposals for extensions are welcome. Let's get to paradize ;)
 
 Enjoys.
 
