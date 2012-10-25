@@ -17,7 +17,7 @@ the execution of forked steps on parallel paths, steps that loop until they
 exit, steps that wait for something and error propagation similar to exception
 handling.
 
-l8 paths are kind of user level non preemptive threads. They are neither
+l8 tasks are kind of user level non preemptive threads. They are neither
 native threads, nor worker threads, nor fibers nor the result of some CPS
 transformation. Just a bunch of cooperating closures.
 
@@ -319,6 +319,9 @@ Proposals for extensions are welcome. Let's get to paradize ;)
 Enjoys.
 
    Jean Hugues Robert, aka @jhr, october 2012.
+
+PS: all this stuff is to relieve my "node anxiety".
+See http://news.ycombinator.com/item?id=2371152
 
 
 
