@@ -37,20 +37,24 @@ cannot complete immediately needs to register code to execute later when
 some "event" occurs. This single thread runs a tight loop that consumes events
 and run code registered to handle them. This is "the event loop"
 
+```
   while( true ){
-    event = get_event()
-    dispatch( event)
+    event = get_event();
+    dispatch( event);
   }
+```
 
 Code that is executed when an event happens is often named "callback". This is
 because it is the "event loop" (though "dispatch()") that "calls" that code.
 
+```
   function process_mouse_over(){
     obj.onmouseover = call_me_back;
     function call_me_back(){
       // called when mouse runs over that obj
     }
   }
+```
 
 That event_loop/callback style is simple and efficient. However, it has some
 notorious drawbacks. Things can get fairly complex to handle when some activity
@@ -60,6 +64,7 @@ Multiple solutions exist to care with such cases. The most basic one is to
 start a new activity from within the callback that gets called when the
 previous activity is completed.
 
+```
   ajax_get_user( name, function user_found( user ){
     ajax_check_credential( user, function credential_checked( is_ok ){
       if( is_ok ){
@@ -69,10 +74,12 @@ previous activity is completed.
       }
     }
   }
+```
 
 This code is not very readable because of the "nesting" of the different parts
 that obscure it.
 
+```
   ajax_get_user( name, user_found);
   function user_found( user ){
     ajax_check_credential( user, credential_checked);
@@ -84,35 +91,42 @@ that obscure it.
   function delete_result( err ){
     if( err ) signal( err)
   }
+```
 
 This slightly different style is barely more readable. What would be readable
 is something like this:
 
+```
   user = ajax_get_user( name)
   if( !ajax_check_credential( user) )return
   if( err = ajax_do_action( user, "delete") ){
     signal( err)
   }
+```
 
 However, this cannot exist in javascript because no function can "block". The
 function "ajax_get_user()" cannot "block" until it receives an answer.
 
 This is where L8 helps.
 
+```
   l8
   .step( function(){ ajax_get_user( name,                     l8.next) })
   .step( function(){ ajax_check_credential( user = l8.result, l8.next) })
   .step( function(){ if( !l8.result ) l8._return();
                      ajax_do_action( user, "delete",          l8.next) })
   .step( function(){ if( l8.result ) signal( l8.result)                })
+```
 
 This is less verbose with CoffeeScript:
 
+```
   @step -> ajax_get_user name,                     @next
   @step -> ajax_check_credential (user = @result), @next
   @step -> if !@result then @return()              ;\
            ajax_do_action user, "delete",          @next
   @step -> if err = @result then signal err
+```
 
 By "breaking" a function into multiple "steps", code become almost as readable
 as it would be if statements in javascript could block, minus the step/next
