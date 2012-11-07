@@ -3,6 +3,7 @@
 //   https://github.com/JeanHuguesRobert/l8
 //
 // 2012/10/24, JHR, create
+// 2012/11/06, JHR,
 
 var L8 = null
 var l8 = null
@@ -27,6 +28,7 @@ function Task( parent ){
   this.firstStep   = null
   this.lastStep    = null
   this.currentStep = null
+  this.stepResult  = undefined
   this.wasCanceled = false
   this.isRunning   = true
   this.isDone      = false
@@ -36,11 +38,13 @@ function Task( parent ){
 Task.prototype = Task
 
 L8 = l8 = new Task( null)
+L8.l8 = L8
 L8.isRoot = true
 L8.stepQueue = []
 L8.isScheduled = false
 
 var CurrentStep = null
+var NextStep    = null
 
 L8.scheduler = function scheduler(){
   if( !L8.isScheduled ){
@@ -96,7 +100,8 @@ function Step( task, parent, previous, block ){
   }else{
     this.previous = previous
     this.next     = previous.next
-    this.previous.next = this
+    previous.next.previous = this
+    previous.next = this
   }
   this.wasQueued = false
   this.isRunning = false
@@ -135,15 +140,26 @@ Task.__defineGetter__( "done", function(){
   return this.isDone
 })
 
+Task.__defineGetter__( "result", function(){
+  if( this.isRoot )return CurrentStep.task.stepResult
+  return this.stepResult
+})
+
+Task.__defineSetter__( "result", function( val){
+  if( this.isRoot )return CurrentStep.task.stepResult = val
+  return this.stepResult = val
+})
+
 Task.step = function step( block ){
   if( this.isRoot && CurrentStep && CurrentStep.task !== this ){
     return CurrentStep.task.step( block)
   }
-  if( this.done ){
+  if( this.isDone ){
     throw "Can't add new step, task is done"
   }
   var parent = CurrentStep ? CurrentStep.parent : null
-  var step = new Step( this, parent, this.lastStep, block)
+  var insert_after = NextStep ? NextStep.previous : this.lastStep
+  var step = new Step( this, parent, insert_after, block)
   return this
 }
 
@@ -165,9 +181,14 @@ Task.walk = function walk( block ){
   return function walk_cb(){
     var previous_step = CurrentStep
     CurrentStep = step
+    if( arguments.length === 1 ){
+      that.stepResult = arguments[0]
+    }else{
+      that.stepResupt = arguments
+    }
     try{
       if( block ){
-        block.apply( step.task, arguments)
+        that.stepResult = block.apply( step.task, arguments)
       }
       if( that.currentStep === step ){
         that.currentStep = null
@@ -185,21 +206,29 @@ Task.walk = function walk( block ){
   }
 }
 
+Task.__defineGetter__( "next", function(){
+  return this.walk( null)
+})
+
 Step.scheduler = function step_scheduler(){
   if( !this.wasQueued )return
   this.wasQueued = false
   if( !this.isRunning )return
-  var step = CurrentStep
-  CurrentStep = this
+  var old_step = CurrentStep
+  var old_next = NextStep
+  CurrentStep  = this
+  NextStep     = this.next
   try{
     if( this.block ){
-      this.block.apply( this.task)
+      this.task.stepResult = this.block.apply( this.task)
     }
     this.scheduleNext()
   }catch( e ){
+    // ToDo: _return exception handling
     throw e
   }finally{
-    CurrentStep = step
+    CurrentStep = old_step
+    NextStep    = old_next
     L8.scheduler()
   }
 }
@@ -210,15 +239,38 @@ Step.scheduleNext = function schedule_next(){
   var next_step = this.next
   if( next_step ){
     L8.enqueueStep( next_step)
+  // When last step is done
   }else{
     var task = this.task
     // ToDo: sub task
     task.isDone = true
-    if( task.finalBlock ){
-      try{
-        task.finalBlock()
-      }catch( e ){
-        throw e
+    try{
+      if( task.err ){
+        if( task.errorBlock ){
+          try{
+            task.errorBlock()
+          }catch( e ){
+            throw e
+          }
+        }
+      }else{
+        if( task.successBlock ){
+          try{
+            task.successBlock()
+          }catch( e ){
+            throw e
+          }
+        }
+      }
+    }catch( e ){
+      throw e
+    }finally{
+      if( task.finalBlock ){
+        try{
+          task.finalBlock()
+        }catch( e ){
+          throw e
+        }
       }
     }
   }
@@ -226,6 +278,16 @@ Step.scheduleNext = function schedule_next(){
 
 Task.final = function final( block ){
   this.finalBlock = block
+  return this
+}
+
+Task.error = function error( block ){
+  this.errorBlock = block
+  return this
+}
+
+Task.success = function success( block ){
+  this.successBlock = block
   return this
 }
 
@@ -299,17 +361,19 @@ L8.startup = function(){
 }
 
 function tests(){
+  var test
   function t(){
-    var buf = ["test"]
+    var buf = ["test" + (test ? " " + test : "")]
     for( var ii = 0 ; ii < arguments.length ; ii++ ) buf.push( arguments[ii])
     trace.apply( this, buf)
   }
   t( "starts")
 
   var test_1 = function test1(){
-    t( "test_1")
+    test = 1
+    t( "go")
     l8.begin
-      .step(  function(){ t( "start step 1") })
+      .step(  function(){ t( "start") })
       .step(  function(){ t( "step") })
       .step(  function(){
         t( "sleep")
@@ -325,14 +389,32 @@ function tests(){
   }
 
   var test_2 = L8.scope( function test2(){
+    test = 2
     this
-    .step(  function(){ t( "start step 2") })
+    .step(  function(){ t( "start") })
     .step(  function(){ setTimeout( this.walk(), 0) })
     .step(  function(){ t( "sleep/timeout done") })
     .final( function(){
       t( "final 2")
-      test_last()
+      test_3()
     })
+  })
+
+  var test_3 = L8.scope( function test3(){
+    test = 3
+    this
+    .step( function(){ t( "start") })
+    .step( function(){
+      t( "add step 1")
+      this.step( function(){ t( "first step") })
+      t( "add step 2")
+      this.step( function(){ t( "second step") })
+   })
+   .step( function(){ t("third & final step") })
+   .final( function(){
+     t( "final 3")
+     test_last()
+   })
   })
 
   var test_last = function(){
@@ -349,7 +431,7 @@ var count_down = 5
 setInterval(
   function(){
     trace( "tick " + --count_down)
-    if( !count_down){
+    if( !count_down ){
       trace( "exiting...")
       process.exit( 0)
     }
@@ -357,4 +439,4 @@ setInterval(
   1000
 )
 tests()
-trace( "done L8")
+trace( "L8 scheduler started")
