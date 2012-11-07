@@ -1,16 +1,19 @@
-l8 0.1.1
+l8 0.1.2
 ========
 
-Light task manager for javascript/coffeescript/livescript...
+A light task manager for javascript/coffeescript/livescript...
 
 "Let's walk these steps on multiple paths to do our tasks"
 
-Schedule the execution of multiple "tasks". A task is made of "steps", much
+What is it?
+===========
+
+It schedules the execution of multiple "tasks". A task is made of "steps", much
 like a function is made of statements. Steps are walked on multiple "paths".
-Tasks and paths can nest, much like blocks of statements.
+Such tasks and paths (sub-tasks) can nest, much like blocks of statements.
 
 Execution goes from "step" to "step" by way of "walk". If one cannot walk a
-step, one can wait for something and maybe retry later.
+step immediatly, one can block, waiting for something before resuming.
 
 The main flow control structures are the sequential execution of steps,
 the execution of forked steps on parallel paths, steps that loop until they
@@ -21,6 +24,109 @@ l8 tasks are kind of user level non preemptive threads. They are neither
 native threads, nor worker threads, nor fibers nor the result of some CPS
 transformation. Just a bunch of cooperating closures.
 
+Steps vs Statements
+===================
+
+Javascript code is made of statements (and expressions). One key characteristic
+of the language is the fact that all these statements are "non blocking". This
+means that no statement can "block". They are executed with no delay, they
+cannot "wait" for something to happen.
+
+As a result there is only one "thread" of execution and any activity that
+cannot complete immediately needs to register code to execute later when
+some "event" occurs. This single thread runs a tight loop that consumes events
+and run code registered to handle them. This is "the event loop"
+
+  while( true ){
+    event = get_event()
+    dispatch( event)
+  }
+
+Code that is executed when an event happens is often named "callback". This is
+because it is the "event loop" (though "dispatch()") that "calls" that code.
+
+  function process_mouse_over(){
+    obj.onmouseover = call_me_back;
+    function call_me_back(){
+      // called when mouse runs over that obj
+    }
+  }
+
+That event_loop/callback style is simple and efficient. However, it has some
+notorious drawbacks. Things can get fairly complex to handle when some activity
+involve many sub-activities that must be run in some specific order.
+
+Multiple solutions exist to care with such cases. The most basic one is to
+start a new activity from within the callback that gets called when the
+previous activity is completed.
+
+  ajax_get_user( name, function user_found( user ){
+    ajax_check_credential( user, function credential_checked( is_ok ){
+      if( is_ok ){
+        ajax_do_action( user, "delete", function delete_result( err ){
+          if( err ) signal( err)
+        }
+      }
+    }
+  }
+
+This code is not very readable because of the "nesting" of the different parts
+that obscure it.
+
+  ajax_get_user( name, user_found);
+  function user_found( user ){
+    ajax_check_credential( user, credential_checked);
+  }
+  function credential_checked( is_ok ){
+    if( !is_ok )return
+    ajax_do_action( user, "delete", delete_result)
+  }
+  function delete_result( err ){
+    if( err ) signal( err)
+  }
+
+This slightly different style is barely more readable. What would be readable
+is something like this:
+
+  user = ajax_get_user( name)
+  if( !ajax_check_credential( user) )return
+  if( err = ajax_do_action( user, "delete") ){
+    signal( err)
+  }
+
+However, this cannot exist in javascript because no function can "block". The
+function "ajax_get_user()" cannot "block" until it receives an answer.
+
+This is where L8 helps.
+
+  l8
+  .step( function(){ ajax_get_user( name,                     l8.next) })
+  .step( function(){ ajax_check_credential( user = l8.result, l8.next) })
+  .step( function(){ if( !l8.result ) l8._return();
+                     ajax_do_action( user, "delete",          l8.next) })
+  .step( function(){ if( l8.result ) signal( l8.result)                })
+
+This is less verbose with CoffeeScript:
+
+  @step -> ajax_get_user name,                     @next
+  @step -> ajax_check_credential (user = @result), @next
+  @step -> if !@result then @return()              ;\
+           ajax_do_action user, "delete",          @next
+  @step -> if err = @result then signal err
+
+By "breaking" a function into multiple "steps", code become almost as readable
+as it would be if statements in javascript could block, minus the step/next
+noise.
+
+This example is a fairly simple one. Execution goes from step to step in a
+sequential way. Sometimes the flow of control can be much more sophisticated.
+There can be multiple "threads" of control, with actions initiated concurrently
+with various style of collaboration between these actions.
+
+Hence the notion of "task". A Task is a L8 object that consolidates the result
+of multiple threads of control (aka sub-tasks) that all participate in the
+completion of a task.
+
 API
 ---
 
@@ -28,7 +134,9 @@ API
   l8.begin              -- enter new L8 scope
     .step( block )      -- queue a new step on the path to task's completion
     .fork( block )      -- queue a new step on a new parallel path
+    .call( block )      -- like fork() but waits until other path completes
     .walk( block )      -- walk a step on its path, at most once per step
+    .next               -- alias for walk() -- ie no block parameter
     .loop               -- enter a non blocking loop, made of iterative steps
     .each               -- enter next iteration step in a non blocking loop
     .repeat( block )    -- queue a blocking loop step
@@ -85,7 +193,7 @@ Two steps.
   function fetch_this_and_that( a, b, callback ){
     var result_a = null
     var result_b = {content:null}
-    // Hypothetical synchrone version
+    // Hypothetical synchronous version
     // result_a = fetch( a)
     // if( !result_a.err ){
     //   result_b = fetch( b)
@@ -113,7 +221,7 @@ Two steps.
   .end}
 ```
 
-Coffeescript, much shorter, also thanks to scope() functor
+CoffeeScript, much shorter, also thanks to scope() functor
 
 ```
   fetch_this_and_that = l8.scope (a,b,cb) ->
@@ -124,25 +232,9 @@ Coffeescript, much shorter, also thanks to scope() functor
     @final -> cb @err, r_b.content
 ```
 
-Multiple steps, dynamically created, run in parallel
+Multiple steps, dynamically created, each run in parallel
 
 ```
-  function fetch_all( urls, callback ){
-    var results = []
-    l8.begin
-      .step( function(){
-        this.loop; for( var url in urls ){
-          this.each; (function( url ){
-            fetch( url, this.walk( function( err, content ){
-              result.push({ url: url, err: err, content: content })
-            }))
-          })( url )
-        }
-      })
-      .final( function(){ callback( results ) })
-    .end
-  }
-
   fetch_all = l8.scope (urls, callback) ->
     results = []
     @step ->
@@ -155,24 +247,6 @@ Multiple steps, dynamically created, run in parallel
 Multiple steps, dynamically created, run sequentially
 
 ```
-  function fetch_all_seq( urls, callback ){
-    var results = []
-    l8.begin
-      .step( function(){
-        this.loop; for( var url in urls ){
-          (function( url ){
-            this.step( function(){
-              fetch( url, this.walk( function( err, content ){
-                result.push({ url: url, err: err, content: content })
-              }))
-            })
-          })( url )
-        }
-      })
-      .final( function(){ callback( results ) })
-    .end
-  }
-
   fetch_all_seq = l8.scope (urls, callback) ->
     results = []
     @step ->
@@ -252,11 +326,20 @@ motivator.
 To break functions into steps, I use a DSL (domain specific language) API.
 Once the AST (abstact syntax tree) is built, I interpret it.
 
-This becomes really interesting when the AST gets dynamically modified!
-
 Executable nodes in the AST are called "steps". They are the smallest non
 interruptible executable entities. Each Step belongs to a Path. Task can
 involve sub tasks that cooperate across multiple paths.
+
+This becomes really interesting when the AST gets dynamically modified! This
+happens when a step decides that is requires additional sub steps to complete.
+
+On a path, execution goes from step to step. When a step involves sub-steps,
+the step is blocked until the sub-steps complete, unless sub-steps are created
+in a forked parallel path (sub-task).
+
+Note: a "path" is, at the step level, what is usually called a "thread" (or a
+fiber") in languages that support this notion at the statement/expression
+level.
 
 Example:
 
@@ -270,22 +353,79 @@ MainTask
         Step
         Step
       Step
-  Task.2 - a task with two paths
+  Task.2 - a task with two paths (two sub tasks)
     MainPath
       Step
       Step
     ForkedPath
       Step
-  Task.3 - a task with two simple sub tasks
-    MainPath
-      Step
-        SubTask
-          MainPath
-            Step
-        SubTask
-          MainPath
-            Step
 ```
+
+Adding steps
+------------
+
+Execution goes "step by step" until task completion. Steps to execute are
+queued. When a new step is created, it is usually added at the end of the queue
+for the currenty executing task. Sometimes however, one wants to queue new
+steps right after the currently executing step. This is typically the case
+when a step needs to schedule work for multiple items. Such "steps" are either
+sequential steps or steps to walk on parallel sub-pathes. It also happens when
+a step discovers that it requires additional sub-steps to complete.
+
+To insert a new step before the one next to the currently executing step, use
+step(). Such steps are run once the current step is completed.
+
+To insert a new step on a new parallel sub-path, use either loop()/each() and
+then step() or just path(). Such steps block the current step until they are
+completed. If multiple loops are nested, use end() to close a nesting level.
+
+To insert multiple sub-steps, use begin/end around them. This is equivalent
+to calling a sub-routine. Something that can also be done with call(), it will
+add begin/end as well. Such steps are actually run in a new sub-task.
+
+In all these cases, the current step won't be considered complete until all
+these additionnal step are completed themselves.
+
+To insert steps that won't block the current step, use spawn() instead. Such
+steps are also run in a new task but the current step is not blocked until
+the new task is complete.
+
+Blocking
+--------
+
+Steps are useful to describe flows that depends on other flows. As a result
+a step often describes sub-steps and/or sub pathes/tasks. These steps then
+"block" waiting for the sub items to complete.
+
+For simple steps, that only depends on the completion of a simple asynchronous
+action, walk() provides the callback to register with that action. When the
+callback is called, flows walks from the current step to the next.
+
+Note: in the frequent case where the callback only needs to store the result
+of the asychronous operation and move forward to the next step, please use
+"next" instead of walk( function( x ){ this.result = x }).
+
+However, if the action's result dictates that some new "nested" steps are
+required, one add new steps from within the callback itself. Often, this style
+of programming is not adviced because it basically resolves back to the
+infamous "callback hell" that l8 attemps to avoid. A better solution is to
+let the next step handle that.
+
+Do:
+  @step -> fetch                       @next
+  @step -> if @result then more_fetch  @next
+  @step -> if @result then fetch_again @next
+  @step -> if @result then use @result
+  @step -> done()
+
+Don't:
+  @step -> fetch @walk (result) ->
+    if result
+      more_fetch @walk (result) ->
+        if result
+          fetch_again @walk (result) ->
+            if result then use result
+  @step -> done()
 
 Extensions
 ----------
@@ -314,11 +454,11 @@ nature. As a consequence, solutions that work at the machine level may prove
 also productive at the "step" higher level. l8 makes it possible to use these
 solutions in Javascript, today (well... in a few months, if things go well).
 
-Proposals for extensions are welcome. Let's get to paradize ;)
+Proposals for extensions are welcome.
 
-Enjoys.
+Enjoy.
 
-   Jean Hugues Robert, aka @jhr, october 2012.
+   Jean Hugues Robert, aka @jhr, october/november 2012.
 
 PS: all this stuff is to relieve my "node anxiety".
 See http://news.ycombinator.com/item?id=2371152
