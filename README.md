@@ -58,7 +58,7 @@ because it is the "event loop" (though "dispatch()") that "calls" that code.
 
 That event_loop/callback style is simple and efficient. However, it has some
 notorious drawbacks. Things can get fairly complex to handle when some activity
-involve many sub-activities that must be run in some specific order.
+involves many sub-activities that must be run in some specific order.
 
 Multiple solutions exist to care with such cases. The most basic one is to
 start a new activity from within the callback that gets called when the
@@ -77,7 +77,7 @@ previous activity is completed.
 ```
 
 This code is not very readable because of the "nesting" of the different parts
-that obscure it.
+that obscures it.
 
 ```
   ajax_get_user( name, user_found);
@@ -203,7 +203,7 @@ Examples
 
 Two steps.
 
-````
+```
   function fetch_this_and_that( a, b, callback ){
     var result_a = null
     var result_b = {content:null}
@@ -426,13 +426,16 @@ infamous "callback hell" that l8 attemps to avoid. A better solution is to
 let the next step handle that.
 
 Do:
+```
   @step -> fetch                       @next
   @step -> if @result then more_fetch  @next
   @step -> if @result then fetch_again @next
   @step -> if @result then use @result
   @step -> done()
+```
 
 Don't:
+```
   @step -> fetch @walk (result) ->
     if result
       more_fetch @walk (result) ->
@@ -440,6 +443,7 @@ Don't:
           fetch_again @walk (result) ->
             if result then use result
   @step -> done()
+```
 
 Extensions
 ----------
