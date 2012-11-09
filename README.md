@@ -1,7 +1,7 @@
-l8 0.1.2
+l8 0.1.3
 ========
 
-A light task manager for javascript/coffeescript/livescript...
+L8 is light task manager for javascript/coffeescript/livescript...
 
 "Let's walk these steps on multiple paths to do our tasks"
 
@@ -39,7 +39,7 @@ and run code registered to handle them. This is "the event loop"
 
 ```
   while( true ){
-    event = get_event();
+    event = get_next_event();
     dispatch( event);
   }
 ```
@@ -75,9 +75,8 @@ previous activity is completed.
     }
   }
 ```
-
 This code is not very readable because of the "nesting" of the different parts
-that obscures it.
+that obscure it.
 
 ```
   ajax_get_user( name, user_found);
@@ -92,16 +91,13 @@ that obscures it.
     if( err ) signal( err)
   }
 ```
-
 This slightly different style is barely more readable. What would be readable
 is something like this:
 
 ```
   user = ajax_get_user( name)
   if( !ajax_check_credential( user) )return
-  if( err = ajax_do_action( user, "delete") ){
-    signal( err)
-  }
+  if( err = ajax_do_action( user, "delete") ){ signal( err) }
 ```
 
 However, this cannot exist in javascript because no function can "block". The
@@ -147,22 +143,22 @@ API
 ```
   l8.begin              -- enter new L8 scope
     .step( block )      -- queue a new step on the path to task's completion
-    .fork( block )      -- queue a new step on a new parallel path
-    .call( block )      -- like fork() but waits until other path completes
+    .fork( block )      -- queue a new step on a new parallel sub-task
+    .spawn( blk [, q] ) -- like fork() but next step does not wait for subtask
+    .call( block )      -- like fork() but waits until other task completes
     .walk( block )      -- walk a step on its path, at most once per step
     .next               -- alias for walk() -- ie no block parameter
     .loop               -- enter a non blocking loop, made of iterative steps
     .each               -- enter next iteration step in a non blocking loop
     .repeat( block )    -- queue a blocking loop step
-    ._continue          -- like "continue", for blocking loops
+    ._continue          -- like "continue", for blocking loop steps
     ._break             -- "break" for blocking loops and forked steps
     ._return( [val] )   -- like "return" in normal flow
-    .raise( error )     -- raise an error in task
-    .spawn( blk [, q] ) -- start a new sub task, maybe paused
+    .raise( error )     -- raise an error in a task
     .then( ... )        -- Promise/A protocol, tasks are promises
+    .progress( block )  -- block to run when some task is done or step walked
     .success( block )   -- block to run when task is done without error
     .error( block )     -- block to run when task is done but with error
-    .progress( block )  -- block to run when some task is done or step walked
     .final( block )     -- block to run when task is all done
     .l8                 -- return global L8 object
     .task               -- return current task
@@ -187,8 +183,8 @@ API
     .err                -- return last raised error
     .result             -- "return" value of task, see _return and yield()
     .timeout( milli )   -- cancel task if not done in time
-    .sleep( milli )     -- block for a while, then reschedule task
-    .wait( lock )       -- queue step until some lock opens, then retry
+    .sleep( milli )     -- block for a while, then move to next step
+    .wait( lock )       -- block task until some lock opens
     .end                -- leave scope or loop
     .scope( function )  -- return the L8 scope guarded version of a function
 
@@ -201,72 +197,66 @@ TBD: semaphores, mutexes, locks, message queues, signals, etc...
 Examples
 --------
 
-Two steps.
+Two steps:
 
 ```
   function fetch_this_and_that( a, b, callback ){
-    var result_a = null
-    var result_b = {content:null}
+    var result = {}
     // Hypothetical synchronous version
-    // result_a = fetch( a)
-    // if( !result_a.err ){
-    //   result_b = fetch( b)
+    // if( !(result = fetch_a()).err ){
+    //   result = fetch( b)
     // }
-    // callback( result_a.err || result_b.err, result_b.content)
+    // callback( result.err, result.content)
   l8.begin
     .step( function(){
-      fetch(
-        a,
+      fetch( a,
         this.walk( function( err, content ){
-          result_a = { err: err, content: content }
+          return {err:err,content:content }
         })
       )
     })
-    .step( function(){
-      if( result_a.err ) this.raise( result_a.err)
-      fetch(
-        b,
+    .step( function( result ){
+      if( result.err ) this.raise( result.err)
+      fetch( b,
         this.walk( function( err, content ){
-          result_b = { err: err, content: content }
+          return {err:err,content:content }
         })
       )
     })
-    .final( function(){ callback( this.err, result_b.content) })
+    .final( function( err, result ){
+      callback( err || result.err, result.content) }
+    )
   .end}
 ```
 
-CoffeeScript, much shorter, also thanks to scope() functor
+CoffeeScript, much shorter, also thanks to scope() functor:
 
 ```
   fetch_this_and_that = l8.scope (a,b,cb) ->
-    r_a = r_b = {content:null}
-    @step  -> fetch a, @walk (err,content) -> r_a = {err,content}
-    @step  -> @raise r_a.err if r_a.err ;\
-              fetch b, @walk (err,content) -> r_b = {err,content}
-    @final -> cb @err, r_b.content
+    @step        -> fetch a, @walk (err,content) -> {err,content}
+    @step  (r)   -> @raise r.err if r.err ;\
+                    fetch b, @walk (err,content) -> {err,content}
+    @final (e,r) -> cb (e or r.err), r.content
 ```
 
-Multiple steps, dynamically created, each run in parallel
-
-```
-  fetch_all = l8.scope (urls, callback) ->
-    results = []
-    @step ->
-      @loop; for url in urls
-        @each; do (url) ->
-        fetch url, @walk (err, content) -> results.push {url, err, content}
-    @final -> callback results
-```
-
-Multiple steps, dynamically created, run sequentially
+Multiple steps, run sequentially
 
 ```
   fetch_all_seq = l8.scope (urls, callback) ->
     results = []
-    @step ->
-      @loop; for url in urls
-        do (url) ->
-          @step -> fetch url, @walk -> result.push {url, err, content}
+    for url in urls do (url) ->
+      @step -> fetch url, @walk -> result.push {url, err, content}
+    @final -> callback results
+```
+
+Multiple steps, each run in parallel
+
+```
+  fetch_all = l8.scope (urls, callback) ->
+    results = []
+    for url in urls do (url) ->
+      @fork ->
+        fetch url, @walk (err, content) -> results.push {url, err, content}
     @final -> callback results
 ```
 
@@ -341,7 +331,7 @@ To break functions into steps, I use a DSL (domain specific language) API.
 Once the AST (abstact syntax tree) is built, I interpret it.
 
 Executable nodes in the AST are called "steps". They are the smallest non
-interruptible executable entities. Each Step belongs to a Path. Task can
+interruptible executable entities. Each Step belongs to a task. Task can
 involve sub tasks that cooperate across multiple paths.
 
 This becomes really interesting when the AST gets dynamically modified! This
