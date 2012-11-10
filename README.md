@@ -151,17 +151,22 @@ API
     .loop               -- enter a non blocking loop, made of iterative steps
     .each               -- enter next iteration step in a non blocking loop
     .repeat( block )    -- queue a blocking loop step
+    .redo               -- stop executing current step, reschedule it instead
     ._continue          -- like "continue", for blocking loop steps
     ._break             -- "break" for blocking loops and forked steps
     ._return( [val] )   -- like "return" in normal flow
     .raise( error )     -- raise an error in a task
+    .throw( error )     -- alias for raise()
     .then( ... )        -- Promise/A protocol, tasks are promises
     .progress( block )  -- block to run when some task is done or step walked
     .success( block )   -- block to run when task is done without error
     .failure( block )   -- block to run when task is done but with error
+    .catch( block )     -- alias for failure()
     .final( block )     -- block to run when task is all done
+    .finally( block )   -- alias for final()
     .l8                 -- return global L8 object
     .task               -- return current task
+    .current            -- alias for .task
     .parent             -- return parent task
     .tasks              -- return sub tasks
     .top                -- return top task of sub task
@@ -180,8 +185,8 @@ API
     .done               -- true if task done, else it either waits or runs
     .succeed            -- true if task done without error
     .fail               -- true if task done but with an error
-    .error              -- return last raised error
-    .result             -- "return" value of task, see _return and yield()
+    .error              -- return last raised error (ie last thrown exception)
+    .result             -- return result of last executed step
     .timeout( milli )   -- cancel task if not done in time
     .sleep( milli )     -- block for a while, then move to next step
     .wait( lock )       -- block task until some lock opens
@@ -260,11 +265,10 @@ Multiple steps, each run in parallel
     @final -> callback results
 ```
 
-Repeated step, externally terminated, gently
+Repeated steps, externally terminated, gently
 
 ```
-  spider = l8.scope (urls) ->
-    queue = urls
+  spider = l8.scope (urls, queue) ->
     @repeat ->
       url = null
       @step -> url = queue.shift
@@ -279,6 +283,19 @@ Repeated step, externally terminated, gently
   spider_task = l8.spawn -> spider( "http://xxx.com")
   ...
   stop_spider = -> spider_task.stop
+```
+
+Loop on current step using "redo":
+
+```
+  fire_all = l8.scope (targets, callback) ->
+    ii = 0
+    @step ->
+      return if ii > targets.length
+      targets[ii++].fire()
+      @redo
+    @step    -> callback()
+    @failure -> callback( @error)
 ```
 
 StratifiedJs example, see http://onilabs.com/stratifiedjs
@@ -314,7 +331,7 @@ show_news = l8.scope ->
 
 ```
 
-Nodejs google group example, see
+Nodejs google group "pipe" example, see
 https://groups.google.com/forum/?fromgroups=#!topic/nodejs/5hv6uIBpDl8
 
 ```

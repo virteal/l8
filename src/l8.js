@@ -8,13 +8,26 @@
 var L8 = null
 var l8 = null
 
-var Util = require( "util")
-Util.debug( "entering l8.js")
+var Util = null
+
+try{
+  Util = require( "util")
+  Util.debug( "entering l8.js")
+}catch( e ){}
 
 function trace(){
   var buf = ["L8"]
-  for( var ii = 0 ; ii < arguments.length ; ii++){ buf.push( arguments[ii])}
-  Util.puts( buf = buf.join( ", "))
+  for( var ii = 0 ; ii < arguments.length ; ii++ ){ buf.push( arguments[ii]) }
+  buf = buf.join( ", ")
+  try{
+    if( Util ){
+      Util.puts( buf)
+    }else{
+      console.log( buf)
+    }
+  }catch( e ){
+    // ToDo: host related tracing
+  }
   return buf
 }
 
@@ -86,6 +99,7 @@ L8.stepQueue   = []
 L8.isScheduled = false
 
 L8.cancelEvent   = {l8:"cancel"}
+L8.redoEvent     = {l8:"redo"}
 L8.breakEvent    = {l8:"break"}
 L8.continueEvent = {l8:"continue"}
 L8.returnEvent   = {l8:"return"}
@@ -107,9 +121,13 @@ L8.scheduler = function scheduler(){
   }
   if( !L8.isScheduled ){
     L8.isScheduled = true
-    // ToDo: browser support, see nextTick in
+    // ToDo: better browser support, see nextTick in
     // https://github.com/kriskowal/q/blob/master/q.js
-    process.nextTick( tick)
+    try{
+      process.nextTick( tick)
+    }catch( e ){
+      setTimeout( tick,  0)
+    }
   }
 }
 
@@ -132,9 +150,9 @@ Step.execute = function step_execute(){
       }else{
         task.stepResult = this.block.apply( task, [task.stepResult])
       }
+      task.progressing( task.stepResult)
     }
   }catch( e ){
-    // ToDo: _return exception handling
     task.stepError = e
   }finally{
     NextStep = old_next
@@ -143,8 +161,8 @@ Step.execute = function step_execute(){
 
 Step.scheduleNext = function schedule_next(){
   if( this.isBlocking )return
-  var task      = this.task
-  if( task.stepError === L8.continueEvent ){
+  var task = this.task
+  if( task.stepError === L8.retryEvent ){
     L8.enqueueStep( this)
     return
   }
@@ -172,6 +190,7 @@ Step.scheduleNext = function schedule_next(){
     if( task.stepError === L8.returnEvent ){
       task.stepError = undefined
     }
+    task.progressing( task.stepResult)
     try{
       if( task.stepError ){
         if( task.failureBlock ){
@@ -268,7 +287,7 @@ Task.__defineGetter__( "end", function(){
   var top   = stack[stack.length - 1]
   if( top != top ){
     // TODO: check balance
-    throw "Unbalanced L8.end"
+    throw new Error( "Unbalanced L8.end")
   }
   stack.pop()
   if( !stack.length ){
@@ -335,10 +354,10 @@ Task.__defineGetter__( "canceled", function(){
 
 Task.step = function step( block ){
   var task = this.current
-  if( task.isDone )throw "Can't add new step, task is done"
+  if( task.isDone )throw new Error( "Can't add new step, l8 task is done")
   var parent_step = task.currentStep ? task.currentStep.parentStep : null
   if( NextStep && NextStep.task !== this ){
-    throw "Cannot create step, not same task"
+    throw new Error( "Cannot create step, not same l8 task")
   }
   var insert_after = NextStep ? NextStep.previous : task.lastStep
   var step = new Step( task, parent_step, insert_after, block)
@@ -365,7 +384,7 @@ Task.fork = function fork( block, starts_paused, detached ){
 Task.call = function task_call( block ){
   var task = this.current
   for( var subtask in task.queuedTasks ){
-    throw "Cannot queue calls, use fork()?"
+    throw new Error( "Cannot queue l8 calls, use fork()?")
   }
   return task.fork( block, false, false)
 }
@@ -409,30 +428,44 @@ Task.__defineGetter__( "root", function(){
   }
 })
 
-Task.pause = function pause(){
+Task.pause = function pause( yields, yield_value ){
   var task = this.current
   var step = task.currentStep
   if( step.isBlocking ){
-    throw "Cannot pause, already blocked"
+    throw new Error( "Cannot pause, already blocked l8 task")
   }
   task.pausedStep = step
   step.isBlocking = true
+  if( yields ){
+    task.stepResult = yield_value
+  }
   return task
 }
 
-Task.resume = function resume(){
+Task.yield = function task_yield( value ){
+  return this.pause( true, value)
+}
+
+Task.resume = function resume( yields, yield_value ){
   var task = this.current
   var paused_step = task.pausedStep
   if( !paused_step ){
-    throw "Cannot resume, not paused"
+    throw new Error( "Cannot resume, not paused l8 task")
   }
   if( !paused_step.isBlocking ){
-    throw "Cannot resume, running step"
+    throw new Error( "Cannot resume, running l8 step")
   }
   task.pausedStep = null
+  if( yields ){
+    task.stepResult = yield_value
+  }
   paused_step.isBlocking = false
   paused_step.scheduleNext()
   return task
+}
+
+Task.run = function task_run( value ){
+  return this.resume( true, value)
 }
 
 Task.raise = function raise( err ){
@@ -452,6 +485,8 @@ Task.raise = function raise( err ){
   }
   return task
 }
+
+Task.throw = Task.raise
 
 Task.cancel = function task_cancel(){
   var task    = this.current
@@ -475,22 +510,58 @@ Task.cancel = function task_cancel(){
   return task
 }
 
+Task.progressing = function task_progressing( msg ){
+  if( this.progressBlock ){
+    try{
+      this.progressBlock( msg, this)
+    }catch( e ){
+      // ToDo
+    }
+  }
+  var list = this.allPromises
+  if( !list )return
+  var len  = list.length
+  var item
+  for( var ii = 0 ; ii < len ; ii++ ){
+    item = list[ii]
+    if( item.progressBlock ){
+      try{
+        var val = item.progressBlock( msg, this)
+        // ToDo: propagate progress in promise chain
+      }catch( e ){
+        // ToDo
+      }
+    }
+  }
+}
+
 Task._return = Task["return"] = function task_return( val ){
   var task = this.current
   if( task.isDone ){
-    throw "Cannot _return, done task"
+    throw new Error( "Cannot _return, done l8 task")
   }
   task.stepResult = val
   task.raise( L8.returnEvent)
 }
+Task.__defineGetter__( "redo", function task_redo(){
+  return this.raise( L8.redoEvent)
+}
 
-Task._break = Task["break"] = function task_break(){
+Task.__defineGetter__( "_break", function task__break(){
   return this.raise( L8.breakEvent)
-}
+})
 
-Task._continue = Task["continue"] = function task_continue(){
+Task.__defineGetter__( "break",  function task_break(){
+  return this.raise( L8.breakEvent)
+})
+
+Task.__defineGetter__( "_continue", function task__continue(){
   return this.raise( L8.continueEvent)
-}
+})
+
+Task.__defineGetter__( "continue", function task_continue(){
+  return this.raise( L8.continueEvent)
+})
 
 Task.walk = function walk( block ){
   var task = this.current
@@ -547,11 +618,15 @@ Task.final = function final( block ){
   return task
 }
 
+Task.finally = Task.final
+
 Task.failure = function failure( block ){
   var task = this.current
   task.failureBlock = block
   return task
 }
+
+Task.catch = Task.failure
 
 Task.success = function success( block ){
   var task = this.current
@@ -561,7 +636,8 @@ Task.success = function success( block ){
 
 Task.then = function task_then( success, failure, progress ){
   if( this.isDone ){
-    throw "Cannot provide promise on alreay done task"
+    // ToDo: should allow this
+    throw new Error( "Cannot provide promise on alreay done l8 task")
   }
   var promise = new Promise()
   if( !this.allPromises ){ this.allPromises = [] }
@@ -635,7 +711,7 @@ Task.sleep = function sleep( delay ){
   var task = this.current
   var step = task.currentStep
   if( step.isBlocking ){
-    throw "Can't sleep, already blocked"
+    throw new Error( "Can't sleep, already blocked l8 task")
   }
   step.isBlocking = true
   setTimeout( function() {
@@ -747,13 +823,13 @@ function tests(){
 
   var test_4 = L8.scope( function test4(){
     test = 4; this
-    .step(  function(){ t( "start")            })
-    .step(  function(){ t( "raise error")
-                        throw "step error"     })
-    .step(  function(){ t("!!! skipped step")  })
-    .error( function(){ t("error", this.err)   })
-    .final( function(){ t( "final")
-                        test_5()               })
+    .step(    function(){ t( "start")                    })
+    .step(    function(){ t( "raise error")
+                          throw new Error( "step error") })
+    .step(    function(){ t("!!! skipped step")          })
+    .failure( function(){ t("error", this.error)         })
+    .final(   function(){ t( "final")
+                          test_5()                       })
   })
 
   var test_5 = L8.scope( function test5(){
