@@ -3,7 +3,6 @@
 //   https://github.com/JeanHuguesRobert/l8
 //
 // 2012/10/24, JHR, create
-// 2012/11/09, JHR, step, fork, call, spawn
 
 var L8 = null
 var l8 = null
@@ -26,7 +25,7 @@ function trace(){
       console.log( buf)
     }
   }catch( e ){
-    // ToDo: host related tracing
+    // ToDo: host adapted tracing
   }
   return buf
 }
@@ -48,6 +47,7 @@ function Task( parent ){
   this.firstStep       = null
   this.lastStep        = null
   this.currentStep     = null
+  this.nextStep        = null
   this.pausedStep      = null
   this.stepResult      = undefined
   this.stepError       = undefined
@@ -105,7 +105,6 @@ L8.continueEvent = {l8:"continue"}
 L8.returnEvent   = {l8:"return"}
 
 var CurrentStep = new Step( L8)
-var NextStep    = null
 
 L8.scheduler = function scheduler(){
 // Inject the global scheduler in the global event loop.
@@ -138,11 +137,10 @@ L8.enqueueStep = function enqueue_step( step ){
 
 Step.execute = function step_execute(){
   if( this.isBlocking )return
-  var old_next = NextStep
-  NextStep     = this.next
-  var task     = this.task
+  var task         = this.task
   task.currentStep = this
-  CurrentStep  = this
+  task.nextStep    = this.next
+  CurrentStep      = this
   try{
     if( this.block ){
       if( this.block.length > 1 ){
@@ -155,19 +153,21 @@ Step.execute = function step_execute(){
   }catch( e ){
     task.stepError = e
   }finally{
-    NextStep = old_next
+    task.nextStep = null
   }
 }
 
 Step.scheduleNext = function schedule_next(){
   if( this.isBlocking )return
   var task = this.task
-  if( task.stepError === L8.retryEvent ){
-    L8.enqueueStep( this)
-    return
-  }
-  if( task.stepError === L8.breakEvent ){
-    task.stepError = undefined
+  if( task.stepError ){
+    if( task.stepError === L8.redoEvent ){
+      L8.enqueueStep( this)
+      return
+    }
+    if( task.stepError === L8.breakEvent ){
+      task.stepError = undefined
+    }
   }
   this.isBlocking = true
   var next_step = this.next
@@ -176,15 +176,19 @@ Step.scheduleNext = function schedule_next(){
     return
   }
   // When all steps are done, wait for subtasks
+  task.pausedStep = this
   var subtasks = task.subTasks
   var queue    = task.queuedTasks
-  for( var subtask in subtasks ){
+  var subtask
+  for( var subtask_id in subtasks ){
+    subtask = subtasks[subtask_id]
     if( subtask.isDone || queue[subtask.id] )continue
     queue[subtask.id] = task
     return
   }
   for( subtask in queue )return
   // When nothing more, handle task termination
+  task.pausedStep = null
   try{
     task.isDone = true
     if( task.stepError === L8.returnEvent ){
@@ -213,6 +217,7 @@ Step.scheduleNext = function schedule_next(){
       }
     }catch( e ){
       task.stepError = e
+      // ToDo: should throw or not?
       throw e
     }finally{
       if( task.finalBlock ){
@@ -356,10 +361,7 @@ Task.step = function step( block ){
   var task = this.current
   if( task.isDone )throw new Error( "Can't add new step, l8 task is done")
   var parent_step = task.currentStep ? task.currentStep.parentStep : null
-  if( NextStep && NextStep.task !== this ){
-    throw new Error( "Cannot create step, not same l8 task")
-  }
-  var insert_after = NextStep ? NextStep.previous : task.lastStep
+  var insert_after = task.nextStep ? task.nextStep.previous : task.lastStep
   var step = new Step( task, parent_step, insert_after, block)
   return this
 }
@@ -400,7 +402,7 @@ Task.subtaskDone = function subtask_done( subtask ){
   ){
     delete task.queuedTasks[subtask.id]
     if( --task.queuedTaskCount === 0 ){
-      task.resume()
+      if( task.pausedStep ){ task.resume() }
       // ToDo: error propagation
     }
   }
@@ -426,6 +428,11 @@ Task.__defineGetter__( "root", function(){
     if( task.parentTask === L8 )return task
     task = task.parentTask
   }
+})
+
+Task.__defineGetter__( "paused", function(){
+  var task = this.current
+  return !!task.pausedStep
 })
 
 Task.pause = function pause( yields, yield_value ){
@@ -545,7 +552,7 @@ Task._return = Task["return"] = function task_return( val ){
 }
 Task.__defineGetter__( "redo", function task_redo(){
   return this.raise( L8.redoEvent)
-}
+})
 
 Task.__defineGetter__( "_break", function task__break(){
   return this.raise( L8.breakEvent)
@@ -722,55 +729,6 @@ Task.sleep = function sleep( delay ){
   return task
 }
 
-/*
-
-  l8.begin              -- enter new L8 scope
-    .step( block )      -- queue a new step on the path to task's completion
-    .fork( block )      -- queue a new step on a new parallel path
-    .walk( block )      -- walk a step on its path, at most once per step
-    .loop               -- enter a non blocking loop, made of iterative steps
-    .each               -- enter next iteration step in a non blocking loop
-    .repeat( block )    -- queue a blocking loop step
-    ._continue          -- like "continue", for blocking loops
-    ._break             -- "break" for blocking loops and forked steps
-    ._return( [val] )   -- like "return" in normal flow
-    .raise( error )     -- raise an error in task
-    .spawn( blk [, q] ) -- start a new sub task, maybe paused
-    .then( ... )        -- Promise/A protocol, tasks are promises
-    .success( block )   -- block to run when task is done without error
-    .failure( block )   -- block to run when task is done but with error
-    .progress( block )  -- block to run when some task is done or step walked
-    .final( block )     -- block to run when task is all done
-    .l8                 -- return global L8 object
-    .task               -- return current task
-    .parent             -- return parent task
-    .tasks              -- return sub tasks
-    .top                -- return top task of sub task
-    .state              -- return state of task, I->[Q|R]*->C/E/D
-    .pause              -- queue step, waiting until task is resumed
-    .waiting            -- true if task waiting while running (ie is queued)
-    .resume             -- resume execution of a task waiting at some step
-    .yield( value )     -- like "pause" but provides a value and returns one
-    .run( value )       -- like "resume" but provides a value and returns one
-    .running            -- true if task not done nor waiting
-    .cancel             -- cancel task & its sub tasks, brutal
-    .canceled           -- true if task was canceled
-    .stop               -- gentle cancel
-    .stopping           -- true after a gentle cancel, until task is done
-    .stopped            -- true if task was gently canceled (gracefull)
-    .done               -- true if task done, else it either waits or runs
-    .succeed            -- true if task done without error
-    .fail               -- true if task done but with an error
-    .err                -- return last raised error
-    .result             -- "return" value of task, see _return and yield()
-    .timeout( milli )   -- cancel task if not done in time
-    .sleep( milli )     -- block for a while, then reschedule task
-    .wait( lock )       -- queue step until some lock opens, then retry
-    .end                -- leave scope or loop
-    .scope( function )  -- return the L8 scope guarded version of a function
-
-    */
-
 L8.startup = function(){
 
 }
@@ -842,7 +800,19 @@ function tests(){
       .step( function(){ t( "end fork 2") })             })
     .step(   function(){ t( "joined")     })
     .final(  function(){ t( "final")
-                         test_last()                     })
+                         test_6()                        })
+  })
+
+  var test_6 = L8.scope( function test6(){
+    function other1(){ l8.step( function(){ t( "in other1")})}
+    function other2(){ l8.fork( function(){ t( "in other2")})}
+    test = 6; this
+    .step(  function(){ other1(); t( "other1() called")  })
+    .step(  function(){ t( "other1", this.result); this
+                        other2(); t( "other2() called")  })
+    .step(  function(){ t( "other2", this.result)        })
+    .final( function(){ t( "final result", this.result)
+                        test_last()                      })
   })
 
   var test_last = function(){

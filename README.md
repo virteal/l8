@@ -1,4 +1,4 @@
-l8 0.1.4
+l8 0.1.5
 ========
 
 L8 is light task manager for javascript/coffeescript/livescript...
@@ -148,8 +148,6 @@ API
     .call( block )      -- like fork() but waits until other task completes
     .walk( block )      -- walk a step on its path, at most once per step
     .next               -- alias for walk() -- ie no block parameter
-    .loop               -- enter a non blocking loop, made of iterative steps
-    .each               -- enter next iteration step in a non blocking loop
     .repeat( block )    -- queue a blocking loop step
     .redo               -- stop executing current step, reschedule it instead
     ._continue          -- like "continue", for blocking loop steps
@@ -172,6 +170,7 @@ API
     .top                -- return top task of sub task
     .state              -- return state of task, I->[Q|R]*->C/E/D
     .pause              -- queue step, waiting until task is resumed
+    .paused             -- return true if task is paused
     .waiting            -- true if task waiting while running (ie is queued)
     .resume             -- resume execution of a task waiting at some step
     .yield( value )     -- like "pause" but provides a value and returns one
