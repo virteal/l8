@@ -67,6 +67,7 @@ function Step( task, parent, previous, block ){
   this.task       = task
   this.parentStep = parent
   this.block      = block ? task.scope( block) : null
+  this.isBlocking = true
   // When inserting at head
   if( !previous ){
     this.previous  = null
@@ -86,7 +87,6 @@ function Step( task, parent, previous, block ){
     previous.next.previous = this
     previous.next = this
   }
-  this.isBlocking = true
 }
 Step.prototype = Step
 
@@ -383,14 +383,6 @@ Task.fork = function fork( block, starts_paused, detached ){
   return task
 }
 
-Task.call = function task_call( block ){
-  var task = this.current
-  for( var subtask in task.queuedTasks ){
-    throw new Error( "Cannot queue l8 calls, use fork()?")
-  }
-  return task.fork( block, false, false)
-}
-
 Task.spawn = function task_spawn( block, starts_paused ){
   return this.fork( block, starts_paused, true)
 }
@@ -575,13 +567,13 @@ Task.walk = function walk( block ){
   var step = task.currentStep
   if( step.isBlocking ){
     // ToDo: test/allow multiple walk()
-    // throw "Can't walk, not running"
+    // throw new Error( "Can't walk, not running")
   }
   step.isBlocking = true
   return function walk_cb(){
     if( task.currentStep !== step ){
       // ToDo: quid if multiple walk() fire?
-      // throw "Cannot walk same step again"
+      // throw new Error( "Cannot walk same step again")
     }
     var previous_step = CurrentStep
     CurrentStep = step
@@ -712,6 +704,10 @@ Promise.progress = function promise_progress(){
     }catch( e ){}
   }
   return this
+}
+
+Task.promise = function task_promise(){
+  return new Promise()
 }
 
 Task.sleep = function sleep( delay ){
