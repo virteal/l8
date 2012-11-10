@@ -354,7 +354,7 @@ pipe = l8.scope (in,out,cb) ->
     @step (err) -> throw err if err
   @success -> cb()
   @failure -> cb @error
-
+```
 
 Design
 ------
