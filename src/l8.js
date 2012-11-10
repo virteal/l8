@@ -30,21 +30,22 @@ function Task( parent ){
   this.subTaskCount    = 0
   this.queuedTasks     = {}
   this.queuedTaskCount = 0
-  this.beginStack  = []
-  this.stepCount   = 0
-  this.firstStep   = null
-  this.lastStep    = null
-  this.currentStep = null
-  this.pausedStep  = null
-  this.stepResult  = undefined
-  this.stepError   = undefined
-  this.wasCanceled = false
-  this.shouldStop  = false
-  this.isDone      = false
-  this.progressBlock = null
-  this.errorBlock    = null
-  this.successBlock  = null
-  this.finalBlock    = null
+  this.beginStack      = []
+  this.stepCount       = 0
+  this.firstStep       = null
+  this.lastStep        = null
+  this.currentStep     = null
+  this.pausedStep      = null
+  this.stepResult      = undefined
+  this.stepError       = undefined
+  this.wasCanceled     = false
+  this.shouldStop      = false
+  this.isDone          = false
+  this.successBlock    = null
+  this.failureBlock    = null
+  this.progressBlock   = null
+  this.finalBlock      = null
+  this.allPromises     = null
 }
 Task.prototype = Task
 
@@ -84,10 +85,10 @@ L8.l8          = L8
 L8.stepQueue   = []
 L8.isScheduled = false
 
-L8.cancelEvent   = {}
-L8.breakEvent    = {}
-L8.continueEvent = {}
-L8.returnEvent   = {}
+L8.cancelEvent   = {l8:"cancel"}
+L8.breakEvent    = {l8:"break"}
+L8.continueEvent = {l8:"continue"}
+L8.returnEvent   = {l8:"return"}
 
 var CurrentStep = new Step( L8)
 var NextStep    = null
@@ -106,6 +107,8 @@ L8.scheduler = function scheduler(){
   }
   if( !L8.isScheduled ){
     L8.isScheduled = true
+    // ToDo: browser support, see nextTick in
+    // https://github.com/kriskowal/q/blob/master/q.js
     process.nextTick( tick)
   }
 }
@@ -124,7 +127,11 @@ Step.execute = function step_execute(){
   CurrentStep  = this
   try{
     if( this.block ){
-      task.stepResult = this.block.apply( task, [task.stepResult])
+      if( this.block.length > 1 ){
+        task.stepResult = this.block.apply( task, task.stepResult)
+      }else{
+        task.stepResult = this.block.apply( task, [task.stepResult])
+      }
     }
   }catch( e ){
     // ToDo: _return exception handling
@@ -136,7 +143,6 @@ Step.execute = function step_execute(){
 
 Step.scheduleNext = function schedule_next(){
   if( this.isBlocking )return
-  this.isBlocking = true
   var task      = this.task
   if( task.stepError === L8.continueEvent ){
     L8.enqueueStep( this)
@@ -145,6 +151,7 @@ Step.scheduleNext = function schedule_next(){
   if( task.stepError === L8.breakEvent ){
     task.stepError = undefined
   }
+  this.isBlocking = true
   var next_step = this.next
   if( !task.stepError && next_step ){
     L8.enqueueStep( next_step)
@@ -167,9 +174,9 @@ Step.scheduleNext = function schedule_next(){
     }
     try{
       if( task.stepError ){
-        if( task.errorBlock ){
+        if( task.failureBlock ){
           try{
-            task.errorBlock( task.stepError)
+            task.failureBlock( task.stepError)
           }catch( e ){
             throw e
           }
@@ -196,6 +203,23 @@ Step.scheduleNext = function schedule_next(){
           throw e
         }
       }
+      if( task.allPromises ){
+        var list = task.allPromises
+        var len  = list.length
+        var item
+        var err  = task.stepError
+        var rslt = task.stepResult
+        var blk
+        for( var ii = 0 ; ii < len ; ii++ ){
+          item = list[ii]
+          if( !item )continue
+          if( err ){
+            item.reject( err)
+          }else{
+            item.resolve( rslt)
+          }
+        }
+      }
     }
   }catch( e ){
     task.stepError = e
@@ -211,6 +235,8 @@ Task.scope = function scope( fn ){
     try{
       task = task.begin
       fn.apply( task, arguments)
+    }catch( e ){
+      throw e
     }finally{
       task.end
     }
@@ -283,7 +309,7 @@ Task.__defineSetter__( "result", function( val){
   return this.current.stepResult = val
 })
 
-Task.__defineGetter__( "err", function(){
+Task.__defineGetter__( "error", function(){
   return this.current.stepError
 })
 
@@ -521,9 +547,9 @@ Task.final = function final( block ){
   return task
 }
 
-Task.error = function error( block ){
+Task.failure = function failure( block ){
   var task = this.current
-  task.errorBlock = block
+  task.failureBlock = block
   return task
 }
 
@@ -531,6 +557,78 @@ Task.success = function success( block ){
   var task = this.current
   task.successBlock = block
   return task
+}
+
+Task.then = function task_then( success, failure, progress ){
+  if( this.isDone ){
+    throw "Cannot provide promise on alreay done task"
+  }
+  var promise = new Promise()
+  if( !this.allPromises ){ this.allPromises = [] }
+  this.allPromises.push( promise)
+  return promise.then( success, failure, progress)
+}
+
+function Promise(){
+// Promise/A compliant. See https://gist.github.com/3889970
+  this.successBlock  = null
+  this.failureBlock  = null
+  this.progressBlock = null
+  this.nextPromise   = null
+  return this
+}
+Promise.prototype = Promise
+
+Promise.then = function promise_then( success, failure, progress ){
+  this.successBlock  = success
+  this.failureBlock  = failure
+  this.progressBlock = progress
+  return this.nextPromise = new Promise()
+}
+
+Promise.resolve = function promise_resolve(){
+  if( this.successBlock ){
+    try{
+      var val = this.successBlock.apply( this, arguments)
+      if( this.nextPromise ){
+        this.nextPromise.resolve( val)
+      }
+    }catch( e ){
+      if( this.nextPromise ){
+        this.nextPromise.reject( e)
+      }
+    }
+  }else if( this.nextPromise ){
+    this.resolve.apply( this.nextPromise, arguments)
+  }
+  return this
+}
+
+Promise.reject = function promise_reject(){
+  if( this.failureBlock ){
+    try{
+      var val = failureBlock.apply( this, arguments)
+      if( this.nextPromise ){
+        this.nextPromise.resolve( val)
+      }
+    }catch( e ){
+      if( this.nextPromise ){
+        this.nextPromise.reject( e)
+      }
+    }
+  }else if( this.nextPromise ){
+    this.reject.apply( this.nextPromise, arguments)
+  }
+  return this
+}
+
+Promise.progress = function promise_progress(){
+  if( this.progressBlock ){
+    try{
+      progressBlock.apply( this, arguments)
+    }catch( e ){}
+  }
+  return this
 }
 
 Task.sleep = function sleep( delay ){
@@ -564,7 +662,7 @@ Task.sleep = function sleep( delay ){
     .spawn( blk [, q] ) -- start a new sub task, maybe paused
     .then( ... )        -- Promise/A protocol, tasks are promises
     .success( block )   -- block to run when task is done without error
-    .error( block )     -- block to run when task is done but with error
+    .failure( block )   -- block to run when task is done but with error
     .progress( block )  -- block to run when some task is done or step walked
     .final( block )     -- block to run when task is all done
     .l8                 -- return global L8 object

@@ -1,4 +1,4 @@
-l8 0.1.3
+l8 0.1.4
 ========
 
 L8 is light task manager for javascript/coffeescript/livescript...
@@ -158,7 +158,7 @@ API
     .then( ... )        -- Promise/A protocol, tasks are promises
     .progress( block )  -- block to run when some task is done or step walked
     .success( block )   -- block to run when task is done without error
-    .error( block )     -- block to run when task is done but with error
+    .failure( block )   -- block to run when task is done but with error
     .final( block )     -- block to run when task is all done
     .l8                 -- return global L8 object
     .task               -- return current task
@@ -180,7 +180,7 @@ API
     .done               -- true if task done, else it either waits or runs
     .succeed            -- true if task done without error
     .fail               -- true if task done but with an error
-    .err                -- return last raised error
+    .error              -- return last raised error
     .result             -- "return" value of task, see _return and yield()
     .timeout( milli )   -- cancel task if not done in time
     .sleep( milli )     -- block for a while, then move to next step
@@ -314,6 +314,46 @@ show_news = l8.scope ->
 
 ```
 
+Nodejs google group example, see
+https://groups.google.com/forum/?fromgroups=#!topic/nodejs/5hv6uIBpDl8
+
+```
+function pipe( inStream, outStream, callback ){
+  var loop = function( err ){
+    if (err) callback( err);
+    else inStream.read( function( err, data ){
+      if (err) callback(err);
+      else data != null ? outStream.write( data, loop) : callback();
+    });
+  }
+  loop();
+}
+
+function pipe( inStream, outStream, callback ){
+l8.begin
+  .repeat( function(){ l8
+    .step( function(){ inStream.read( l8.next) })
+    .step( function( err, data ){
+      if( err )  throw err;
+      if( !data) l8.break;
+      outStream.write( data, l8.next);
+    })
+    .step( function( err ){ if( err ) throw err; })
+  })
+  .success( function(){      callback()     })
+  .failure( function( err ){ callback( err) })
+.end}
+
+pipe = l8.scope (in,out,cb) ->
+  @repeat ->
+    @step -> in.read @next
+    @step (err, data) ->
+      throw err if err
+      @break if !data
+      out.write data, @next
+    @step (err) -> throw err if err
+  @success -> cb()
+  @failure -> cb @error
 
 
 Design
