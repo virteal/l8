@@ -1,18 +1,18 @@
-l8 0.1.5
+l8 0.1.6
 ========
 
 L8 is light task manager for javascript/coffeescript/livescript...
-
-"Let's walk these steps on multiple paths to do our tasks"
+A task is any activity that a "normal" non-blocking javascript function cannot
+do because... javascript's functions cannot block!
 
 What is it?
 ===========
 
 It schedules the execution of multiple "tasks". A task is made of "steps", much
 like a function is made of statements. Steps are walked on multiple "paths".
-Such tasks and paths (sub-tasks) can nest, much like blocks of statements.
+Such tasks and paths (sub-tasks) can nest, like blocks of statements.
 
-Execution goes from "step" to "step" by way of "walk". If one cannot walk a
+Execution goes from "step" to "step", steps are closures. If one cannot walk a
 step immediatly, one can block, waiting for something before resuming.
 
 The main flow control structures are the sequential execution of steps,
@@ -22,15 +22,16 @@ handling.
 
 l8 tasks are kind of user level non preemptive threads. They are neither
 native threads, nor worker threads, nor fibers nor the result of some CPS
-transformation. Just a bunch of cooperating closures.
+transformation. Just a bunch of cooperating closures. However, if you are
+familiar with threads, l8 tasks should seem natural to you.
 
 Steps vs Statements
 ===================
 
 Javascript code is made of statements (and expressions). One key characteristic
 of the language is the fact that all these statements are "non blocking". This
-means that no statement can "block". They are executed with no delay, they
-cannot "wait" for something to happen.
+means that a statement cannot "block". It is executed with no delay, it cannot
+"wait" for something to happen.
 
 As a result there is only one "thread" of execution and any activity that
 cannot complete immediately needs to register code to execute later when
@@ -141,20 +142,22 @@ API
 ---
 
 ```
-  l8.begin              -- enter new L8 scope
+  l8
+     -- step/task creation
     .step( block )      -- queue a new step on the path to task's completion
-    .fork( block )      -- queue a new step on a new parallel sub-task
-    .spawn( blk [, q] ) -- like fork() but next step does not wait for subtask
-    .call( block )      -- like fork() but waits until other task completes
+    .fork( block )      -- queue a first step on a new parallel sub-task
+    .spawn( blk [, p] ) -- like fork() but next step does not wait for subtask
+    -- step walking
     .walk( block )      -- walk a step on its path, at most once per step
-    .next               -- alias for walk() -- ie no block parameter
-    .repeat( block )    -- queue a blocking loop step
+    .next               -- alias for walk( null) -- ie no block parameter
+    .repeat( block )    -- queue a new blocking loop step
     .redo               -- stop executing current step, reschedule it instead
     ._continue          -- like "continue", for blocking loop steps
     ._break             -- "break" for blocking loops and forked steps
     ._return( [val] )   -- like "return" in normal flow
-    .raise( error )     -- raise an error in a task
+    .raise( error )     -- raise an error in task
     .throw( error )     -- alias for raise()
+    -- task completion monitoring
     .then( ... )        -- Promise/A protocol, tasks are promises
     .progress( block )  -- block to run when some task is done or step walked
     .success( block )   -- block to run when task is done without error
@@ -162,38 +165,48 @@ API
     .catch( block )     -- alias for failure()
     .final( block )     -- block to run when task is all done
     .finally( block )   -- alias for final()
-    .l8                 -- return global L8 object
-    .task               -- return current task
-    .current            -- alias for .task
-    .parent             -- return parent task
-    .tasks              -- return sub tasks
-    .top                -- return top task of sub task
-    .state              -- return state of task, I->[Q|R]*->C/E/D
-    .pause              -- queue step, waiting until task is resumed
-    .paused             -- return true if task is paused
-    .waiting            -- true if task waiting while running (ie is queued)
-    .resume             -- resume execution of a task waiting at some step
+    -- task's state related
+    .state              -- return state of task, I->[R|P]*->S/F
+    .pause              -- block task at step, waiting until task is resumed
+    .paused             -- return true if task was paused
+    .resume             -- resume execution of task paused at some step
     .yield( value )     -- like "pause" but provides a value and returns one
     .run( value )       -- like "resume" but provides a value and returns one
-    .running            -- true if task not done nor waiting
+    .running            -- true if task not done nor paused
     .cancel             -- cancel task & its sub tasks, brutal
     .canceled           -- true if task was canceled
     .stop               -- gentle cancel
     .stopping           -- true after a gentle cancel, until task is done
-    .stopped            -- true if task was gently canceled (gracefull)
+    .stopped            -- true if done task was gently canceled (gracefull)
     .done               -- true if task done, else it either waits or runs
     .succeed            -- true if task done without error
     .fail               -- true if task done but with an error
     .error              -- return last raised error (ie last thrown exception)
     .result             -- return result of last executed step
     .timeout( milli )   -- cancel task if not done in time
-    .sleep( milli )     -- block for a while, then move to next step
+    .sleep( milli )     -- block on step for a while, then move to next step
     .wait( lock )       -- block task until some lock opens
+    -- misc
+    .l8                 -- return global L8 object, also root task
+    .task               -- return current task
+    .current            -- alias for .task
+    .parent             -- return parent task
+    .tasks              -- return immediate sub tasks
+    .top                -- return top task of sub task (child of l8 root task)
+    -- scoping (value of "this" related)
+    .begin              -- enter new L8 scope
     .end                -- leave scope or loop
     .scope( function )  -- return the L8 scope guarded version of a function
 
-  These methods, if invoked against the global L8 object, will get forwarded
-  to the current task.
+  All these methods, if invoked against the global L8 object, will usually get
+  forwarded to the "current task", the task that is currently executing. That
+  task is often the returned value of such methods, when it makes sense.
+
+  l8.promise()          -- create a new promise, Promise/A compliant
+    .resolve( results ) -- fullfill promise
+    .reject( reason )   -- fail promise
+    .progress( infos )  -- signal progress
+    .then( ok, ko, ev ) -- register callbacks, return new promise
 ```
 
 TBD: semaphores, mutexes, locks, message queues, signals, etc...
@@ -284,7 +297,7 @@ Repeated steps, externally terminated, gently
   stop_spider = -> spider_task.stop
 ```
 
-Loop on current step using "redo":
+Small loop, on one step, using "redo":
 
 ```
   fire_all = l8.scope (targets, callback) ->
@@ -432,19 +445,16 @@ when a step needs to schedule work for multiple items. Such "steps" are either
 sequential steps or steps to walk on parallel sub-pathes. It also happens when
 a step discovers that it requires additional sub-steps to complete.
 
-To insert a new step before the one next to the currently executing step, use
-step(). Such steps are run once the current step is completed.
+To queue  a new step to execute after the currently executing step, use step().
+Such steps are run once the current step is completed, FIFO order.
 
-To insert a new step on a new parallel sub-path, use either loop()/each() and
-then step() or just path(). Such steps block the current step until they are
-completed. If multiple loops are nested, use end() to close a nesting level.
-
-To insert multiple sub-steps, use begin/end around them. This is equivalent
-to calling a sub-routine. Something that can also be done with call(), it will
-add begin/end as well. Such steps are actually run in a new sub-task.
-
-In all these cases, the current step won't be considered complete until all
-these additionnal step are completed themselves.
+To insert a new step on a new parallel task/path, use fork(). Such steps block
+the current step until they are completed. When multiple such forked steps are
+inserted, the next non forked step will execute when all the forked steps are
+done. The result of such multiple steps is the result of the last executed step
+prior to execution of the non forked step. This is a "join". When only one
+forked step is inserted, this is similar to calling a function, ie the next
+step receives the result of the task that ran the forked step.
 
 To insert steps that won't block the current step, use spawn() instead. Such
 steps are also run in a new task but the current step is not blocked until
@@ -466,7 +476,7 @@ of the asychronous operation and move forward to the next step, please use
 "next" instead of walk( function( x ){ this.result = x }).
 
 However, if the action's result dictates that some new "nested" steps are
-required, one add new steps from within the callback itself. Often, this style
+required, one adds new steps from within the callback itself. Often, this style
 of programming is not adviced because it basically resolves back to the
 infamous "callback hell" that l8 attemps to avoid. A better solution is to
 let the next step handle that.
@@ -510,7 +520,7 @@ variables, signals, events...) newer mechanisms are experimented or
 rediscovered. Things like channels in Go, actors in Erlang, reactive system in
 Angular, these things are interesting to explore.
 
-I believe l8 may help do that. Sure the granularity is not the same as in
+I believe l8 may help do that. For sure the granularity is not the same as in
 native implementations. Instead of dealing with statements or even machine
 code level instructions, l8 deals with much bigger "steps". However, regarding
 synchronisation, this difference of scale does not imply a difference of
