@@ -132,7 +132,7 @@ noise.
 This example is a fairly simple one. Execution goes from step to step in a
 sequential way. Sometimes the flow of control can be much more sophisticated.
 There can be multiple "threads" of control, with actions initiated concurrently
-with various style of collaboration between these actions.
+and various styles of collaboration between these actions.
 
 Hence the notion of "task". A Task is a L8 object that consolidates the result
 of multiple threads of control (aka sub-tasks) that all participate in the

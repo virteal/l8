@@ -54,7 +54,9 @@ function Task( parent ){
   this.progressBlock   = null
   this.finalBlock      = null
   this.allPromises     = null
+  this.local           = {}
   if( parent ){
+    this.local = parent.local
     parent.subTasks[task.id] = this
     parent.subTaskCount++
   }
@@ -67,7 +69,7 @@ function Step( task, parent, previous, block ){
   this.isRepeated  = false
   this.task        = task
   this.parentStep  = parent
-  this.block       = block ? task.scope( block) : null
+  this.block       = block
   this.isBlocking  = true
   this.previous    = null
   this.next        = null
@@ -164,16 +166,15 @@ Step.execute = function step_execute(){
 Step.scheduleNext = function schedule_next(){
   if( this.isBlocking )return
   var task = this.task
+  var redo = false
   if( task.stepError ){
     if( task.stepError === L8.redoEvent ){
-      L8.enqueueStep( this)
-      return
-    }
-    if( task.stepError === L8.breakEvent ){
+      redo = true
+      task.stepError = undefined
+    }else if( task.stepError === L8.breakEvent ){
       task.stepError = undefined
     }
   }
-  this.isBlocking = true
   var queue       = task.queuedTasks
   var subtasks
   var subtask_id
@@ -183,16 +184,21 @@ Step.scheduleNext = function schedule_next(){
     if( !this.isForked ){
       // Only regular steps wait for forked subtasks, fork steps don't
       for( subtask in queue ){
+        this.isBlocking = true
         task.pausedStep = this
         return
       }
     }
+    if( redo ){
+      L8.enqueueStep( this)
+    }
     var next_step = this.next
     if( next_step ){
-     L8.enqueueStep( next_step)
-     return
+      L8.enqueueStep( next_step)
+      return
     }
     // When all steps are done, wait for spawn subtasks
+    this.isBlocking = true
     task.pausedStep = this
     for( subtask in queue )return
     subtasks = task.subTasks
@@ -277,7 +283,7 @@ Step.scheduleNext = function schedule_next(){
   }
 }
 
-Task.scope = function scope( fn ){
+Task.Task = function task_task( fn ){
   return function (){
     var task = CurrentStep.task
     try{
@@ -398,7 +404,7 @@ Task.fork = function fork( block, starts_paused, detached ){
   return this.step( function(){
     var task = this.current
     var new_task = new Task( task)
-    var scoped_block = task.scope( block)
+    var scoped_block = task.Task( block)
     var step = new Step( new_task, task.currentStep, null, scoped_block)
     if( starts_paused ){
       new_task.pausedStep = step
@@ -529,8 +535,10 @@ Task.cancel = function task_cancel(){
       }
     }
   }
-  task.wasCanceled = true
-  task.raise( L8.cancelEvent)
+  if( !on_self && task !== CurrentStep.task ){
+    task.wasCanceled = true
+    task.raise( L8.cancelEvent)
+  }
   return task
 }
 
@@ -809,7 +817,7 @@ function tests(){
     .end
   }
 
-  var test_2 = L8.scope( function test2(){
+  var test_2 = L8.Task( function test2(){
     test = 2; this
     .step(  function(){ t( "start")               })
     .step(  function(){ setTimeout( this.next, 0) })
@@ -818,7 +826,7 @@ function tests(){
                         test_3()                  })
   })
 
-  var test_3 = L8.scope( function test3(){
+  var test_3 = L8.Task( function test3(){
     test = 3; this
     .step(    function(){ t( "start")             })
     .step(    function(){ t( "add step 1"); this
@@ -831,7 +839,7 @@ function tests(){
                           test_4()                })
   })
 
-  var test_4 = L8.scope( function test4(){
+  var test_4 = L8.Task( function test4(){
     test = 4; this
     .step(    function(){ t( "start")                    })
     .step(    function(){ t( "raise error")
@@ -842,23 +850,24 @@ function tests(){
                           test_5()                       })
   })
 
-  var test_5 = L8.scope( function test5(){
+  var test_5 = L8.Task( function test5(){
     test = 5; this.label = t( "start"); this
-    .fork(   function(){ this.label = t( "fork 1"); this
-      .step( function(){ this.sleep( 10)  })
-      .step( function(){ t( "end fork 1") })             })
-    .fork(   function(){ this.label = t( "fork 2"); this
-      .step( function(){ this.sleep( 5)   })
-      .step( function(){ t( "end fork 2") })             })
-    .step(   function(){ t( "joined")     })
-    .fork(   function(){ this.label = t( "fork 3"); this
-      .step( function(){ this.sleep( 1)  })              })
-    .fork(   function(){ this.label = t( "fork 4");      })
-    .final(  function(){ t( "final")
-                         test_6()                        })
+    .fork(    function(){ this.label = t( "fork 1"); this
+      .step(  function(){ this.sleep( 10)  })
+      .step(  function(){ t( "end fork 1") })             })
+    .fork(    function(){ this.label = t( "fork 2"); this
+      .step(  function(){ this.sleep( 5)   })
+      .step(  function(){ t( "end fork 2") })             })
+    .step(    function(){ t( "joined")     })
+    .fork(    function(){ this.label = t( "fork 3"); this
+      .step(  function(){ this.sleep( 1)  })
+      .final( function(){ t( "final of fork 3") })        })
+    .fork(    function(){ this.label = t( "fork 4");      })
+    .final(   function(){ t( "final")
+                          test_6()                        })
   })
 
-  var test_6 = L8.scope( function test6(){
+  var test_6 = L8.Task( function test6(){
     function other1(){ l8.step( function(){ t( "in other1")})}
     function other2(){ l8.fork( function(){ t( "in other2")})}
     test = 6; this
