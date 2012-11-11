@@ -57,7 +57,7 @@ function Task( parent ){
   this.local           = {}
   if( parent ){
     this.local = parent.local
-    parent.subTasks[task.id] = this
+    parent.subTasks[this.id] = this
     parent.subTaskCount++
   }
 }
@@ -110,7 +110,6 @@ try{
 }
 
 L8.cancelEvent   = {l8:"cancel"}
-L8.redoEvent     = {l8:"redo"}
 L8.breakEvent    = {l8:"break"}
 L8.continueEvent = {l8:"continue"}
 L8.returnEvent   = {l8:"return"}
@@ -137,16 +136,26 @@ L8.scheduler = function scheduler(){
 }
 
 L8.enqueueStep = function enqueue_step( step ){
+  if( false ){
+    if( step.wasQueued ){
+      throw trace( "requeue bug: " + step)
+    }
+    step.wasQueued = true
+  }
+  if( false && "" + step == "Task 6/1" ){
+    trace( "BUG")
+  }
   L8.stepQueue.push( step)
   step.isBlocking = false
 }
 
 Step.execute = function step_execute(){
-  if( this.isBlocking )return
   var task         = this.task
+  if( task.isDone )throw new Error( "BUG, execute a done l8 step: " + this)
+  if( this.isBlocking )return
   task.currentStep = this
-  task.nextStep    = this.next
   CurrentStep      = this
+  task.nextStep    = this.next
   try{
     if( this.block ){
       if( this.block.length > 1 ){
@@ -154,7 +163,7 @@ Step.execute = function step_execute(){
       }else{
         task.stepResult = this.block.apply( task, [task.stepResult])
       }
-      task.progressing( task.stepResult)
+      task.progressing()
     }
   }catch( e ){
     task.stepError = e
@@ -164,18 +173,19 @@ Step.execute = function step_execute(){
 }
 
 Step.scheduleNext = function schedule_next(){
-  if( this.isBlocking )return
   var task = this.task
+  if( task.isDone )throw new Error( "Bug, schedule a done l8 task: " + this)
+  if( this.isBlocking )return
   var redo = false
   if( task.stepError ){
-    if( task.stepError === L8.redoEvent ){
+    if( task.stepError === L8.continueEvent ){
       redo = true
       task.stepError = undefined
     }else if( task.stepError === L8.breakEvent ){
       task.stepError = undefined
     }
   }
-  var queue       = task.queuedTasks
+  var queue = task.queuedTasks
   var subtasks
   var subtask_id
   var subtask
@@ -191,6 +201,7 @@ Step.scheduleNext = function schedule_next(){
     }
     if( redo ){
       L8.enqueueStep( this)
+      return
     }
     var next_step = this.next
     if( next_step ){
@@ -219,6 +230,7 @@ Step.scheduleNext = function schedule_next(){
     }
   }
   // When nothing more, handle task termination
+  this.isBlocking = true
   task.pausedStep = null
   task.isDone     = true
   try{
@@ -309,12 +321,14 @@ Task.__defineGetter__( "task", function(){
 })
 
 Task.__defineGetter__( "begin", function(){
-  task = CurrentStep.task
+  var task = CurrentStep.task
   // When "begin" means "create a new task"
-  if( task === L8 || task.done ){
+  if( task === L8 || task.isDone ){
     task = new Task( L8)
+    task.beginStack.push( true)
+  }else{
+    task.beginStack.push( false)
   }
-  task.beginStack.push( task.currentStep)
   return task
 })
 
@@ -326,20 +340,21 @@ Task.__defineGetter__( "end", function(){
     // TODO: check balance
     throw new Error( "Unbalanced L8.end")
   }
-  stack.pop()
-  if( !stack.length ){
-    if( task.firstStep ){
-      // When first step can run immediately
-      if( !task.queuedTaskCount ){
-        L8.enqueueStep( task.firstStep)
-      // When first step is after forks
-      }else{
-        // Pause task to wait for forks, need a new "first step" for that
-        new Step( task, task.firstStep.parentStep, null, null)
-        task.pausedStep = task.firstStep
-      }
-      stack.push( task.firstStep)
+  var new_task = stack.pop()
+  if( new_task && !stack.length ){
+    if( !task.firstStep ){
+      new Step( task, CurrentStep, null, null)
     }
+    // When first step can run immediately
+    if( !task.queuedTaskCount ){
+      L8.enqueueStep( task.firstStep)
+    // When first step is after forks
+    }else{
+      // Pause task to wait for forks, need a new "first step" for that
+      new Step( task, task.firstStep.parentStep, null, null)
+      task.pausedStep = task.firstStep
+    }
+    stack.push( true)
   }
   return task
 })
@@ -400,13 +415,16 @@ Task.step = function step( block, is_forked ){
   return task
 }
 
-Task.fork = function fork( block, starts_paused, detached ){
+Task.fork = function task_fork( block, starts_paused, detached ){
   return this.step( function(){
     var task = this.current
     var new_task = new Task( task)
     var scoped_block = task.Task( block)
     var step = new Step( new_task, task.currentStep, null, scoped_block)
     if( starts_paused ){
+      // Pause task, need a new "first step" for that
+      new Step( new_task, task.currentStep, null, null)
+      new_task.pausedStep = new_task.firstStep
       new_task.pausedStep = step
     }else{
       L8.enqueueStep( step)
@@ -422,8 +440,15 @@ Task.spawn = function task_spawn( block, starts_paused ){
   return this.fork( block, starts_paused, true) // detached
 }
 
+Task.repeat = function task_repeat( block ){
+  return this.fork( function(){
+    block.apply( this, arguments);
+    this.step( function(){ this.continue })
+  })
+}
+
 Task.subtaskDone = function subtask_done( subtask ){
-  var task = this.current
+  var task = this //.current
   if( task.queuedTaskCount
   &&  task.queuedTasks[subtask.id]
   ){
@@ -575,8 +600,8 @@ Task._return = Task["return"] = function task_return( val ){
   task.stepResult = val
   task.raise( L8.returnEvent)
 }
-Task.__defineGetter__( "redo", function task_redo(){
-  return this.raise( L8.redoEvent)
+Task.__defineGetter__( "continue", function task_redo(){
+  return this.raise( L8.continueEvent)
 })
 
 Task.__defineGetter__( "_break", function task__break(){
@@ -718,7 +743,7 @@ Promise.reject = function promise_reject(){
   L8.nextTick( function(){
     if( this.failureBlock ){
       try{
-        var val = failureBlock.apply( this, arguments)
+        var val = this.failureBlock.apply( this, arguments)
         if( this.nextPromise ){
           this.nextPromise.resolve( val)
         }
@@ -737,7 +762,7 @@ Promise.reject = function promise_reject(){
 Promise.progress = function promise_progress(){
   if( this.progressBlock ){
     try{
-      progressBlock.apply( this, arguments)
+      this.progressBlock.apply( this, arguments)
     }catch( e ){}
   }
   return this

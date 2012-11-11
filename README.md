@@ -151,8 +151,7 @@ API
     .walk( block )      -- walk a step on its path, at most once per step
     .next               -- alias for walk( null) -- ie no block parameter
     .repeat( block )    -- queue a new blocking loop step
-    .redo               -- stop executing current step, reschedule it instead
-    ._continue          -- like "continue", for blocking loop steps
+    .continue           -- stop executing current step, reschedule it instead
     ._break             -- "break" for blocking loops and forked steps
     ._return( [val] )   -- like "return" in normal flow
     .raise( error )     -- raise an error in task
@@ -305,7 +304,7 @@ Small loop, on one step, using "redo":
     @step ->
       return if ii > targets.length
       targets[ii++].fire()
-      @redo
+      @continue
     @step    -> callback()
     @failure -> callback( @error)
 ```
