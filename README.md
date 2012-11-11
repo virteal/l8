@@ -1,4 +1,4 @@
-l8 0.1.6
+l8 0.1.7
 ========
 
 L8 is light task manager for javascript/coffeescript/livescript...
@@ -196,7 +196,7 @@ API
     -- scoping (value of "this" related)
     .begin              -- enter new L8 scope
     .end                -- leave scope or loop
-    .scope( function )  -- return the L8 scope guarded version of a function
+    .Task( function )   -- return the .begin/.end guarded version of a function
 
   All these methods, if invoked against the global L8 object, will usually get
   forwarded to the "current task", the task that is currently executing. That
@@ -249,7 +249,7 @@ Two steps:
 CoffeeScript, much shorter, also thanks to scope() functor:
 
 ```
-  fetch_this_and_that = l8.scope (a,b,cb) ->
+  fetch_this_and_that = l8.Task (a,b,cb) ->
     @step        -> fetch a, @walk (err,content) -> {err,content}
     @step  (r)   -> @raise r.err if r.err ;\
                     fetch b, @walk (err,content) -> {err,content}
@@ -259,7 +259,7 @@ CoffeeScript, much shorter, also thanks to scope() functor:
 Multiple steps, run sequentially
 
 ```
-  fetch_all_seq = l8.scope (urls, callback) ->
+  fetch_all_seq = l8.Task (urls, callback) ->
     results = []
     for url in urls do (url) ->
       @step -> fetch url, @walk -> result.push {url, err, content}
@@ -269,7 +269,7 @@ Multiple steps, run sequentially
 Multiple steps, each run in parallel
 
 ```
-  fetch_all = l8.scope (urls, callback) ->
+  fetch_all = l8.Task (urls, callback) ->
     results = []
     for url in urls do (url) ->
       @fork ->
@@ -280,7 +280,7 @@ Multiple steps, each run in parallel
 Repeated steps, externally terminated, gently
 
 ```
-  spider = l8.scope (urls, queue) ->
+  spider = l8.Task (urls, queue) ->
     @repeat ->
       url = null
       @step -> url = queue.shift
@@ -300,7 +300,7 @@ Repeated steps, externally terminated, gently
 Small loop, on one step, using "redo":
 
 ```
-  fire_all = l8.scope (targets, callback) ->
+  fire_all = l8.Task (targets, callback) ->
     ii = 0
     @step ->
       return if ii > targets.length
@@ -328,7 +328,7 @@ or {
 show(news);
 ```
 ```
-show_news = l8.scope ->
+show_news = l8.Task ->
   news = null
   @fork -> http.get "http://news.bbc.co.uk",
       @walk (err,item) -> @return news = item
@@ -373,7 +373,7 @@ l8.begin
   .failure( function( err ){ callback( err) })
 .end}
 
-pipe = l8.scope (in,out,cb) ->
+pipe = l8.Task (in,out,cb) ->
   @repeat ->
     @step -> in.read @next
     @step (err, data) ->
