@@ -1,7 +1,7 @@
-l8 0.1.7
+l8 0.1.8
 ========
 
-L8 is light task manager for javascript/coffeescript/livescript...
+L8 is light task/promise manager for javascript/coffeescript/livescript...
 A task is any activity that a "normal" non-blocking javascript function cannot
 do because... javascript's functions cannot block!
 
@@ -24,6 +24,9 @@ l8 tasks are kind of user level non preemptive threads. They are neither
 native threads, nor worker threads, nor fibers nor the result of some CPS
 transformation. Just a bunch of cooperating closures. However, if you are
 familiar with threads, l8 tasks should seem natural to you.
+
+l8 tasks are also "promises". Once a task is completed, it's promise is either
+fullfilled or rejeted depending on the task success or failure.
 
 Steps vs Statements
 ===================
@@ -106,6 +109,9 @@ function "ajax_get_user()" cannot "block" until it receives an answer.
 
 This is where L8 helps.
 
+Steps
+-----
+
 ```
   l8
   .step( function(){ ajax_get_user( name,                     l8.next) })
@@ -134,31 +140,65 @@ sequential way. Sometimes the flow of control can be much more sophisticated.
 There can be multiple "threads" of control, with actions initiated concurrently
 and various styles of collaboration between these actions.
 
+Tasks
+-----
+
 Hence the notion of "task". A Task is a L8 object that consolidates the result
 of multiple threads of control (aka sub-tasks) that all participate in the
 completion of a task.
+
+To create a task, the simplest way is to invoke a "task constructor". It will
+schedule the new task and return a Task object. Such an object is also a
+"Promise". This means that it is fairly easy to get notified of the task's
+completion, either it's success or it's failure.
+
+```
+  var a_task = do_something_task()
+  a_task.then( on_success, on_failure)
+  function on_success( result ){ ... }
+  function on_failure( reason ){ ... }
+```
+
+Defining what a task does is of course a sligthly less easy question.
+
+```
+  do_something_task = l8.task( do_something_as_task );
+  function do_something_as_task(){
+    this
+    .step( function(){ this.sleep( 1000) })
+    .fork( function(){ do_some_other_task() })
+    .fork( function(){ do_another_task() })
+    .step( function(){ ... })
+  }
+```
+
+Note that when do_something_ask_task() is called, it does not do the actual
+work, it only describes steps. These steps, and steps later added to the
+task, are executed later, in the appropriate order, until the task reach
+completion. It's then, an only then, that the on_success/on_failure callbacks
+of the task's promise will be called.
 
 API
 ---
 
 ```
   l8
-     -- step/task creation
-    .step( block )      -- queue a new step on the path to task's completion
-    .fork( block )      -- queue a first step on a new parallel sub-task
-    .spawn( blk [, p] ) -- like fork() but next step does not wait for subtask
+     -- step/task creation. "body" can create additional steps/subtasks
+    .step( body )       -- queue a new step on the path to task's completion
+    .repeat( body )     -- queue a loop step on a new sub-task
+    .fork( body )       -- queue a first step on a new sub-task
+    .spawn( bdy [, p] ) -- like fork() but next step does not wait for subtask
     -- step walking
     .walk( block )      -- walk a step on its path, at most once per step
     .next               -- alias for walk( null) -- ie no block parameter
-    .repeat( block )    -- queue a new blocking loop step
     .continue           -- stop executing current step, reschedule it instead
-    ._break             -- "break" for blocking loops and forked steps
-    ._return( [val] )   -- like "return" in normal flow
-    .raise( error )     -- raise an error in task
+    .break              -- "break" for loop steps
+    .return( [val] )    -- like "return" in normal flow, skip all queued steps
+    .raise( error )     -- raise an error in task, skip all queued steps
     .throw( error )     -- alias for raise()
     -- task completion monitoring
     .then( ... )        -- Promise/A protocol, tasks are promises
-    .progress( block )  -- block to run when some task is done or step walked
+    .progress( block )  -- block to run when a subtask is done or step walked
     .success( block )   -- block to run when task is done without error
     .failure( block )   -- block to run when task is done but with error
     .catch( block )     -- alias for failure()
@@ -169,11 +209,11 @@ API
     .pause              -- block task at step, waiting until task is resumed
     .paused             -- return true if task was paused
     .resume             -- resume execution of task paused at some step
-    .yield( value )     -- like "pause" but provides a value and returns one
-    .run( value )       -- like "resume" but provides a value and returns one
+    .yield( value )     -- like "pause" but provides a result and returns one
+    .run( value )       -- like "resume" but provides a result and returns one
     .running            -- true if task not done nor paused
     .cancel             -- cancel task & its sub tasks, brutal
-    .canceled           -- true if task was canceled
+    .canceled           -- true if task failed because it was canceled
     .stop               -- gentle cancel
     .stopping           -- true after a gentle cancel, until task is done
     .stopped            -- true if done task was gently canceled (gracefull)
@@ -184,7 +224,7 @@ API
     .result             -- return result of last executed step
     .timeout( milli )   -- cancel task if not done in time
     .sleep( milli )     -- block on step for a while, then move to next step
-    .wait( lock )       -- block task until some lock opens
+    .wait( promise )    -- block task until some lock opens, promise agnostic
     -- misc
     .l8                 -- return global L8 object, also root task
     .task               -- return current task
@@ -457,7 +497,10 @@ step receives the result of the task that ran the forked step.
 
 To insert steps that won't block the current step, use spawn() instead. Such
 steps are also run in a new task but the current step is not blocked until
-the new task is complete.
+the new task is complete. However, task won't reach completion until all spawn
+task complete.
+
+Note that is it possible to cancel tasks and/or their subtasks.
 
 Blocking
 --------
