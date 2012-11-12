@@ -23,6 +23,10 @@ function trace(){
     }else{
       console.log( buf)
     }
+    if( buf.indexOf( "DEBUG") >=  0 ){
+      // please set breakpoint here to debug
+      false && breakpoint()
+    }
   }catch( e ){
     // ToDo: host adapted tracing
   }
@@ -142,14 +146,13 @@ L8.enqueueStep = function enqueue_step( step ){
     }
     step.wasQueued = true
   }
-  if( false && "" + step == "Task 6/1" ){
-    trace( "BUG")
-  }
+  if( step == "!Task 5/3" )trace( "DEBUG enqueue", step)
   L8.stepQueue.push( step)
   step.isBlocking = false
 }
 
 Step.execute = function step_execute(){
+  if( this == "Task 12/3" )trace( "DEBUG execute", this)
   var task         = this.task
   if( task.isDone )throw new Error( "BUG, execute a done l8 step: " + this)
   if( this.isBlocking )return
@@ -176,35 +179,34 @@ Step.scheduleNext = function schedule_next(){
   var task = this.task
   if( task.isDone )throw new Error( "Bug, schedule a done l8 task: " + this)
   if( this.isBlocking )return
-  var redo = false
+  var redo = this.isRepeated
   if( task.stepError ){
     if( task.stepError === L8.continueEvent ){
       redo = true
       task.stepError = undefined
     }else if( task.stepError === L8.breakEvent ){
-      task.stepError = undefined
+      redo = false
     }
   }
   var queue = task.queuedTasks
   var subtasks
   var subtask_id
   var subtask
-  // Unless error, wait for forked subtasks or move to next step, if any
   if( !task.stepError ){
-    if( !this.isForked ){
-      // Only regular steps wait for forked subtasks, fork steps don't
-      for( subtask in queue ){
-        this.isBlocking = true
-        task.pausedStep = this
-        return
-      }
-    }
     if( redo ){
       L8.enqueueStep( this)
       return
     }
     var next_step = this.next
     if( next_step ){
+      if( !next_step.isForked ){
+        // Regular steps wait for forked subtasks, fork steps don't
+        for( subtask in queue ){
+          this.isBlocking = true
+          task.pausedStep = this
+          return
+        }
+      }
       L8.enqueueStep( next_step)
       return
     }
@@ -235,6 +237,8 @@ Step.scheduleNext = function schedule_next(){
   task.isDone     = true
   try{
     if( task.stepError === L8.returnEvent ){
+      task.stepError = undefined
+    }else if( task.stepError === L8.breakEvent ){
       task.stepError = undefined
     }
     task.progressing()
@@ -415,12 +419,13 @@ Task.step = function step( block, is_forked ){
   return task
 }
 
-Task.fork = function task_fork( block, starts_paused, detached ){
+Task.fork = function task_fork( block, starts_paused, detached, repeated ){
   return this.step( function(){
     var task = this.current
     var new_task = new Task( task)
     var scoped_block = task.Task( block)
     var step = new Step( new_task, task.currentStep, null, scoped_block)
+    if( repeated ){ step.isRepeated = true }
     if( starts_paused ){
       // Pause task, need a new "first step" for that
       new Step( new_task, task.currentStep, null, null)
@@ -441,10 +446,7 @@ Task.spawn = function task_spawn( block, starts_paused ){
 }
 
 Task.repeat = function task_repeat( block ){
-  return this.fork( function(){
-    block.apply( this, arguments);
-    this.step( function(){ this.continue })
-  })
+  return this.fork( block, false, false, true) // repeated
 }
 
 Task.subtaskDone = function subtask_done( subtask ){
@@ -600,7 +602,7 @@ Task._return = Task["return"] = function task_return( val ){
   task.stepResult = val
   task.raise( L8.returnEvent)
 }
-Task.__defineGetter__( "continue", function task_redo(){
+Task.__defineGetter__( "continue", function task_continue(){
   return this.raise( L8.continueEvent)
 })
 
@@ -797,6 +799,10 @@ function tests(){
 
   var traces = []
   function t(){
+    if( traces.length > 200 ){
+      trace( "!!! Too many traces, infinite loop? exiting...")
+      process.exit( 1)
+    }
     var buf = ["test" + (test ? " " + test : ""), "" + CurrentStep]
     for( var ii = 0 ; ii < arguments.length ; ii++ ) buf.push( arguments[ii])
     buf = trace.apply( this, buf)
@@ -807,15 +813,24 @@ function tests(){
     var ii = 0
     var msg
     var tt = 0
+    var tmsg
     while( ii < arguments.length ){
       msg = arguments[ii++]
       while( true ){
-        if( traces[tt].indexOf( msg) >= 0 )break
-        if( ++tt > traces.length ){
-          throw new Error( "Failed test, missing trace: " + msg)
+        tmsg = traces[tt]
+        if( tmsg && tmsg.indexOf( msg) >= 0 )break
+        if( ++tt >= traces.length ){
+          var msg = "FAILED test " + test + ", missing trace: " + msg
+          trace( msg)
+          for( var jj = 0 ; jj < ii ; jj++ ){
+            trace( arguments[jj])
+          }
+          traces = []
+          throw new Error( msg)
         }
       }
     }
+    trace( "Test " + test, "PASSED")
     traces = []
   }
   t( "starts")
@@ -831,14 +846,15 @@ function tests(){
                           t( "sleeping")   })
       .step(  function(){ t( "sleep done") })
       .final( function(){ t( "final")
-                      check( "start",
-                             "step",
-                             "sleep",
-                             "sleeping",
-                             "sleep done",
-                             "final"
-                          );
-                      test_2()             })
+        check( "start",
+               "step",
+               "sleep",
+               "sleeping",
+               "sleep done",
+               "final"
+        )
+        test_2()
+      })
     .end
   }
 
@@ -848,7 +864,12 @@ function tests(){
     .step(  function(){ setTimeout( this.next, 0) })
     .step(  function(){ t( "sleep/timeout done")  })
     .final( function(){ t( "final")
-                        test_3()                  })
+      check( "start",
+             "sleep/timeout done",
+             "final"
+      )
+      test_3()
+    })
   })
 
   var test_3 = L8.Task( function test3(){
@@ -861,7 +882,12 @@ function tests(){
     .step(    function(){ t("third & final step") })
     .success( function(){ t("success")            })
     .final(   function(){ t( "final")
-                          test_4()                })
+      check( "start",
+             "success",
+             "final"
+      )
+      test_4()
+    })
   })
 
   var test_4 = L8.Task( function test4(){
@@ -870,38 +896,103 @@ function tests(){
     .step(    function(){ t( "raise error")
                           throw new Error( "step error") })
     .step(    function(){ t("!!! skipped step")          })
-    .failure( function(){ t("error", this.error)         })
+    .failure( function(){ t("error raised", this.error)  })
     .final(   function(){ t( "final")
-                          test_5()                       })
+      check( "start",
+             "error raised",
+             "final"
+      )
+      test_5()
+    })
   })
 
   var test_5 = L8.Task( function test5(){
     test = 5; this.label = t( "start"); this
     .fork(    function(){ this.label = t( "fork 1"); this
-      .step(  function(){ this.sleep( 10)  })
-      .step(  function(){ t( "end fork 1") })             })
+      .step(  function(){ this.sleep( 10)       })
+      .step(  function(){ t( "end fork 1")      })        })
     .fork(    function(){ this.label = t( "fork 2"); this
-      .step(  function(){ this.sleep( 5)   })
-      .step(  function(){ t( "end fork 2") })             })
-    .step(    function(){ t( "joined")     })
+      .step(  function(){ this.sleep( 5)        })
+      .step(  function(){ t( "end fork 2")      })        })
+    .step(    function(){ t( "joined")          })
     .fork(    function(){ this.label = t( "fork 3"); this
-      .step(  function(){ this.sleep( 1)  })
+      .step(  function(){ this.sleep( 1)        })
       .final( function(){ t( "final of fork 3") })        })
-    .fork(    function(){ this.label = t( "fork 4");      })
+    .fork(    function(){ this.label = t( "fork 4"); this
+      .final( function(){ t( "final of fork 4") })        })
+    .step(    function(){ t( "joined again") })
     .final(   function(){ t( "final")
-                          test_6()                        })
+      check( "start",
+             "fork 1",
+             "fork 2",
+             "end fork 2",
+             "end fork 1",
+             "joined",
+             "fork 3",
+             "fork 4",
+             "final of fork 4",
+             "final of fork 3",
+             "joined again",
+             "final"
+      )
+      test_6()
+    })
   })
 
   var test_6 = L8.Task( function test6(){
-    function other1(){ l8.step( function(){ t( "in other1")})}
-    function other2(){ l8.fork( function(){ t( "in other2")})}
+    function other1(){ l8.step( function(){ t( "in other1")} )}
+    function other2(){ l8.fork( function(){ t( "in other2")} )}
     test = 6; this
-    .step(  function(){ other1(); t( "other1() called")  })
-    .step(  function(){ t( "other1", this.result); this
-                        other2(); t( "other2() called")  })
-    .step(  function(){ t( "other2", this.result)        })
+    .step(  function(){ other1(); t( "other1() called")        })
+    .step(  function(){ t( "other1 result", this.result); this
+                        other2(); t( "other2() called")        })
+    .step(  function(){ t( "other2 result", this.result)       })
     .final( function(){ t( "final result", this.result)
-                        test_last()                      })
+      check( "other1() called",
+             "in other1",
+             "other1 result",
+             "other2() called",
+             "in other2",
+             "other2 result",
+             "final result"
+      )
+      test_7()
+    })
+  })
+
+  var test_7 = L8.Task( function test7(){
+    test = 7
+    var ii; this
+    .step(   function(){ t( "simple, times", ii = 3)     })
+    .repeat( function(){ t( "repeat simple step", ii)
+                         if( --ii == 0 ){
+                           t( "break simple repeat")
+                           this.break
+                         }                               })
+    .step(   function(){ t( "simple repeat done")        })
+    .step(   function(){ t( "sleep, times", ii = 2)      })
+    .repeat( function(){ this
+      .step( function(){   t( "repeat sleep", ii)
+                           this.sleep( 1)                })
+      .step( function(){   t( "done sleep ", ii)         })
+      .step( function(){   if( --ii = 0 ){
+                             t( "break sleep repeat")
+                             this.break
+                           }                          }) })
+    .step(   function(){ t( "done ")                     })
+    .final(  function(){ t( "final result", this.result)
+      check( "simple, times",
+             "repeat simple",
+             "break simple repeat",
+             "simple repeat done",
+             "sleep, times",
+             "done sleep",
+             "break sleep repeat",
+             "done",
+             "final result"
+      )
+      test_last()
+    })
   })
 
   var test_last = function(){
