@@ -1,5 +1,5 @@
 // l8.js
-//   Task manager
+//   Task/promise manager
 //   https://github.com/JeanHuguesRobert/l8
 //
 // 2012/10/24, JHR, create
@@ -13,9 +13,13 @@ try{
   Util.debug( "entering l8.js")
 }catch( e ){}
 
+TraceStartTask = 18
+
 function trace(){
   var buf = ["L8"]
-  for( var ii = 0 ; ii < arguments.length ; ii++ ){ buf.push( arguments[ii]) }
+  for( var ii = 0 ; ii < arguments.length ; ii++ ){
+    if( arguments[ii] ){ buf.push( arguments[ii]) }
+  }
   buf = buf.join( ", ")
   try{
     if( Util ){
@@ -64,6 +68,7 @@ function Task( parent ){
     parent.subTasks[this.id] = this
     parent.subTaskCount++
   }
+  if( TraceStartTask && L8.taskCount >= TraceStartTask )trace( "New", this)
 }
 Task.prototype = Task
 
@@ -93,6 +98,13 @@ function Step( task, parent, previous, block ){
     this.next     = previous.next
     previous.next.previous = this
     previous.next = this
+  }
+  if( TraceStartTask && L8.taskCount >= TraceStartTask ){
+    trace(
+      "New", this,
+      this === task.firstStep ? "first" : "",
+      this === task.lastStep  ? "last"  : ""
+    )
   }
 }
 Step.prototype = Step
@@ -132,10 +144,10 @@ L8.scheduler = function scheduler(){
     L8.scheduler()
   }
   if( !L8.isScheduled ){
-    L8.isScheduled = true
     // ToDo: better browser support, see nextTick in
     // https://github.com/kriskowal/q/blob/master/q.js
     L8.nextTick( tick)
+    L8.isScheduled = true
   }
 }
 
@@ -149,11 +161,34 @@ L8.enqueueStep = function enqueue_step( step ){
   if( step == "!Task 5/3" )trace( "DEBUG enqueue", step)
   L8.stepQueue.push( step)
   step.isBlocking = false
+  if( TraceStartTask && L8.taskCount >= TraceStartTask ){
+    var item
+    for( var ii = 0 ; ii < L8.stepQueue.length ; ii++ ){
+      item = L8.stepQueue[ii]
+      trace(
+        "enqueued step[" + ii + "]",
+        item,
+        item.isRepeated ? "repeat" : "",
+        item.isForked   ? "fork"   : "",
+        item.isBlocking ? "pause"  : ""
+      )
+    }
+  }
 }
 
 Step.execute = function step_execute(){
-  if( this == "Task 12/3" )trace( "DEBUG execute", this)
   var task         = this.task
+  if( TraceStartTask && L8.taskCount >= TraceStartTask ){
+    trace(
+      "DEBUG execute", this,
+      task.isDone             ? "task done" : "",
+      this.isBlocking         ? "blocking"  : "",
+      this.isRepeated         ? "repeated"  : "",
+      this.isForked           ? "forked"    : "",
+      this === task.firstStep ? "first"     : "",
+      this === task.lastStep  ? "last"      : ""
+    )
+  }
   if( task.isDone )throw new Error( "BUG, execute a done l8 step: " + this)
   if( this.isBlocking )return
   task.currentStep = this
@@ -193,13 +228,9 @@ Step.scheduleNext = function schedule_next(){
   var subtask_id
   var subtask
   if( !task.stepError ){
-    if( redo ){
-      L8.enqueueStep( this)
-      return
-    }
-    var next_step = this.next
+    var next_step = redo ? this : this.next
     if( next_step ){
-      if( !next_step.isForked ){
+      if( !next_step.isForked || redo ){
         // Regular steps wait for forked subtasks, fork steps don't
         for( subtask in queue ){
           this.isBlocking = true
@@ -207,7 +238,11 @@ Step.scheduleNext = function schedule_next(){
           return
         }
       }
-      L8.enqueueStep( next_step)
+      if( redo ){
+        L8.nextTick( function(){ L8.enqueueStep( next_step) })
+      }else{
+        L8.enqueueStep( next_step)
+      }
       return
     }
     // When all steps are done, wait for spawn subtasks
@@ -235,11 +270,13 @@ Step.scheduleNext = function schedule_next(){
   this.isBlocking = true
   task.pausedStep = null
   task.isDone     = true
+  var exit_repeat = false
   try{
     if( task.stepError === L8.returnEvent ){
       task.stepError = undefined
     }else if( task.stepError === L8.breakEvent ){
       task.stepError = undefined
+      exit_repeat    = true
     }
     task.progressing()
     try{
@@ -295,7 +332,18 @@ Step.scheduleNext = function schedule_next(){
     task.stepError = e
     if( task.parentTask ){ task.parentTask.raise( e) }
   }finally{
-    if( task.parentTask ){ task.parentTask.subtaskDone( task) }
+    try{
+      if( exit_repeat && task.parentTask ){
+        if( task.parentTask.currentStep.isRepeated ){
+          task.parentTask.currentStep.isRepeated = false
+        }else{
+          task.stepError = L8.breakEvent
+          task.parentTask.raise( L8.breakEvent)
+        }
+      }
+    }finally{
+      if( task.parentTask ){ task.parentTask.subtaskDone( task) }
+    }
   }
 }
 
@@ -409,23 +457,37 @@ Task.__defineGetter__( "canceled", function(){
   return this.current.wasCanceled
 })
 
-Task.step = function step( block, is_forked ){
+Task.step = function step( block, is_forked, is_repeated ){
   var task = this.current
   if( task.isDone )throw new Error( "Can't add new step, l8 task is done")
   var parent_step  = task.currentStep ? task.currentStep.parentStep : null
   var insert_after = task.nextStep    ? task.nextStep.previous : task.lastStep
   var step = new Step( task, parent_step, insert_after, block)
-  if( is_forked ){ step.isForked = true }
+  if( is_forked   ){ step.isForked   = true }
+  if( is_repeated ){ step.isRepeated = true }
   return task
 }
 
 Task.fork = function task_fork( block, starts_paused, detached, repeated ){
+  if( TraceStartTask && L8.taskCount >= TraceStartTask ){
+    trace( this.current.currentStep , "invokes fork()",
+      starts_paused ? "paused"   : "",
+      detached      ? "detached" : "",
+      repeated      ? "repeated" : ""
+    )
+  }
   return this.step( function(){
     var task = this.current
+    if( TraceStartTask && L8.taskCount >= TraceStartTask ){
+      trace( task.currentStep , "executes scheduled fork",
+        starts_paused ? "paused"   : "",
+        detached      ? "detached" : "",
+        repeated      ? "repeated" : ""
+      )
+    }
     var new_task = new Task( task)
-    var scoped_block = task.Task( block)
-    var step = new Step( new_task, task.currentStep, null, scoped_block)
-    if( repeated ){ step.isRepeated = true }
+    // var scoped_block = task.Task( block)
+    var step = new Step( new_task, task.currentStep, null, block)
     if( starts_paused ){
       // Pause task, need a new "first step" for that
       new Step( new_task, task.currentStep, null, null)
@@ -438,7 +500,7 @@ Task.fork = function task_fork( block, starts_paused, detached, repeated ){
       task.queuedTasks[new_task.id] = new_task
       task.queuedTaskCount++
     }
-  }, true) // is_forked
+  }, true, repeated) // is_forked
 }
 
 Task.spawn = function task_spawn( block, starts_paused ){
@@ -533,11 +595,15 @@ Task.raise = function task_raise( err ){
     task.resume()
   }else{
     var step = task.currentStep
-    if( step.isBlocking ){
-      step.isBlocking = false
-      step.scheduleNext()
-    }else if( step === CurrentStep ){
-      throw err
+    if( step ){
+      if( step.isBlocking ){
+        step.isBlocking = false
+        step.scheduleNext()
+      }else if( step === CurrentStep ){
+        throw err
+      }
+    }else{
+      trace( "Unhandled exception", e, e.stack)
     }
   }
   return task
@@ -785,6 +851,7 @@ Task.sleep = function sleep( delay ){
     if( !task.currentStep === step )return
     step.isBlocking = false
     step.scheduleNext()
+    L8.scheduler()
   }, delay)
   return task
 }
@@ -965,7 +1032,7 @@ function tests(){
     var ii; this
     .step(   function(){ t( "simple, times", ii = 3)     })
     .repeat( function(){ t( "repeat simple step", ii)
-                         if( --ii == 0 ){
+                         if( --ii === 0 ){
                            t( "break simple repeat")
                            this.break
                          }                               })
@@ -974,12 +1041,14 @@ function tests(){
     .repeat( function(){ this
       .step( function(){   t( "repeat sleep", ii)
                            this.sleep( 1)                })
-      .step( function(){   t( "done sleep ", ii)         })
-      .step( function(){   if( --ii = 0 ){
+      .step( function(){   t( "done sleep", ii)          })
+      .step( function(){   if( --ii === 0 ){
                              t( "break sleep repeat")
                              this.break
                            }                          }) })
     .step(   function(){ t( "done ")                     })
+    .failure( function( e ){ t( "unexpected failure", e)
+                             throw e                      })
     .final(  function(){ t( "final result", this.result)
       check( "simple, times",
              "repeat simple",
@@ -1018,3 +1087,4 @@ setInterval(
   1000
 )
 tests()
+
