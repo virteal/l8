@@ -1,24 +1,26 @@
-l8 0.1.8
-========
+l8 0.1.10
+=========
 
-L8 is light task/promise manager for javascript/coffeescript/livescript...
+L8 is a task/promise scheduler for javascript.
+
 A task is any activity that a "normal" non-blocking javascript function cannot
-do because... javascript's functions cannot block!
+do because... javascript's functions cannot block! Where functions provide
+results, tasks provide promises instead. To become tasks that can block,
+functions are broken into steps that the l8 scheduler executes.
 
 What is it?
 ===========
 
-It schedules the execution of multiple "tasks". A task is made of "steps", much
+This is a library to help those who want to embrace the Promise/A style of
+asynchronous programming but feel that the classic thread/blocking-function
+model is even more readable.
+
+l8 schedules the execution of multiple "tasks". A task is made of "steps", much
 like a function is made of statements. Steps are walked on multiple "paths".
 Such tasks and paths (sub-tasks) can nest, like blocks of statements.
 
 Execution goes from "step" to "step", steps are closures. If one cannot walk a
 step immediatly, one can block, waiting for something before resuming.
-
-The main flow control structures are the sequential execution of steps,
-the execution of forked steps on parallel paths, steps that loop until they
-exit, steps that wait for something and error propagation similar to exception
-handling.
 
 l8 tasks are kind of user level non preemptive threads. They are neither
 native threads, nor worker threads, nor fibers nor the result of some CPS
@@ -26,7 +28,12 @@ transformation. Just a bunch of cooperating closures. However, if you are
 familiar with threads, l8 tasks should seem natural to you.
 
 l8 tasks are also "promises". Once a task is completed, it's promise is either
-fullfilled or rejeted depending on the task success or failure.
+fullfilled or rejected depending on the task success or failure.
+
+The main flow control structures are the sequential execution of steps,
+the execution of forked steps on parallel paths, steps that loop until they
+exit, steps that wait for something and error propagation similar to exception
+handling.
 
 Steps vs Statements
 ===================
@@ -99,9 +106,9 @@ This slightly different style is barely more readable. What would be readable
 is something like this:
 
 ```
-  user = ajax_get_user( name)
-  if( !ajax_check_credential( user) )return
-  if( err = ajax_do_action( user, "delete") ){ signal( err) }
+  var user = ajax_get_user( name);
+  if( !ajax_check_credential( user) ) return;
+  if( err = ajax_do_action( user, "delete") ) signal( err);
 ```
 
 However, this cannot exist in javascript because no function can "block". The
@@ -112,57 +119,76 @@ This is where L8 helps.
 Steps
 -----
 
+Steps are to Tasks what statements are to functions: a way to describe what
+they do.
+
 ```
-  l8
-  .step( function(){ ajax_get_user( name,                     l8.next) })
-  .step( function(){ ajax_check_credential( user = l8.result, l8.next) })
-  .step( function(){ if( !l8.result ) l8._return();
-                     ajax_do_action( user, "delete",          l8.next) })
-  .step( function(){ if( l8.result ) signal( l8.result)                })
+  var user; l8
+  .step( function(){ ajax_get_user( name)                     })
+  .step( function(){ ajax_check_credential( user = l8.result) })
+  .step( function(){ if( !l8.result ) l8.return();
+                     ajax_do_action( user, "delete")          })
+  .step( function(){ if( l8.result ) signal( l8.result)       })
 ```
 
 This is less verbose with CoffeeScript:
 
 ```
-  @step -> ajax_get_user name,                     @next
-  @step -> ajax_check_credential (user = @result), @next
-  @step -> if !@result then @return()              ;\
-           ajax_do_action user, "delete",          @next
+  user = null
+  @step -> ajax_get_user name
+  @step -> ajax_check_credential (user = @result)
+  @step -> if !@result then @return else
+           ajax_do_action user, "delete"
   @step -> if err = @result then signal err
 ```
 
 By "breaking" a function into multiple "steps", code become almost as readable
-as it would be if statements in javascript could block, minus the step/next
-noise.
+as it would be if statements in javascript could block, minus the step noise.
 
 This example is a fairly simple one. Execution goes from step to step in a
 sequential way. Sometimes the flow of control can be much more sophisticated.
 There can be multiple "threads" of control, with actions initiated concurrently
 and various styles of collaboration between these actions.
 
+Please note that the ajax_xxx() functions of the example are not regular
+functions, they are "task constructor". When you invoke such a function, a new
+task is created.
+
+If they were usual ajax_xxx( p1, p2, cb) style of functions, one would need to
+use .next or .walk() in the callback in order to ask l8 to move to the next
+step.
+
 Tasks
 -----
 
-Hence the notion of "task". A Task is a L8 object that consolidates the result
+About the notion of "task". A Task is a L8 object that consolidates the result
 of multiple threads of control (aka sub-tasks) that all participate in the
 completion of a task.
 
-To create a task, the simplest way is to invoke a "task constructor". It will
+Tasks are to steps what functions are to statements: a way to group them.
+
+To perform a task, the simplest way is to invoke a "task constructor". It will
 schedule the new task and return a Task object. Such an object is also a
 "Promise". This means that it is fairly easy to get notified of the task's
 completion, either it's success or it's failure.
 
+A "task constructor" is to a task what a function is to a "function call":
+both (statically) define what happens when they are (dynamically) invoked.
+
 ```
-  var a_task = do_something_task()
-  a_task.then( on_success, on_failure)
+  var new_task = do_something_task()
+  new_task.then( on_success, on_failure)
   function on_success( result ){ ... }
   function on_failure( reason ){ ... }
 ```
 
-Defining what a task does is of course a sligthly less easy question.
+Tasks queue steps that the l8 scheduler will execute much like functions queue
+statements that the Javascript interpretor execute. With functions, statements
+queueing is implicit. With tasks, it becomes explicit. As a result, defining
+what a task does is of course sligthly less syntaxically easy.
 
 ```
-  do_something_task = l8.task( do_something_as_task );
+  do_something_task = l8.Task( do_something_as_task );
   function do_something_as_task(){
     this
     .step( function(){ this.sleep( 1000) })
@@ -172,22 +198,88 @@ Defining what a task does is of course a sligthly less easy question.
   }
 ```
 
-Note that when do_something_ask_task() is called, it does not do the actual
-work, it only describes steps. These steps, and steps later added to the
-task, are executed later, in the appropriate order, until the task reach
-completion. It's then, an only then, that the on_success/on_failure callbacks
-of the task's promise will be called.
+This is the "procedural" style. A "declarative" style is also available:
+
+```
+  do_something_task = l8.Task([
+    function(){ this.sleep( 1000) },
+    {fork: function(){ do_some_other_task() }},
+    {fork: function(){ do_another_task()    }},
+    [
+      {step:    function(){...}},
+      {failure: function(){...}}
+    ],
+    {success: function(){ ...  }},
+    {final:   function(){ .... }}
+  ])
+```
+
+There is also a trans-compiler option that takes a funny looking function and
+turns it into a task constructor:
+
+```
+  do_something_task = l8.Compile( do_something_as_task );
+  function do_something_as_task(){
+    step; this.sleep( 1000);
+    fork; do_some_other_task();
+    fork; another_task();
+    step( a, b ); use( a), use( b);
+    success; done();
+    failure; problem();
+    final;   always();
+  }
+```
+
+
+Note that when do_something_as_task() is called, it does not do the actual
+work, it only registers steps. These steps, and steps later added to the task,
+are executed later, in the appropriate order, until the task is fully done.
+It is then, and only then, that the on_success/on_failure callbacks of the
+task's promise will be called.
+
+In a function, statements are executed in a purely sequentiel order. That
+restriction does not apply with steps in a task. While the sequential order
+is still the "normal", steps that run in parallel paths can also exist. Such
+steps are the result of "forks". When all forks are done, the forks "join" and
+execution continues with the next normal step.
+
+Promises
+--------
+
+Promises are to tasks what result/exception are to a function: a way to provide
+information about the outcome.
+
+The "de facto" current standard for promises is part of the CommonJS effort:
+http://wiki.commonjs.org/wiki/Promises/A
+
+Such a "promise" is any object that provides a "then" method. That method does
+two things: it registers callbacks to call when the promise is either
+fullfilled or rejected and it also returns a new promise that will be
+fullfilled or rejected depending on the result of these callbacks; this makes
+chaining easy.
+
+l8 tasks are promises. Promise will be fullfilled or rejected when the task is
+done and either succeeded or failed.
+
+Please note that "promises" in the Javascript world is not a mature feature.
+The "de facto" CommonJS standard is beeing challenged by another "de facto"
+strong contender: jQuery. Their implementation of then() differs significantly
+regarding chaining and exception handling. l8 does not use these features (but
+provides them) and consequently .wait( promise) should work with most
+implementations, including jQuery's one.
+
 
 API
----
+===
 
 ```
   l8
      -- step/task creation. "body" can create additional steps/subtasks
-    .step( body )       -- queue a new step on the path to task's completion
+    .step(   body )     -- queue a new step on the path to task's completion
     .repeat( body )     -- queue a loop step on a new sub-task
-    .fork( body )       -- queue a first step on a new sub-task
-    .spawn( bdy [, p] ) -- like fork() but next step does not wait for subtask
+    .fork(   body )     -- queue a first step on a new sub-task
+    .spawn(  body )     -- like fork() but next step does not wait for subtask
+
     -- step walking
     .walk( block )      -- walk a step on its path, at most once per step
     .next               -- alias for walk( null) -- ie no block parameter
@@ -196,21 +288,26 @@ API
     .return( [val] )    -- like "return" in normal flow, skip all queued steps
     .raise( error )     -- raise an error in task, skip all queued steps
     .throw( error )     -- alias for raise()
-    -- task completion monitoring
+
+    -- task completion monitoring, for task users
     .then( ... )        -- Promise/A protocol, tasks are promises
+    .node( callback )   -- Node.js style callback
+
+    -- task completion handling, for task implementers
     .progress( block )  -- block to run when a subtask is done or step walked
     .success( block )   -- block to run when task is done without error
     .failure( block )   -- block to run when task is done but with error
     .catch( block )     -- alias for failure()
     .final( block )     -- block to run when task is all done
     .finally( block )   -- alias for final()
-    -- task's state related
+
+    -- task state related
     .state              -- return state of task, I->[R|P]*->S/F
     .pause              -- block task at step, waiting until task is resumed
     .paused             -- return true if task was paused
     .resume             -- resume execution of task paused at some step
     .yield( value )     -- like "pause" but provides a result and returns one
-    .run( value )       -- like "resume" but provides a result and returns one
+    .again( value )     -- like "resume" but provides a result and returns one
     .running            -- true if task not done nor paused
     .cancel             -- cancel task & its sub tasks, brutal
     .canceled           -- true if task failed because it was canceled
@@ -222,9 +319,10 @@ API
     .fail               -- true if task done but with an error
     .error              -- return last raised error (ie last thrown exception)
     .result             -- return result of last executed step
-    .timeout( milli )   -- cancel task if not done in time
+    .timeout( milli )   -- cancel task if it is not done in time
     .sleep( milli )     -- block on step for a while, then move to next step
     .wait( promise )    -- block task until some lock opens, promise agnostic
+
     -- misc
     .l8                 -- return global L8 object, also root task
     .task               -- return current task
@@ -232,8 +330,9 @@ API
     .parent             -- return parent task
     .tasks              -- return immediate sub tasks
     .top                -- return top task of sub task (child of l8 root task)
+
     -- scoping (value of "this" related)
-    .begin              -- enter new L8 scope
+    .begin              -- enter new L8 scope, "on the fly" task creation
     .end                -- leave scope or loop
     .Task( function )   -- return the .begin/.end guarded version of a function
 
@@ -241,82 +340,124 @@ API
   forwarded to the "current task", the task that is currently executing. That
   task is often the returned value of such methods, when it makes sense.
 
-  l8.promise()          -- create a new promise, Promise/A compliant
+    -- for promise producers
+    .promise()          -- create a new promise, Promise/A compliant
     .resolve( results ) -- fullfill promise
     .reject( reason )   -- fail promise
     .progress( infos )  -- signal progress
-    .then( ok, ko, ev ) -- register callbacks, return new promise
+
+    -- for promise consumers
+    .then( ok, ko, ev ) -- register callbacks, return new chained promise
+    .node( callback )   -- register Nodejs style callback, ie cb( err, result )
 ```
 
 TBD: semaphores, mutexes, locks, message queues, signals, etc...
 
-Examples
---------
 
-Two steps:
+Simple example, explained
+=========================
+
+Two steps. Hypothetical synchronous version if functions could block:
 
 ```
-  function fetch_this_and_that( a, b, callback ){
-    var result = {}
-    // Hypothetical synchronous version
-    // if( !(result = fetch_a()).err ){
-    //   result = fetch( b)
-    // }
-    // callback( result.err, result.content)
-  l8.begin
+  function fetch( a ){
+    meth1( a)
+    return meth2( a)
+  }
+```
+
+Idem but actual javascript using callback style:
+
+```
+  function fetch( a, cb ){
+    meth1( a, function( error, result ){
+      if( error ) return cb( error);
+      meth2( a, function( error, result ){
+        cb( error, result);
+      }
+    }
+  }
+```
+
+Idem but using l8, extra long version:
+
+```
+  function fetch_this_and_that( a, callback ){
+  return l8.begin
     .step( function(){
-      fetch( a,
-        this.walk( function( err, content ){
-          return {err:err,content:content }
-        })
-      )
-    })
-    .step( function( result ){
-      if( result.err ) this.raise( result.err)
-      fetch( b,
-        this.walk( function( err, content ){
-          return {err:err,content:content }
-        })
-      )
-    })
-    .final( function( err, result ){
-      callback( err || result.err, result.content) }
-    )
+      meth1( a, this.next ) })
+    .step( function( err, result ){
+      if( err ) throw err else meth2( a, this.next }) })
+    .step( function( err, result ){
+      if( err ) throw err else return result })
+    .final( function( err, result ){ callback( err, result) })
   .end}
 ```
 
-CoffeeScript, much shorter, also thanks to scope() functor:
+CoffeeScript, much shorter, also thanks to Task() functor:
 
 ```
-  fetch_this_and_that = l8.Task (a,b,cb) ->
-    @step        -> fetch a, @walk (err,content) -> {err,content}
-    @step  (r)   -> @raise r.err if r.err ;\
-                    fetch b, @walk (err,content) -> {err,content}
-    @final (e,r) -> cb (e or r.err), r.content
+  fetch = l8.Task (a,cb) ->
+    @step        -> meth1 a, @next
+    @step  (e,r) -> if e then throw e else meth2 a, @next
+    @step  (e,r) -> if e then throw e else r
+    @final (e,r) -> cb e, r
 ```
 
-Multiple steps, run sequentially
+Idem but returning a promise instead of using a callback:
 
 ```
-  fetch_all_seq = l8.Task (urls, callback) ->
+  fetch = l8.Task (a) ->
+    @step        -> meth1 a, @next
+    @step  (e,r) -> if e then throw e else meth2 a, @next
+    @step  (e,r) -> if e then throw e else r
+```
+
+Idem but assuming meth1 and meth2 make tasks returning promises too:
+
+```
+  fetch = l8.Task (a) ->
+    @step -> meth1 a
+    @step -> meth2 a
+```
+
+Back to Javascript:
+
+```
+  fetch = l8.Task( function( a ){
+    this.step( function(){ meth1( a) })
+    this.step( function(){ meth2( b) })
+  })
+```
+
+The conclusion is that using tasks, steps and promises, the code is very
+similar to the hypothetical javascript blocking function.
+
+Other examples
+--------------
+
+Multiple steps, run sequentially:
+
+```
+  fetch_all_seq = l8.Task (urls) ->
     results = []
-    for url in urls do (url) ->
-      @step -> fetch url, @walk -> result.push {url, err, content}
-    @final -> callback results
+    for url in urls then do (url) ->
+      @step -> scrap url, @walk -> result.push {url, err, content}
+    @success -> results
 ```
 
-Multiple steps, each run in parallel
+Multiple steps, each run in parallel:
 
 ```
-  fetch_all = l8.Task (urls, callback) ->
+  fetch_all = l8.Task (urls) ->
     results = []
-    for url in urls do (url) ->
+    for url in urls then do (url) ->
       @fork ->
-        fetch url, @walk (err, content) -> results.push {url, err, content}
-    @final -> callback results
+        scrap url, @walk (err, content) -> results.push {url, err, content}
+    @success -> results
 ```
 
-Repeated steps, externally terminated, gently
+Repeated steps, externally terminated, gently:
 
 ```
   spider = l8.Task (urls, queue) ->
@@ -326,7 +467,7 @@ Repeated steps, externally terminated, gently
       @step -> @delay 10000 if @parent.tasks.length > 10
       @step ->
         @break if @stopping
-        fetch url, @walk (err,urls) ->
+        scrap url, @walk (err,urls) ->
           return if err or @stopping
           for url in urls
             queue.unshift url unless url in queue
@@ -336,17 +477,15 @@ Repeated steps, externally terminated, gently
   stop_spider = -> spider_task.stop
 ```
 
-Small loop, on one step, using "redo":
+Small loop, on one step, using "continue":
 
 ```
-  fire_all = l8.Task (targets, callback) ->
+  fire_all = l8.Task (targets) ->
     ii = 0
     @step ->
       return if ii > targets.length
       targets[ii++].fire()
       @continue
-    @step    -> callback()
-    @failure -> callback( @error)
 ```
 
 StratifiedJs example, see http://onilabs.com/stratifiedjs
@@ -382,7 +521,7 @@ show_news = l8.Task ->
 
 ```
 
-Nodejs google group "pipe" example, see
+Node.js google group "pipe" example, see
 https://groups.google.com/forum/?fromgroups=#!topic/nodejs/5hv6uIBpDl8
 
 ```
@@ -397,32 +536,28 @@ function pipe( inStream, outStream, callback ){
   loop();
 }
 
-function pipe( inStream, outStream, callback ){
-l8.begin
-  .repeat( function(){ l8
-    .step( function(){ inStream.read( l8.next) })
-    .step( function( err, data ){
-      if( err )  throw err;
-      if( !data) l8.break;
-      outStream.write( data, l8.next);
+pipe = l8.Task( function ( inStream, outStream ){ this
+  .repeat( function(){ this
+    .step( function(){
+      inStream.read() })
+    .step( function( data ){
+      if( !data) this.break;
+      outStream.write( data);
     })
-    .step( function( err ){ if( err ) throw err; })
   })
-  .success( function(){      callback()     })
-  .failure( function( err ){ callback( err) })
-.end}
+})
 
-pipe = l8.Task (in,out,cb) ->
+pipe = l8.Task (in,out) ->
   @repeat ->
-    @step -> in.read @next
-    @step (err, data) ->
-      throw err if err
+    @step -> in.read()
+    @step (data) ->
       @break if !data
-      out.write data, @next
-    @step (err) -> throw err if err
-  @success -> cb()
-  @failure -> cb @error
+      out.write data
 ```
+
+Note: for this example to work, node.js streams need to be "taskified". This
+is left as an exercize.
+
 
 Design
 ------
@@ -447,7 +582,7 @@ happens when a step decides that is requires additional sub steps to complete.
 
 On a path, execution goes from step to step. When a step involves sub-steps,
 the step is blocked until the sub-steps complete, unless sub-steps are created
-in a forked parallel path (sub-task).
+in a forked parallel path.
 
 Note: a "path" is, at the step level, what is usually called a "thread" (or a
 fiber") in languages that support this notion at the statement/expression
@@ -457,19 +592,21 @@ Example:
 
 ```
 MainTask
-  Task.1 - a task with a single path with a loop
+  Task.1 - a task with a single path with a loop subpath
     MainPath
       Step
       Step
-      RepeatStep
+      RepeatPath
         Step
         Step
       Step
   Task.2 - a task with two paths (two sub tasks)
     MainPath
-      Step
-      Step
-    ForkedPath
+      ForkedPath
+        Step
+        Step
+      ForkedPath
+        Step
       Step
 ```
 
@@ -498,7 +635,7 @@ step receives the result of the task that ran the forked step.
 To insert steps that won't block the current step, use spawn() instead. Such
 steps are also run in a new task but the current step is not blocked until
 the new task is complete. However, task won't reach completion until all spawn
-task complete.
+subtasks complete.
 
 Note that is it possible to cancel tasks and/or their subtasks.
 
@@ -510,7 +647,7 @@ a step often describes sub-steps and/or sub pathes/tasks. These steps then
 "block" waiting for the sub items to complete.
 
 For simple steps, that only depends on the completion of a simple asynchronous
-action, walk() provides the callback to register with that action. When the
+function, walk() provides the callback to register with that function. When the
 callback is called, flows walks from the current step to the next.
 
 Note: in the frequent case where the callback only needs to store the result
@@ -528,7 +665,7 @@ Do:
   @step -> fetch                       @next
   @step -> if @result then more_fetch  @next
   @step -> if @result then fetch_again @next
-  @step -> if @result then use @result
+  @step -> if @result then use @result @next
   @step -> done()
 ```
 
@@ -539,8 +676,16 @@ Don't:
       more_fetch @walk (result) ->
         if result
           fetch_again @walk (result) ->
-            if result then use result
+            if result then use result @next
   @step -> done()
+```
+
+Or, even better, use task constructors instead of functions with callbacks:
+```
+  @step -> fetch()
+  @step -> more_fetch()  if @result
+  @step -> fetch_again() if @result
+  @step -> use @result   if @result
 ```
 
 Extensions
@@ -550,11 +695,16 @@ The l8 API defines a concept of Task/Path/Step entities that works nicely in
 the async/callback dominated world of Javascript and yet manage to provide some
 useful tools (hopefully) to address the infamous "callback hell" issue.
 
-However these tool are very basic. Pause/Resume are building blocks only.
+However these tools are very basic. pause/resume and fork/join are building
+blocks only.
 
-What is also needed is more sophisticated yet simpler to use solutions. There
-are many style of coding regarding the orchestration of complex interactions
-between fragments on code. Were are no longer restricted to the signal/kill
+One way to improve on that situation is to use one of the multiple existing
+"promise" handling libraries, such as Q, when and rsvp. See also
+http://howtonode.org/promises and https://gist.github.com/3889970
+
+What is also needed are more sophisticated yet simpler to use solutions. There
+are many styles of coding regarding the orchestration of complex interactions
+between fragments on code. We are no longer restricted to the signal/kill
 mechanism from the 70s in Unix!
 
 In addition to the classics (semaphores, mutexes, message queues, conditional
@@ -567,10 +717,9 @@ native implementations. Instead of dealing with statements or even machine
 code level instructions, l8 deals with much bigger "steps". However, regarding
 synchronisation, this difference of scale does not imply a difference of
 nature. As a consequence, solutions that work at the machine level may prove
-also productive at the "step" higher level. l8 makes it possible to use these
-solutions in Javascript, today (well... in a few months, if things go well).
+also productive at the "step" higher level.
 
-Proposals for extensions are welcome.
+Hence, proposals for extensions are welcome.
 
 Enjoy.
 
@@ -578,6 +727,5 @@ Enjoy.
 
 PS: all this stuff is to relieve my "node anxiety".
 See http://news.ycombinator.com/item?id=2371152
-
 
 
