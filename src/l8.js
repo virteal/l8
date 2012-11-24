@@ -230,7 +230,7 @@ Step.scheduleNext = function schedule_next(){
   if( !task.stepError ){
     var next_step = redo ? this : this.next
     if( next_step ){
-      if( !next_step.isForked || redo ){
+      if( !this.isForked || !next_step.isForked || redo ){
         // Regular steps wait for forked subtasks, fork steps don't
         for( subtask in queue ){
           this.isBlocking = true
@@ -269,8 +269,10 @@ Step.scheduleNext = function schedule_next(){
   // When nothing more, handle task termination
   this.isBlocking = true
   task.pausedStep = null
+  // ToDo: let success/failure block run asynch, then done, not before
   task.isDone     = true
   var exit_repeat = false
+  var block
   try{
     if( task.stepError === L8.returnEvent ){
       task.stepError = undefined
@@ -281,9 +283,10 @@ Step.scheduleNext = function schedule_next(){
     task.progressing()
     try{
       if( task.stepError ){
-        if( task.failureBlock ){
+        if( block = task.failureBlock ){
+          task.failureBlock = null
           try{
-            task.failureBlock( task.stepError)
+            block( task.stepError)
           }catch( e ){
             throw e
           }
@@ -291,9 +294,10 @@ Step.scheduleNext = function schedule_next(){
           throw task.stepError
         }
       }else{
-        if( task.successBlock ){
+        if( block = task.successBlock ){
+          task.successBlock = null
           try{
-            task.successBlock( task.stepResult)
+            block( task.stepResult)
           }catch( e ){
             throw e
           }
@@ -304,9 +308,9 @@ Step.scheduleNext = function schedule_next(){
       // ToDo: should throw or not?
       throw e
     }finally{
-      if( task.finalBlock ){
+      if( block = task.finalBlock ){
         try{
-          task.finalBlock( task.stepError, task.stepResult)
+          block( task.stepError, task.stepResult)
         }catch( e ){
           throw e
         }
@@ -348,6 +352,15 @@ Step.scheduleNext = function schedule_next(){
 }
 
 Task.Task = function task_task( fn ){
+  if( !(fn instanceof Function) ){
+    var block
+    if( !(fn instanceof Array) || arguments.length > 1 ){
+      block = Array.prototype.slice.call(arguments, 0)
+    }else{
+      block = fn
+    }
+    fn = function(){ task.interpret( block) }
+  }
   return function (){
     var task = CurrentStep.task
     try{
@@ -462,6 +475,9 @@ Task.step = function step( block, is_forked, is_repeated ){
   if( task.isDone )throw new Error( "Can't add new step, l8 task is done")
   var parent_step  = task.currentStep ? task.currentStep.parentStep : null
   var insert_after = task.nextStep    ? task.nextStep.previous : task.lastStep
+  if( !(block instanceof Function) ){
+    block = function(){ task.interpret( block) }
+  }
   var step = new Step( task, parent_step, insert_after, block)
   if( is_forked   ){ step.isForked   = true }
   if( is_repeated ){ step.isRepeated = true }
@@ -486,7 +502,6 @@ Task.fork = function task_fork( block, starts_paused, detached, repeated ){
       )
     }
     var new_task = new Task( task)
-    // var scoped_block = task.Task( block)
     var step = new Step( new_task, task.currentStep, null, block)
     if( starts_paused ){
       // Pause task, need a new "first step" for that
@@ -502,6 +517,192 @@ Task.fork = function task_fork( block, starts_paused, detached, repeated ){
     }
   }, true, repeated) // is_forked
 }
+
+Task.interpret = function task_interpret( steps ){
+  var task = this.current
+  var block
+  for( step in steps ){
+    if( step instanceof Function ){
+      this.step( step)
+    }else if( step instanceof Array ){
+      this.fork( step)
+    }else{
+      if( block = step.step     ){ this.step(     block) }
+      if( block = step.begin    ){ this.fork(     block) }
+      if( block = step.fork     ){ this.fork(     block) }
+      if( block = step.repeat   ){ this.repeat(   block) }
+      if( block = step.progress ){ this.progress( block) }
+      if( block = step.success  ){ this.success(  block) }
+      if( block = step.failure  ){ this.failure(  block) }
+      if( block = step.final    ){ this.final(    block) }
+    }
+  }
+  return task
+}
+
+Task.compile = function task_compile( code ){
+  // Lexer
+  code = code.toString()
+  var close = code.lastIndexOf( "}")
+  code = code.substr( 0, close) + code.substr( close + 1)
+  code = "\n begin;\n" + code + "\n end;\n"
+  var ii = 0
+  var fragment
+  var fragments = []
+  code.replace(
+    / (begin|end|step;|fork;|repeat;|progress;|success;|failure;|final;)/g,
+    function( match, keyword, index ){
+      fragment = code.substring( ii, index - 1)
+      fragments.push( fragment)
+      fragment = "~kw~" + keyword
+      fragments.push( fragment)
+      ii = index + match.length
+
+    }
+  )
+  // Parser
+  function parse( list, subtree, is_nested ){
+    var obj = {}
+    if( !list.length )return subtree
+    var head = list.shift()
+    // trace( head)
+    if( head == "~kw~end" ){
+      if( !is_nested ){
+        throw new Error( "Unexpected 'end' in L8.compile()")
+      }
+      return subtree
+    }
+    if( head == "~kw~begin" ){
+      var sub = parse( list, [], true)
+      subtree.push( {begin: sub})
+    }else if( head.indexOf( "~kw~") === 0 ){
+      obj[head.substr( 4).replace( ";", "")] = list.shift()
+      subtree.push( obj)
+    }else{
+      subtree.push( {step:head})
+    }
+    return parse( list, subtree, is_nested)
+  }
+  var tree = parse( fragments, [], false)
+  var body = tree[1].begin
+  var head = body[0].step
+  delete body[0]
+  // Code generator
+  var pushed
+  function f( code ){
+    return "function(){ " + code + " }"
+  }
+  function g( buf, kw, code ){
+    if( !code.replace( /;/g, "").replace( /\s/g, "").replace( /\n/g, "") ){
+      pushed = true
+      return ""
+    }
+    buf.push( "this." + kw + "( " + f( code) + ");\n")
+    pushed = true
+  }
+  var previous = null
+  function gen_block( head, buf, before ){
+    if( !head )return
+    var block
+    if( block = head.begin ){
+      var body_obj = []
+      var fork_obj = []
+      previous = null
+      generate( block, body_obj)
+      body_obj = body_obj.join( "")
+      if( before && before.fork ){
+        buf.push( body_obj)
+        return
+      }
+      g( fork_obj, "fork", body_obj)
+      fork_obj = fork_obj.join( "")
+      if( before && before.step ){
+        buf.push( fork_obj)
+        return
+      }
+      g( buf, "step", fork_obj)
+    }
+    else if( block = head.step     ){ g( buf, "step",     block) }
+    else if( block = head.fork     ){ g( buf, "fork",     block) }
+    else if( block = head.repeat   ){ g( buf, "repeat",   block) }
+    else if( block = head.progress ){ g( buf, "progress", block) }
+    else if( block = head.success  ){ g( buf, "success",  block) }
+    else if( block = head.failure  ){ g( buf, "failure",  block) }
+    else if( block = head.final    ){ g( buf, "final",    block) }
+  }
+  function generate( tree, buf ){
+    if( !tree.length ){
+      gen_block( previous, buf)
+      return
+    }
+    var head = tree.shift()
+    if( !head )return generate( tree, buf)
+    var block
+    pushed = false
+    if( head.begin && previous ){
+      var content
+      for( var kw in previous ){
+        content = previous[kw]
+      }
+      if( !content.replace( /;/g, "").replace( /s/g, "") ){
+        content = []
+        var tmp = previous
+        gen_block( head, content, previous)
+        previous = tmp
+        for( kw in previous ){
+          previous[kw] = content.join( "")
+        }
+        head = null
+      }
+    }
+    if( previous ){
+      gen_block( previous, buf)
+      if( !pushed ){ g( buf, "step", previous) }
+    }
+    previous = head
+    generate( tree, buf)
+  }
+  //trace( Util.inspect( fragments))
+  var str  = []
+  str.push( head)
+  generate( body, str)
+  str.push( "}")
+  trace( Util.inspect( str))
+  str = str.join( "")
+  return L8.Task( eval( str))
+}
+
+function do_something_as_task(){
+    var ii = 0
+    step; this.sleep( 1000);
+    fork; do_some_other_task();
+    fork; another_task();
+    step( a, b ); use( a); use( b);
+    step; begin
+      ii++
+      step; ha()
+    end
+    fork; begin
+      step; first()
+      failure; bad()
+    end
+    fork; begin
+      step; second()
+      failure; very_bad()
+    end
+    begin
+      step; ok()
+      failure; ok()
+    end
+    repeat; begin
+      step; act()
+      step( r ); if( !r ) this.break
+    end
+    success; done();
+    failure; problem();
+    final;   always();
+}
+trace( L8.compile( do_something_as_task))
 
 Task.spawn = function task_spawn( block, starts_paused ){
   return this.fork( block, starts_paused, true) // detached

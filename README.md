@@ -1,7 +1,8 @@
-l8 0.1.10
+l8 0.1.11
 =========
 
-L8 is a task/promise scheduler for javascript.
+L8 is a task/promise scheduler for javascript. L8 sounds like "leight",
+something between "late" and "light".
 
 A task is any activity that a "normal" non-blocking javascript function cannot
 do because... javascript's functions cannot block! Where functions provide
@@ -30,10 +31,10 @@ familiar with threads, l8 tasks should seem natural to you.
 l8 tasks are also "promises". Once a task is completed, it's promise is either
 fullfilled or rejected depending on the task success or failure.
 
-The main flow control structures are the sequential execution of steps,
-the execution of forked steps on parallel paths, steps that loop until they
-exit, steps that wait for something and error propagation similar to exception
-handling.
+The main flow control structures are the sequential execution of steps, the
+execution and join of forked steps on parallel paths, steps that loop until
+they exit, steps that wait for something and error propagation similar to
+exception handling.
 
 Steps vs Statements
 ===================
@@ -123,7 +124,8 @@ Steps are to Tasks what statements are to functions: a way to describe what
 they do.
 
 ```
-  var user; l8
+  var user;
+  l8
   .step( function(){ ajax_get_user( name)                     })
   .step( function(){ ajax_check_credential( user = l8.result) })
   .step( function(){ if( !l8.result ) l8.return();
@@ -143,7 +145,7 @@ This is less verbose with CoffeeScript:
 ```
 
 By "breaking" a function into multiple "steps", code become almost as readable
-as it would be if statements in javascript could block, minus the step noise.
+as it would be if statements in javascript could block, minus the "step" noise.
 
 This example is a fairly simple one. Execution goes from step to step in a
 sequential way. Sometimes the flow of control can be much more sophisticated.
@@ -198,10 +200,11 @@ what a task does is of course sligthly less syntaxically easy.
   }
 ```
 
-This is the "procedural" style. A "declarative" style is also available:
+This is the "procedural" style. A "declarative" style is also available where
+what is usually a function can be a list of steps:
 
 ```
-  do_something_task = l8.Task([
+  do_something_task = l8.Task(
     function(){ this.sleep( 1000) },
     {fork: function(){ do_some_other_task() }},
     {fork: function(){ do_another_task()    }},
@@ -209,30 +212,43 @@ This is the "procedural" style. A "declarative" style is also available:
       {step:    function(){...}},
       {failure: function(){...}}
     ],
+    {repeat:[
+      function(){ do_something },
+      function(r){ if( !r ) this.break }
+      {failure: function(){ ... }}
+    ]}
     {success: function(){ ...  }},
     {final:   function(){ .... }}
-  ])
+  )
 ```
 
 There is also a trans-compiler option that takes a funny looking function and
-turns it into a task constructor:
+turns it into a task constructor. It's compact but you loose the ability to
+set break-points in a debugger.
 
 ```
-  do_something_task = l8.Compile( do_something_as_task );
+  do_something_task = l8.compile( do_something_as_task );
   function do_something_as_task(){
     step; this.sleep( 1000);
     fork; do_some_other_task();
     fork; another_task();
-    step( a, b ); use( a), use( b);
+    step( a, b ); use( a); use( b);
+    begin
+      step; ...
+      failure; ...
+    end
+    repeat; begin
+      step; act()
+      step( r ); if( !r ) this.break
+    end
     success; done();
     failure; problem();
     final;   always();
   }
 ```
 
-
-Note that when do_something_as_task() is called, it does not do the actual
-work, it only registers steps. These steps, and steps later added to the task,
+Note that when do_something_task() is called, it does not do the actual work,
+it only registers future steps. These steps, and steps later added to the task,
 are executed later, in the appropriate order, until the task is fully done.
 It is then, and only then, that the on_success/on_failure callbacks of the
 task's promise will be called.
@@ -257,9 +273,6 @@ two things: it registers callbacks to call when the promise is either
 fullfilled or rejected and it also returns a new promise that will be
 fullfilled or rejected depending on the result of these callbacks; this makes
 chaining easy.
-
-l8 tasks are promises. Promise will be fullfilled or rejected when the task is
-done and either succeeded or failed.
 
 Please note that "promises" in the Javascript world is not a mature feature.
 The "de facto" CommonJS standard is beeing challenged by another "de facto"
@@ -505,6 +518,9 @@ or {
 }
 show(news);
 ```
+
+This translates to:
+
 ```
 show_news = l8.Task ->
   news = null
@@ -553,6 +569,14 @@ pipe = l8.Task (in,out) ->
     @step (data) ->
       @break if !data
       out.write data
+
+pipe = l8.compile( function( in, out ){
+  repeat; begin
+    step; in.read()
+    step( data ); if( !data ) this.break
+    out.write( data)
+  end
+})
 ```
 
 Note: for this example to work, node.js streams need to be "taskified". This
@@ -583,10 +607,6 @@ happens when a step decides that is requires additional sub steps to complete.
 On a path, execution goes from step to step. When a step involves sub-steps,
 the step is blocked until the sub-steps complete, unless sub-steps are created
 in a forked parallel path.
-
-Note: a "path" is, at the step level, what is usually called a "thread" (or a
-fiber") in languages that support this notion at the statement/expression
-level.
 
 Example:
 
@@ -646,9 +666,9 @@ Steps are useful to describe flows that depends on other flows. As a result
 a step often describes sub-steps and/or sub pathes/tasks. These steps then
 "block" waiting for the sub items to complete.
 
-For simple steps, that only depends on the completion of a simple asynchronous
+For simple steps, that only depend on the completion of a simple asynchronous
 function, walk() provides the callback to register with that function. When the
-callback is called, flows walks from the current step to the next.
+callback is called, flow walks from the current step to the next one.
 
 Note: in the frequent case where the callback only needs to store the result
 of the asychronous operation and move forward to the next step, please use
@@ -725,7 +745,7 @@ Enjoy.
 
    Jean Hugues Robert, aka @jhr, october/november 2012.
 
-PS: all this stuff is to relieve my "node anxiety".
+PS: all this stuff is to relieve me from my "node anxiety".
 See http://news.ycombinator.com/item?id=2371152
 
 
