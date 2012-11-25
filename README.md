@@ -1,4 +1,4 @@
-l8 0.1.11
+l8 0.1.12
 =========
 
 L8 is a task/promise scheduler for javascript. L8 sounds like "leight",
@@ -174,7 +174,7 @@ schedule the new task and return a Task object. Such an object is also a
 "Promise". This means that it is fairly easy to get notified of the task's
 completion, either it's success or it's failure.
 
-A "task constructor" is to a task what a function is to a "function call":
+A "task constructor" is to a "task" what a "function" is to a "function call":
 both (statically) define what happens when they are (dynamically) invoked.
 
 ```
@@ -288,10 +288,11 @@ API
 ```
   l8
      -- step/task creation. "body" can create additional steps/subtasks
-    .step(   body )     -- queue a new step on the path to task's completion
-    .repeat( body )     -- queue a loop step on a new sub-task
-    .fork(   body )     -- queue a first step on a new sub-task
-    .spawn(  body )     -- like fork() but next step does not wait for subtask
+    .step(   body )     -- queue a step on the path to task's completion
+    .task(   body )     -- queue a step that starts a blocking sub-task
+    .repeat( body )     -- queue a step that repeats a sub-task
+    .fork(   body )     -- queue a new forked sub-task, forked tasks join
+    .spawn(  body )     -- like fork() but next step does not wait for subtasks
 
     -- step walking
     .walk( block )      -- walk a step on its path, at most once per step
@@ -581,6 +582,168 @@ pipe = l8.compile( function( in, out ){
 
 Note: for this example to work, node.js streams need to be "taskified". This
 is left as an exercize.
+
+Mixing statements and steps
+---------------------------
+
+Because "steps" and "statements" are not on the same leve (steps are for task,
+statements are for functions), the classical javascript control structure have
+equivalent structures at the step level.
+
+```
+function xx(){
+  ..1..
+  try{
+    ..2..
+  catch( e ){
+    ..3..
+  finally {
+    ..4..
+  }
+  ..5..
+}
+```
+becomes:
+
+```
+xx_task = l8.Task( function(){
+  this.step( function(){
+    ..1..
+  }).step( function(){
+    this.begin.step( function(){
+      ..2..
+    }).failure( function(e){
+      ..3..
+    }).final( function(){
+      ..4..
+    }).end
+  }).step( function(){
+    ..5..
+  })
+})
+
+or
+
+xx_task = l8.compile( function(){
+  step; ..1..
+  step; begin
+    ..2...
+  failure;
+    ..3..
+  final;
+    ..4..
+  end
+  step; ..5..
+})
+```
+
+```
+while( condition ){
+  ...
+  if( extra )break
+  ...
+  if( other_extra )continue
+  ...
+}
+```
+becomes
+```
+l8.repeat( function(){
+  ...
+  if( condition ) this.break
+  ...
+  if( extra ) this.break
+  ...
+  if( other_extra ) this.continue
+  ...
+}
+
+or
+
+xx = l8.compile( function(){
+  repeat; begin
+    ...
+    if( condition ) this.break
+    ...
+    if( extra ) this.break
+    ...
+    if( other_extra ) this.continue
+    ...
+  end
+})
+```
+
+```
+for( init ; condition ; next ){
+  ...
+}
+```
+becomes:
+```
+  init
+  this.repeat( function(){
+    if( condition ) this.break
+    ...
+    next
+  })
+```
+
+```
+for( init ; condition ; next ){
+  ...
+  if( extra ) continue
+  ...
+})
+```
+becomes:
+```
+  init
+  this.repeat( function(){
+    if( condition ) this.break
+    this.step( function(){ this.begin.step( function(){
+      ...
+      if( extra ) this.return
+      ...
+    }).end }).step( function(){
+      next
+    })
+  })
+
+or
+
+xx = l8.compile( function(){
+  init; repeat ; begin ; if( condition ) this.break ; begin
+    ...
+    if( extra ) this.return
+    ...
+  end; next; end
+})
+```
+
+```
+for( var key in object ){
+  ...
+}
+```
+becomes:
+```
+  var keys, key
+  this.step( function(){
+    keys = object.keys
+  }).repeat( function(){
+    key = keys.shift()
+    ...
+  })
+
+or
+
+xx = l8.compile( function(){
+  var keys, key
+  step; keys = object.keys; repeat; begin; key = keys.shift()
+    ...
+  end
+})
+```
 
 
 Design
