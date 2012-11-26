@@ -1,4 +1,4 @@
-l8 0.1.12
+l8 0.1.13
 =========
 
 L8 is a task/promise scheduler for javascript. L8 sounds like "leight",
@@ -234,10 +234,12 @@ set break-points in a debugger.
     fork; another_task();
     step( a, b ); use( a); use( b);
     begin
+      ...
       step; ...
       failure; ...
     end
     repeat; begin
+      ...
       step; act()
       step( r ); if( !r ) this.break
     end
@@ -289,10 +291,10 @@ API
   l8
      -- step/task creation. "body" can create additional steps/subtasks
     .step(   body )     -- queue a step on the path to task's completion
-    .task(   body )     -- queue a step that starts a blocking sub-task
-    .repeat( body )     -- queue a step that repeats a sub-task
+    .task(   body )     -- queue a step that waits on a blocking sub-task
     .fork(   body )     -- queue a new forked sub-task, forked tasks join
-    .spawn(  body )     -- like fork() but next step does not wait for subtasks
+    .spawn(  body )     -- like fork() but next step does not wait for subtask
+    .repeat( body )     -- queue a step that repeats a blocking sub-task
 
     -- step walking
     .walk( block )      -- walk a step on its path, at most once per step
@@ -339,15 +341,14 @@ API
 
     -- misc
     .l8                 -- return global L8 object, also root task
-    .task               -- return current task
-    .current            -- alias for .task
+    .current            -- return current task
     .parent             -- return parent task
-    .tasks              -- return immediate sub tasks
+    .tasks              -- return immediate pending sub tasks
     .top                -- return top task of sub task (child of l8 root task)
 
     -- scoping (value of "this" related)
-    .begin              -- enter new L8 scope, "on the fly" task creation
-    .end                -- leave scope or loop
+    .begin              -- create a new task
+    .end                -- start that new task and return parent task
     .Task( function )   -- return the .begin/.end guarded version of a function
 
   All these methods, if invoked against the global L8 object, will usually get
@@ -440,7 +441,16 @@ Back to Javascript:
 ```
   fetch = l8.Task( function( a ){
     this.step( function(){ meth1( a) })
-    this.step( function(){ meth2( b) })
+    this.step( function(){ meth2( a) })
+  })
+```
+
+Using the "trans-compiler":
+
+```
+  fetch = l8.compile( function( a ){
+    step; meth1( a);
+    step; meth2( a);
   })
 ```
 
@@ -481,10 +491,11 @@ Repeated steps, externally terminated, gently:
       @step -> @delay 10000 if @parent.tasks.length > 10
       @step ->
         @break if @stopping
-        scrap url, @walk (err,urls) ->
-          return if err or @stopping
-          for url in urls
-            queue.unshift url unless url in queue
+        scrap url, @next
+      @step (err,urls) ->
+        return if err or @stopping
+        for url in urls
+          queue.unshift url unless url in queue
 
   spider_task = l8.spawn -> spider( "http://xxx.com")
   ...
