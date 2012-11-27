@@ -1,4 +1,4 @@
-l8 0.1.13
+l8 0.1.14
 =========
 
 L8 is a task/promise scheduler for javascript. L8 sounds like "leight",
@@ -21,7 +21,7 @@ like a function is made of statements. Steps are walked on multiple "paths".
 Such tasks and paths (sub-tasks) can nest, like blocks of statements.
 
 Execution goes from "step" to "step", steps are closures. If one cannot walk a
-step immediatly, one can block, waiting for something before resuming.
+step immediatly, one does block, waiting for something before resuming.
 
 l8 tasks are kind of user level non preemptive threads. They are neither
 native threads, nor worker threads, nor fibers nor the result of some CPS
@@ -47,7 +47,7 @@ means that a statement cannot "block". It is executed with no delay, it cannot
 As a result there is only one "thread" of execution and any activity that
 cannot complete immediately needs to register code to execute later when
 some "event" occurs. This single thread runs a tight loop that consumes events
-and run code registered to handle them. This is "the event loop"
+and run code registered to handle them. This is "the event loop".
 
 ```
   while( true ){
@@ -174,15 +174,15 @@ schedule the new task and return a Task object. Such an object is also a
 "Promise". This means that it is fairly easy to get notified of the task's
 completion, either it's success or it's failure.
 
-A "task constructor" is to a "task" what a "function" is to a "function call":
-both (statically) define what happens when they are (dynamically) invoked.
-
 ```
   var new_task = do_something_task()
   new_task.then( on_success, on_failure)
   function on_success( result ){ ... }
   function on_failure( reason ){ ... }
 ```
+
+A "task constructor" is to a "task" what a "function" is to a "function call":
+both define (statically) what happens when they are invoked (dynamically).
 
 Tasks queue steps that the l8 scheduler will execute much like functions queue
 statements that the Javascript interpretor execute. With functions, statements
@@ -271,8 +271,8 @@ The "de facto" current standard for promises is part of the CommonJS effort:
 http://wiki.commonjs.org/wiki/Promises/A
 
 Such a "promise" is any object that provides a "then" method. That method does
-two things: it registers callbacks to call when the promise is either
-fullfilled or rejected and it also returns a new promise that will be
+two things: it registers callbacks to call when the promise is either, later or
+now, fullfilled or rejected and it also returns a new promise that will be
 fullfilled or rejected depending on the result of these callbacks; this makes
 chaining easy.
 
@@ -597,8 +597,8 @@ is left as an exercize.
 Mixing statements and steps
 ---------------------------
 
-Because "steps" and "statements" are not on the same leve (steps are for task,
-statements are for functions), the classical javascript control structure have
+Because "steps" and "statements" are not on the same level (steps are for task,
+statements are for functions), the classical javascript control structures have
 equivalent structures at the step level.
 
 ```
@@ -657,7 +657,8 @@ while( condition ){
   ...
 }
 ```
-becomes
+becomes:
+
 ```
 l8.repeat( function(){
   ...
@@ -689,7 +690,9 @@ for( init ; condition ; next ){
   ...
 }
 ```
+
 becomes:
+
 ```
   init
   this.repeat( function(){
@@ -824,14 +827,17 @@ inserted, the next non forked step will execute when all the forked steps are
 done. The result of such multiple steps is the result of the last executed step
 prior to execution of the non forked step. This is a "join". When only one
 forked step is inserted, this is similar to calling a function, ie the next
-step receives the result of the task that ran the forked step.
+step receives the result of the task that ran the forked step. There is a
+shortcut for that special frequent case, please use .task().
 
 To insert steps that won't block the current step, use spawn() instead. Such
 steps are also run in a new task but the current step is not blocked until
 the new task is complete. However, task won't reach completion until all spawn
 subtasks complete.
 
-Note that is it possible to cancel tasks and/or their subtasks.
+Note that is it possible to cancel tasks and/or their subtasks. That cancel
+action can be either "gentle" (using .stop() & .stopping) or "brutal" using
+.cancel().
 
 Blocking
 --------
