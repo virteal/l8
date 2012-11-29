@@ -370,7 +370,7 @@ API
     .node( callback )   -- register Nodejs style callback, ie cb( err, result )
 
   To synchronize the access to resources, L8 provide a few well known basic
-  solutions:
+  solutions implemented using promises and invoked using task.wait( ressource):
 
   .semaphore( [n] )     -- create a new semaphore, also a promise provider
   .mutex( [entered] )   -- create a new mutex, also a ...
@@ -382,11 +382,10 @@ API
 
   These objects provide:
 
-    .wait()             -- pause current task until resource is acquired
     .promise            -- provide a promise fullfilled when rsrc is acquired
-    .signal( [result] ) -- release resource
+    .resolve()          -- make resource available
+    .reject()           -- reject pending promises
     .task               -- resource owner task, when applicable (mutex & lock)
-    .cancel()           -- cancel paused tasks and reject pending promises
 
   Message queues are useful to synchronize a consumer and a producer:
 
@@ -403,8 +402,7 @@ API
   met:
 
     .promise            -- a promise fullfilled when signal is next signaled
-    .wait()             -- pause current task until signal is signaled
-    .signal( [msg])     -- resume all paused tasks & pending promises
+    .resolve()          -- resolve all pending promises
 
 ```
 
