@@ -1,4 +1,4 @@
-l8 0.1.17
+l8 0.1.18
 =========
 
 L8 is a task/promise scheduler for javascript. L8 sounds like "leight",
@@ -287,6 +287,18 @@ implementations, including jQuery's one.
 One can invoke .then() multiple times on the same promise. When that promise is
 either fullfilled or rejected, all the registered callbacks are processed.
 
+Generators
+----------
+
+Generators are subtasks that provide a result in multiple pieces instead of in
+just one piece as regular tasks do. Such a task is a "producer" of results,
+some other task, often the one that spawn the generator, is the "consumer" of
+these results.
+
+Consumers usually consume the next result that some subtask yields until the
+generator reaches an end and is closed, either by the producer or the consumer.
+
+
 API
 ===
 
@@ -296,8 +308,9 @@ API
     .step(   body )     -- queue a step on the path to task's completion
     .task(   body )     -- queue a step that waits on a blocking sub-task
     .fork(   body )     -- queue a new forked sub-task, forked tasks join
-    .spawn(  body )     -- like fork() but next step does not wait for subtask
     .repeat( body )     -- queue a step that repeats a blocking sub-task
+    .spawn(  body )     -- like fork() but next step does not wait for subtask
+    .generator( body )  -- queue a step that spwan a paused subtask
 
     -- step walking
     .next( block )      -- walk a step on its path, at most once per step
@@ -325,9 +338,6 @@ API
     .pause              -- block task at step, waiting until task is resumed
     .paused             -- return true if task was paused
     .resume             -- resume execution of task paused at some step
-    .yield( value )     -- like "pause" but provides a result and returns one
-    .value              -- a promise fullfilled when task next yields
-    .again( value )     -- like "resume" but provides a result and returns one
     .running            -- true if task not done nor paused
     .cancel             -- cancel task & its sub tasks, brutal
     .canceled           -- true if task failed because it was canceled
@@ -370,27 +380,28 @@ API
     .node( callback )   -- register Nodejs style callback, ie cb( err, result )
 
   To synchronize the access to resources, L8 provide a few well known basic
-  solutions implemented using promises and invoked using task.wait( ressource):
+  solutions implemented using promises and invoked using task.wait( resource):
 
   .semaphore( [n] )     -- create a new semaphore, also a promise provider
-  .mutex( [entered] )   -- create a new mutex, also a ...
-  .lock( [nentered] )   -- create new lock (reentrant mutex), ...
-  .queue( [bound] )     -- create a new message queue, ...
-  .signal( [on/off] )   -- create a new signal, ...
-  .selector(promises)   -- create a new selector, fires when any promise does
-  .aggregator(promises) -- create a new aggregator, fires when all promises did
+  .mutex( [entered] )   -- ... a new mutex, also a ...
+  .lock( [nentered] )   -- ... lock (reentrant mutex), ...
+  .queue( [bound] )     -- message queue, ...
+  .port()               -- like a message queue but without any buffering
+  .signal()             -- signal, ..., like a promise that fires many times
+  .timeout( delay )     -- a promise fulfilled after a delay
+  .generator( block )   -- spawn a generator task, paused until first .next()
 
-  These objects provide:
+  Semaphores, mutexes and locks provide
 
     .promise            -- provide a promise fullfilled when rsrc is acquired
-    .resolve()          -- make resource available
-    .reject()           -- reject pending promises
+    .release()          -- make resource available
+    .close()            -- reject pending promises
     .task               -- resource owner task, when applicable (mutex & lock)
 
   Message queues are useful to synchronize a consumer and a producer:
 
-    .out                -- a "can get()" promise, alias for .promise
-    .in                 -- a "can put()" promise
+    .in                 -- a "can get()" promise, alias for .promise
+    .out                -- a "can put()" promise
     .get()              -- pause current task until queue is not empty, get msg
     .put( [msg] )       -- pause current task until queue is not full, put msg
     .capacity           -- total capacity (bound)
@@ -402,7 +413,22 @@ API
   met:
 
     .promise            -- a promise fullfilled when signal is next signaled
-    .resolve()          -- resolve all pending promises
+    .signal( value )    -- signal signal, resolve all pending promises
+
+  Generators let a producer and a consumer collaborate in a next()/yield() way:
+
+    .in                 -- a "can next()" promise, alias for .promise
+    .out                -- a "can yield()" promise
+    .next( [msg] )      -- pause task until producer yields, send it a msg
+    .yield( msg )       -- pause task until consumer calls .next(), send a msg
+    .close()            -- break paused tasks (using .break())
+    .closed             -- true once generator is closed
+
+  Many things are possible when you have a hand of promises:
+
+  .selector( promises )  -- fires when any promise does
+  .aggregator( promises) -- collect results, fires when all promises did
+
 
 ```
 
@@ -640,7 +666,7 @@ Access to a critical resource:
   TBD
 ```
 
-Producer/consumer queue:
+Producer/consumer:
 
 ```
   TBD
@@ -983,5 +1009,4 @@ Enjoy.
 
 PS: all this stuff is to relieve me from my "node anxiety".
 See http://news.ycombinator.com/item?id=2371152
-
 
