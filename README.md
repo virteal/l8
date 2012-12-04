@@ -1,4 +1,4 @@
-l8 0.1.18
+l8 0.1.20
 =========
 
 L8 is a task/promise scheduler for javascript. L8 sounds like "leight",
@@ -33,8 +33,9 @@ fullfilled or rejected depending on the task success or failure.
 
 The main flow control structures are the sequential execution of steps, the
 execution and join of forked steps on parallel paths, steps that loop until
-they exit, steps that wait for something and error propagation similar to
-exception handling.
+they exit, steps that wait for something, error propagation similar to
+exception handling and synchronisation using the usual suspects (semaphores,
+mutexes, reentrant locks, message queues, ports, signals, generators...)
 
 Steps vs Statements
 ===================
@@ -280,12 +281,17 @@ chaining easy.
 Please note that "promises" in the Javascript world is not a mature feature.
 The "de facto" CommonJS standard is beeing challenged by another "de facto"
 strong contender: jQuery. Their implementation of then() differs significantly
-regarding chaining and exception handling. l8 does not use these features (but
-provides them) and consequently .wait( promise) should work with most
-implementations, including jQuery's one.
+regarding chaining and exception handling. l8.wait() does not use these
+features and consequently .wait() should work with most implementations,
+including jQuery's one.
 
 One can invoke .then() multiple times on the same promise. When that promise is
 either fullfilled or rejected, all the registered callbacks are processed.
+
+Some features of L8 that involve promises require a promise factory. L8 can use
+the factories of Q.js, When.js, Angular.js, etc. The factory must return a new
+object that supports .resolve(), .reject() and a .promise() that returns an
+object that supports a Promise/A compliant .then().
 
 Generators
 ----------
@@ -349,6 +355,7 @@ API
     .fail               -- true if task done but with an error
     .error              -- last raised error (ie last thrown exception)
     .result             -- result of last executed step
+    .results            -- array of results of forked tasks
     .timeout( milli )   -- cancel task if it is not done in time
     .sleep( milli )     -- block on step for a while, then move to next step
     .wait( promise )    -- block task until some lock opens, promise agnostic
@@ -368,16 +375,6 @@ API
   All these methods, if invoked against the global L8 object, will usually get
   forwarded to the "current task", the task that is currently executing. That
   task is often the returned value of such methods, when it makes sense.
-
-    -- for promise producers
-  .promise( [val,err] ) -- create a new promise
-    .resolve(  result ) -- fullfill promise, with a value
-    .reject(   reason ) -- fail promise, with the error's reason
-    .progress( infos )  -- signal progress
-
-    -- for promise consumers
-    .then( ok, ko, ev ) -- register callbacks, return new chained promise
-    .node( callback )   -- register Nodejs style callback, ie cb( err, result )
 
   To synchronize the access to resources, L8 provide a few well known basic
   solutions implemented using promises and invoked using task.wait( resource):
@@ -891,17 +888,10 @@ Adding steps
 ------------
 
 Execution goes "step by step" until task completion. Steps to execute are
-queued. When a new step is created, it is usually added at the end of the queue
-for the currenty executing task. Sometimes however, one wants to queue new
-steps right after the currently executing step. This is typically the case
-when a step needs to schedule work for multiple items. Such "steps" are either
-sequential steps or steps to walk on parallel sub-pathes. It also happens when
-a step discovers that it requires additional sub-steps to complete.
+queued. To queue  a new step to execute after the currently executing step, use
+.step(). Such steps are run once the current step is completed, FIFO order.
 
-To queue  a new step to execute after the currently executing step, use step().
-Such steps are run once the current step is completed, FIFO order.
-
-To insert a new step on a new parallel task/path, use fork(). Such steps block
+To insert a new step on a new parallel task/path, use .fork(). Such steps block
 the current step until they are completed. When multiple such forked steps are
 inserted, the next non forked step will execute when all the forked steps are
 done. The result of such multiple steps is the result of the last executed step
@@ -976,9 +966,7 @@ The l8 API defines a concept of Task/Path/Step entities that works nicely in
 the async/callback dominated world of Javascript and yet manage to provide some
 useful tools (hopefully) to address the infamous "callback hell" issue.
 
-However these tools are very basic. pause/resume and fork/join are building
-blocks only. Semaphores, mutexes, locks and message queues are the basic usual
-suspects.
+However these tools are very basic.
 
 One way to improve on that situation is to use one of the multiple existing
 "promise" handling libraries, such as Q, when and rsvp. See also

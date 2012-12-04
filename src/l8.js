@@ -59,22 +59,30 @@ function trace(){
  *  Task & Step
  */
 
-function Task( parent ){
+var NextTaskId = 0
+
+function Task( parent, spawn ){
 // Tasks are like function call activation records, but with a spaghetti stack
 // because more than one child task can be active at the same time.
-  this.id              = ++L8.taskCount
-  if( DEBUG ) this.stepCount = 0  // Step ids generator
-  this.firstStep       = null
-  this.parentTask      = parent   // aka "caller"
-  this.currentStep     = null     // What step the task is on, aka "IP"
-  this.insertionStep   = null     // Where steps are usually added
-  this.pausedStep      = null     // What step the task is paused on
-  this.queuedTasks     = null     // Subtasks that block this task
-  this.queuedTaskCount = 0        // ToDo: faster impl, linked list
-  this.stepResult      = undefined
-  this.stepError       = undefined
-  this.isDone          = false    // False while task is pending
-  this.optional        = {}
+  this.id               = NextTaskId++
+  if( DEBUG ){
+    this.stepCount = 0  // Step ids generator
+  }
+  this.firstStep        = void null
+  this.currentStep      = void null // What step the task is on, aka "IP"
+  this.insertionStep    = void null // Where steps are usually added
+  this.pausedStep       = void null // What step the task is paused on
+  this.wasSpawn         = spawn
+  this.stepResult       = void null
+  this.stepError        = void null
+  this.isDone           = false     // False while task is pending
+  this.subtasks         = void null // a set, keys are task.id
+  this.subtasksCount    = 0         // size of that set
+  this.parentTask       = parent    // aka "caller"
+  this.forkedTasks      = void null // Subtasks that block this task
+  this.forkedTasksCount = 0
+  this.forkedResults    = void null
+  this.optional         = {}
   /*
   this.optional.wasCanceled     = false    // "brutal cancel" flag
   this.optional.shouldStop      = false    // "gentle cancel" flag
@@ -85,19 +93,28 @@ function Task( parent ){
   this.optional.donePromise     = null
   */
   // Add new task to it's parent's list of pending subtasks
-  this.subTasks        = null
-  this.subTaskCount    = 0
   if( parent ){
-    if( parent.subTasks ){
-      parent.subTaskCount++
-    }else{
-      parent.subTasks = {}
-      parent.subTaskCount = 1
+    while( parent.isDone ){
+      parent = parent.parentTask
     }
-    // ToDo: faster implementation using doubly linked list
-    parent.subTasks[this.id] = this
+    if( parent.subtasks ){
+      parent.subtaskCount++
+    }else{
+      parent.subtasks = {}
+      parent.subtasksCount = 1
+    }
+    parent.subtasks[this.id] = this
+    if( !spawn && parent != L8 ){
+      if( !parent.forkedTasks ){
+        parent.forkedTasks      = []
+        parent.forkedTasksCount = 1
+      }else{
+        parent.forkedTasksCount++
+      }
+      parent.forkedTasks.push( this)
+    }
   }
-  if( TraceStartTask && L8.taskCount >= TraceStartTask )trace( "New", this)
+  if( TraceStartTask && TraceStartTask >= NextTaskId )trace( "New", this)
   return this
 }
 var ProtoTask = Task.prototype
@@ -132,7 +149,7 @@ function Step( task, block ){
     previous.next.previous = this
     previous.next = this
   }
-  if( TraceStartTask && L8.taskCount >= TraceStartTask ){
+  if( TraceStartTask && NextTaskId > TraceStartTask ){
     trace(
       "New", this,
       this === task.firstStep ? "first" : ""
@@ -143,14 +160,13 @@ function Step( task, block ){
 var ProtoStep = Step.prototype
 
 // Bootstrap root task, id 0
-L8 = {taskCount:-1}
-L8 = l8 = L8.L8 = L8.l8 = new Task()
-L8.taskCount   = 0
-L8.local       = {root:L8}
+L8 = new Task()
+l8 = L8.L8 = L8.l8 = L8
 L8.queuedStep  = null
 L8.stepQueue   = []
 L8.isScheduled = false
 var CurrentStep = new Step( L8)
+CurrentStep.isRepeated = true
 L8.currentStep = L8.pausedStep = CurrentStep
 
 // Browser & nodejs compatible way to schedule code exectution in event loop.
@@ -218,7 +234,7 @@ L8.enqueueStep = function enqueue_step( step ){
   // Wake up scheduler if necessary, it will eventually execute this step
   L8.scheduler()
   // Debug traces
-  if( TraceStartTask && L8.taskCount >= TraceStartTask ){
+  if( TraceStartTask && NextTaskId > TraceStartTask ){
     if( L8.queuedStep ){
       L8.queuedStep.trace( "queued step")
     }else{
@@ -263,7 +279,7 @@ ProtoStep.trace = function step_trace( msg ){
 
 ProtoStep.execute = function step_execute(){
   var task         = this.task
-  if( TraceStartTask && L8.taskCount >= TraceStartTask ){
+  if( TraceStartTask && NextTaskId > TraceStartTask ){
     this.trace( "DEBUG execute")
   }
   if( task.isDone )throw new Error( "BUG, execute a done l8 step: " + this)
@@ -279,12 +295,17 @@ ProtoStep.execute = function step_execute(){
     // If step(), don't provide any parameter
     if( !block.length ){
       result = block.apply( task)
-    // If step( r), provide last result as a single parameter
+    // If step( r), provide forks results or last result as a single parameter
     }else if( block.length === 1 ){
-      result = block.apply( task, [task.stepResult])
-    // If step( a, b, ...), assume last result is an array
+      result = block.apply( task, task.forkResults || [task.stepResult])
+    // If step( a, b, ...), forks results or assume last result is an array
     }else{
-      result = block.apply( task, task.stepResult)
+      result = block.apply(
+        task,
+        (task.forkedResults && task.forkedResults.length > 1)
+        ? task.forkedResults
+        : task.stepResult
+      )
     }
     // Update last result only when block returned something defined.
     // Result is set asynchronously using next(), see below
@@ -295,7 +316,7 @@ ProtoStep.execute = function step_execute(){
   }catch( e ){
     // scheduleNext() will handle the error propagation
     task.stepError = e
-    if( TraceStartTask && L8.taskCount >= TraceStartTask ){
+    if( TraceStartTask && NextTaskId > TraceStartTask ){
       this.trace( "DEBUG execute failed: " + e)
     }
   }finally{
@@ -317,25 +338,18 @@ ProtoStep.scheduleNext = function schedule_next(){
       redo = false
     }
   }
-  var queue = task.queuedTasks
-  var subtasks
-  var subtask_id
-  var subtask
-  // When no error, wait for subtask if any, else move to next step or loop
+  // When no error, wait for subtasks if any, else move to next step or loop
   if( !task.stepError ){
     var next_step = redo ? this : this.next
     if( next_step ){
       if( !this.isForked || !next_step.isForked || redo ){
         // Regular steps wait for subtasks, fork steps don't
-        if( queue ){
-          for( subtask in queue ){
-            this.isBlocking = true
-            task.pausedStep = this
-            return
-          }
+        if( task.forkedTasksCount ){
+          this.isBlocking = true
+          task.pausedStep = this
+          return
         }
       }
-      // If loop, don't block the global event loop
       if( redo ){
         L8.nextTick( function(){ L8.enqueueStep( next_step) })
       }else{
@@ -343,30 +357,15 @@ ProtoStep.scheduleNext = function schedule_next(){
       }
       return
     }
-    // When all steps are done, wait for spawn subtasks
+    // When all steps are done, wait for all subtasks
     this.isBlocking = true
     task.pausedStep = this
-    if( queue ){
-      for( subtask in queue )return
-    }
-    if( subtasks = task.subTasks ){
-      for( subtask_id in subtasks ){
-        subtask = subtasks[subtask_id]
-        if( subtask.isDone || (queue && queue[subtask.id]) )continue
-        queue[subtask.id] = task
-        task.queuedTaskCount++
-        return
-      }
-    }
-  // When error, cancel all remaining subtasks, both queued and spawn ones
+    if( task.subtasks )return
+  // When error, cancel all remaining subtasks
   }else{
-    if( queue ){
-      for( subtask_id in queue ){
-        queue[subtask_id].cancel()
-      }
-    }
-    if( subtasks = task.subTasks ){
-      for( subtask_id in subtasks ){
+    var subtasks = task.subtasks
+    if( subtasks ){
+      for( var subtask_id in subtasks ){
         subtasks[subtask_id].cancel()
       }
     }
@@ -379,113 +378,86 @@ ProtoStep.scheduleNext = function schedule_next(){
   task.isDone     = true
   var exit_repeat = false
   var block
-  try{
-    if( task.stepError === L8.returnEvent ){
-      task.stepError = undefined
-    }else if( task.stepError === L8.breakEvent ){
-      task.stepError = undefined
-      exit_repeat    = true
-    }
-    task.progressing()
-    try{
-      if( task.stepError ){
-        if( block = task.optional.failureBlock ){
-          try{
-            block.call( task, task.stepError)
-          }catch( e ){
-            throw e
-          }
-        }else{
-          throw task.stepError
-        }
-      }else{
-        if( block = task.optional.successBlock ){
-          try{
-            block.call( task, task.stepResult)
-          }catch( e ){
-            throw e
-          }
-        }
-      }
-    }catch( e ){
-      task.stepError = e
-      throw e
-    }finally{
+  if( task.stepError === L8.returnEvent ){
+    task.stepError = undefined
+  }else if( task.stepError === L8.breakEvent ){
+    task.stepError = undefined
+    exit_repeat    = true
+  }
+  task.progressing()
+  if( task.stepError ){
+    if( block = task.optional.failureBlock ){
       try{
-        if( block = task.optional.finalBlock ){
-          try{
-            block.call( task, task.stepError, task.stepResult)
-          }catch( e ){
-            task.stepError = e
-            throw e
-          }
-        }
-      }finally{
-        var err  = task.stepError
-        var promise = task.optional.donePromise
-        if( promise ){
-          if( err ){
-            promise.reject( err)
-          }else{
-            promise.resolve( rslt)
-          }
-        }
+        block.call( task, task.stepError)
+        task.stepError = undefined
+      }catch( e ){
+        task.stepError = e
       }
     }
-  }catch( e ){
-    task.stepError = e
-    if( !task.parentTask === L8 ){
-      task.parentTask.raise( e)
-    }else{
-      throw e
-    }
-  }finally{
-    try{
-      if( exit_repeat && task.parentTask ){
-        if( task.parentTask.currentStep.isRepeated ){
-          task.parentTask.currentStep.isRepeated = false
-        }else{
-          task.stepError = L8.breakEvent
-          task.parentTask.raise( L8.breakEvent)
-        }
+  }else{
+    if( block = task.optional.successBlock ){
+      try{
+        block.call( task, task.stepResult)
+      }catch( e ){
+        task.stepError = e
       }
-    }finally{
-      if( task.parentTask ){ task.parentTask.subtaskDoneEvent( task) }
     }
   }
+  if( block = task.optional.finalBlock ){
+    try{
+      block.call( task, task.stepError, task.stepResult)
+    }catch( e ){
+      task.stepError = e
+    }
+  }
+  var err  = task.stepError
+  var promise = task.optional.donePromise
+  if( promise ){
+    if( err ){
+      promise.reject( err)
+    }else{
+      promise.resolve( rslt)
+    }
+  }
+  if( exit_repeat && task.parentTask ){
+    if( task.parentTask.currentStep.isRepeated ){
+      task.parentTask.currentStep.isRepeated = false
+    }else{
+      task.stepError = L8.breakEvent
+      task.parentTask.raise( L8.breakEvent)
+    }
+  }
+  if( task.parentTask ){ task.parentTask.subtaskDoneEvent( task) }
 }
 
 ProtoTask.subtaskDoneEvent = function subtask_done_event( subtask ){
 // Private. Called by .execute() when task is done
-  var task = this
-  delete task.subTasks[subtask.id]
-  if( --task.subTaskCount === 0 ){
-    task.subTasks = null
+  //delete task.subTasks[subtask.id]
+  if( --this.subtasksCount === 0 ){
+    this.subtasks = null
   }
-  if( task.queuedTasks
-  &&  task.queuedTasks[subtask.id]
-  ){
-    delete task.queuedTasks[subtask.id]
-    if( --task.queuedTaskCount === 0 ){
-      task.queuedTasks = null
-      if( task.pausedStep ){
-        task.stepResult = subtask.stepResult
-        task.resume()
+  if( !subtask.wasSpawn ){ // && this.parentTast ){
+    // When a forked task fails, parent will cancel the other forks
+    if( subtask.stepError ){
+      this.stepError = subtask.stepError
+    }else{
+      if( !this.forkResults ){
+        this.forkResults = [subtask.stepResult]
+      }else{
+        this.forkResults.push( subtask.stepResult)
       }
-      // ToDo: error propagation
+    }
+    // When all forks succeed, resume parent with list of results
+    if( --this.forkedTasksCount <= 0 || this.stepError ){
+      this.stepResult = subtask.stepResult
+      var paused_step = this.pausedStep
+      if( !paused_step )bug( "DEBUG paused_step is null")
+      this.pausedStep = null
+      paused_step.isBlocking = false
+      paused_step.scheduleNext()
+      this.forkedTasks = null
     }
   }
-}
-
-ProtoTask.enqueueTask = function task_enqueue_task( task ){
-  if( this === L8 )return
-  if( this.queuedTasks ){
-    this.queuedTaskCount++
-  }else{
-    this.queuedTasks = {}
-    this.queuedTaskCount = 1
-  }
-  this.queuedTasks[task.id] = task
 }
 
 ProtoTask.step = function step( block, is_forked, is_repeated ){
@@ -567,7 +539,6 @@ ProtoTask.Task = function task_task( fn ){
   return function (){
     var parent_task = CurrentStep.task.isDone ? L8 : CurrentStep.task
     var task = new Task( parent_task)
-    parent_task.enqueueTask( task)
     var args = arguments
     new Step( task, function(){
       return fn.apply( task, args)
@@ -633,6 +604,14 @@ ProtoTask.__defineSetter__( "result", function( val){
   return this.current.stepResult = val
 })
 
+ProtoTask.__defineGetter__( "results", function(){
+  return this.current.forkedResults
+})
+
+ProtoTask.__defineSetter__( "results", function( val){
+  return this.current.forkedResults = val
+})
+
 ProtoTask.__defineGetter__( "error", function(){
   return this.current.stepError
 })
@@ -659,7 +638,7 @@ ProtoTask.__defineGetter__( "canceled", function(){
 
 ProtoTask.task = function task_task( block, forked, paused, detached, repeat ){
 // Add a step that will start a new task with some initial step to execute
-  if( TraceStartTask && L8.taskCount >= TraceStartTask ){
+  if( TraceStartTask && NextTaskId > TraceStartTask ){
     trace( this.current.currentStep , "invokes fork()",
       forked   ? "forked"   : "",
       paused   ? "paused"   : "",
@@ -669,7 +648,7 @@ ProtoTask.task = function task_task( block, forked, paused, detached, repeat ){
   }
   return this.step( function(){
     var task = this.current
-    if( TraceStartTask && L8.taskCount >= TraceStartTask ){
+    if( TraceStartTask && TraceStartTask >= NextTaskId ){
       trace( task.currentStep , "executes scheduled fork",
         forked   ? "forked"   : "",
         paused   ? "paused"   : "",
@@ -677,10 +656,7 @@ ProtoTask.task = function task_task( block, forked, paused, detached, repeat ){
         repeat   ? "repeated" : ""
       )
     }
-    var new_task = new Task( task)
-    if( !detached ){
-      task.enqueueTask( new_task)
-    }
+    var new_task = new Task( task, detached)
     if( paused ){
       // Pause task, need a new "first step" for that
       new Step( new_task)
@@ -1084,29 +1060,34 @@ trace( L8.compile( do_something_as_task))
 ProtoTask.then = function task_then( success, failure, progress ){
   var promise = this.optional.donePromise
   if( !promise ){
-    promise = this.optional.donePromise = new Promise()
+    promise = this.optional.donePromise = MakePromise()
   }
   return promise.then( success, failure, progress)
 }
 
-function Promise( resolved, rejected ){
+function Promise(){
 // Promise/A compliant. See https://gist.github.com/3889970
-  if( resolved && rejected )throw new Error( "inconsistent promise")
-  this.wasResolved   = !!resolved
-  this.resolveValue  = resolved
-  this.wasRejected   = !!rejected
-  this.rejectReason  = rejected
-  this.allHandlers   = null
+  this.wasResolved  = false
+  this.resolveValue = undefined
+  this.wasRejected  = false
+  this.rejectReason = undefined
+  this.allHandlers  = null
   return this
 }
 ProtoPromise = Promise.prototype
 
-ProtoTask.__defineGetter__( "promise", function task_promise(){
+var Q = null
+function MakePromise(){
+  if( Q )return Q.defer()
   return new Promise()
+}
+
+ProtoTask.__defineGetter__( "promise", function task_promise(){
+  return MakePromise()
 })
 
 ProtoPromise.then = function promise_then( success, failure, progress ){
-  var new_promise = new Promise()
+  var new_promise = MakePromise()
   if( !this.allHandlers ){
     this.allHandlers = []
   }
@@ -1247,34 +1228,25 @@ ProtoTask.raise = function task_raise( err ){
   var task = this.current
   if( task.isDone )return
   err = task.stepError = err || task.stepError || L8.failureEvent
-  if( task.pausedStep ){
-    // If task waits for another one to yield, raise error in it too
-    var yielding_task = task.yieldingTask
-    if( yielding_task ){
-      yielding_task.raise( err)
+  var step = task.currentStep
+  if( step ){
+    // If there exists subtasks, forward error to them
+    var queue =  task.forkedTasks
+    if( queue  ){
+      for( var subask in queue ){
+        queue[subtask].raise( err)
+      }
+      return
     }
-    task.resume()
+    // error are forwarded to parent, unless catched, in scheduleNext()
+    if( step.isBlocking ){
+      step.isBlocking = false
+      step.scheduleNext()
+    }else if( step === CurrentStep ){
+      throw err
+    }
   }else{
-    var step = task.currentStep
-    if( step ){
-      // If there exists subtasks, forward error to them
-      var queue =  task.queuedTasks
-      if( queue  ){
-        for( var subask in queue ){
-          queue[subtask].raise( err)
-        }
-        return
-      }
-      // error are forwarded to parent, unless catched, in scheduleNext()
-      if( step.isBlocking ){
-        step.isBlocking = false
-        step.scheduleNext()
-      }else if( step === CurrentStep ){
-        throw err
-      }
-    }else{
-      trace( "Unhandled exception", e, e.stack)
-    }
+    de&&bug( "Unhandled exception", err, err.stack)
   }
   return task
 }
@@ -1313,7 +1285,7 @@ ProtoSemaphore.then = function( callback ){
 }
 
 ProtoSemaphore.__defineGetter__( "promise", function(){
-  var promise = new Promise()
+  var promise = MakePromise()
   if( this.closed ){
     promise.reject( L8.CloseEvent)
     return
@@ -1365,7 +1337,7 @@ ProtoTask.mutex = function task_mutex( entered ){
 }
 
 ProtoMutex.__defineGetter__( "promise", function(){
-  var promise = new Promise()
+  var promise = MakePromise()
   var task = CurrentStep.task
   // when no need to queue...
   if( !this.entered || this.task === task ){
@@ -1430,7 +1402,7 @@ ProtoTask.lock = function task_lock( count ){
 
 ProtoLock.__defineGetter__( "promise", function(){
   var that    = this
-  var promise = new Promise()
+  var promise = MakePromise()
   if( this.mutex.task === CurrentStep.task ){
     this.count++
     promise.resolve( that)
@@ -1545,13 +1517,13 @@ ProtoPort.tryPut = function( msg ){
 
 ProtoPort.__defineGetter__( "in", function(){
   return this.getPromise
-  ? this.getPromise = new Promise()
+  ? this.getPromise = MakePromise()
   : this.getPromise
 })
 
 ProtoPort.__defineGetter__( "out", function(){
   return this.putPromise
-  ? this.putPromise = new Promise()
+  ? this.putPromise = MakePromise()
   : this.putPromise
 })
 
@@ -1645,15 +1617,23 @@ ProtoMessageQueue.tryGet = function message_queue_try_get(){
 }
 
 ProtoMessageQueue.__defineGetter__( "in", function(){
-  return this.getPromise
-  ? this.getPromise = new Promise( !this.empty)
-  : this.getPromise
+  var promise = this.getPromise
+  if( promise )return promise
+  this.getPromise = promise = MakePromise()
+  if( !this.empty ){
+    promise.resolve()
+  }
+  return promise
 })
 
 ProtoMessageQueue.__defineGetter__( "out", function(){
-  return this.putPromise
-  ? this.putPromise = new Promise( !this.full)
-  : this.putPromise
+  var promise = this.putPromise
+  if( promise )return promise
+  this.putPromise = promise = MakePromise()
+  if( !this.full ){
+    promise.resolve()
+  }
+  return promise
 })
 
 ProtoMessageQueue.__defineGetter__( "empty", function(){
@@ -1755,13 +1735,13 @@ ProtoGenerator.close = function generator_close(){
 
 ProtoPort.__defineGetter__( "in", function(){
   return this.getPromise
-  ? this.getPromise = new Promise()
+  ? this.getPromise = MakePromise()
   : this.getPromise
 })
 
 ProtoPort.__defineGetter__( "out", function(){
   return this.putPromise
-  ? this.putPromise = new Promise()
+  ? this.putPromise = MakePromise()
   : this.putPromise
 })
 
@@ -1771,7 +1751,7 @@ ProtoPort.__defineGetter__( "out", function(){
  */
 
 function Signal(){
-  this.nextPromise = new Promise()
+  this.nextPromise = MakePromise()
   this.closed = false
 }
 ProtoSignal = Signal.prototype
@@ -1785,7 +1765,7 @@ ProtoSignal.__defineGetter__( "promise", function(){
 // reject.  Returns an already rejected promise if signal was closed.
   var promise = this.nextPromise
   if( this.closed )return promise
-  return !promise.wasResolved ? promise : (this.nextPromise = new Promise())
+  return !promise.wasResolved ? promise : (this.nextPromise = MakePromise())
 })
 
 ProtoMessageQueue.then = function signal_then( callback, errback ){
@@ -1796,7 +1776,7 @@ ProtoSignal.signal = function signal_signal( value ){
 // Resolve an unresolved promise that .promise will provide. Signals are not
 // buffered, only the last one is kept.
   if( this.nextPromise.wasResolved && !this.closed ){
-    this.nextPromise = new Promise()
+    this.nextPromise = MakePromise()
   }
   this.nextPromise.resolve( value )
 }
@@ -1805,7 +1785,7 @@ ProtoSignal.close = function signal_close(){
   if( this.closed )return
   this.closed = yes
   if( this.nextPromise.wasResolved ){
-    this.nextPromise = new Promise()
+    this.nextPromise = MakePromise()
   }
   this.nextPromise.reject( L8.CloseEvent)
 }
@@ -1815,7 +1795,7 @@ ProtoSignal.close = function signal_close(){
  */
 
 function Timeout( delay ){
-  var promise = this.timedPromise = new Promise()
+  var promise = this.timedPromise = MakePromise()
   setTimeout( function(){ promise.resolve() }, delay)
 }
 ProtoTimeout = Timeout.prototype
@@ -1859,8 +1839,12 @@ ProtoSelector.__defineGetter__( "promise", function(){
   if( promise )return promise
   var that = this
   var list = this.allPromises
-  this.firePromise = promise = new Promise( list.length === 0)
+  this.firePromise = promise = MakePromise( list.length === 0)
   var len = list.length
+  if( !len ){
+    promise.resolve( null)
+    return promise
+  }
   var item
   for( var ii = 0 ; ii < len ; ii++ ){
     item = list[ii]
@@ -1868,13 +1852,13 @@ ProtoSelector.__defineGetter__( "promise", function(){
       function( r ){
         if( !that.result ){
           that.result = [null,r]
-          promise.resolve( that)
+          promise.resolve( that.result)
         }
       },
       function( e ){
         if( !that.result ){
           that.result = [e,null]
-          promise.reject(  that)
+          promise.resolve( that.result)
         }
       }
     )
@@ -1907,9 +1891,13 @@ ProtoAggregator.__defineGetter__( "promise", function(){
   if( promise )return promise
   var that = this
   var list = this.allPromises
-  this.firePromise = promise = new Promise( list.length === 0)
+  this.firePromise = promise = MakePromise( list.length === 0)
   var results = this.results
   var len = list.length
+  if( !len ){
+    promise.resolve( results)
+    return promise
+  }
   var item
   for( var ii = 0 ; ii < len ; ii++ ){
     item = list[ii]
@@ -1917,13 +1905,13 @@ ProtoAggregator.__defineGetter__( "promise", function(){
       function( r ){
         results.push( [null,r])
         if( results.length === list.length ){
-          promise.resolve( item)
+          promise.resolve( results)
         }
       },
       function( e ){
         results.push( [e,null])
         if( results.length === list.length ){
-          promise.reject(  item)
+          promise.resolve(  results)
         }
       }
     )
@@ -2052,7 +2040,7 @@ ProtoAggregator.then = function( callback, errback ){
   })
 
   var test_5 = L8.Task( function test5(){
-    test = 5; this.label = t( "start"); this
+    test = 5; t( "start"); this
     .fork(    function(){ this.label = t( "fork 1"); this
       .step(  function(){ this.sleep( 10)       })
       .step(  function(){ t( "end fork 1")      })        })
