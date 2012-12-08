@@ -1,4 +1,4 @@
-l8 0.1.20
+l8 0.1.22
 =========
 
 L8 is a task/promise scheduler for javascript. L8 sounds like "leight",
@@ -128,22 +128,22 @@ they do.
 ```
   var user;
   l8
-  .step( function(){ ajax_get_user( name)                     })
-  .step( function(){ ajax_check_credential( user = l8.result) })
-  .step( function(){ if( !l8.result ) l8.return();
-                     ajax_do_action( user, "delete")          })
-  .step( function(){ if( l8.result ) signal( l8.result)       })
+  .step( function(        ){ ajax_get_user( name)                  })
+  .step( function( result ){ ajax_check_credential( user = result) })
+  .step( function( result ){ if( !result ) l8.return();
+                             ajax_do_action( user, "delete")       })
+  .step( function( result ){ if( result ) signal( result)          })
 ```
 
 This is less verbose with CoffeeScript:
 
 ```
   user = null
-  @step -> ajax_get_user name
-  @step -> ajax_check_credential (user = @result)
-  @step -> if !@result then @return else
-           ajax_do_action user, "delete"
-  @step -> if err = @result then signal err
+  @step      -> ajax_get_user name
+  @step( r ) -> ajax_check_credential (user = r)
+  @step( r ) -> if !r then @return() else
+                ajax_do_action user, "delete"
+  @step( r ) -> if err = r then signal err
 ```
 
 By "breaking" a function into multiple "steps", code become almost as readable
@@ -159,8 +159,17 @@ functions, they are "task constructor". When you invoke such a function, a new
 task is created.
 
 If they were usual ajax_xxx( p1, p2, cb) style of functions, one would need to
-use .walk or .next() in the callback in order to ask l8 to move to the next
-step.
+use .walk or .proceed() as the callback in order to ask l8 to move to the next
+step:
+
+```
+  var user = null, err
+  this.step( function(   ){ ajax_get_user( name,               this.walk ) }
+  this.step( function( r ){ ajax_check_credential( (user = r), this.walk ) }
+  this.step( function( r ){ if( !r ) this->return()
+                            ajax_do_action( user, "delete",    this.walk ) }
+  this.step( function( r ){ if( err = r ) signal( err)
+```
 
 Tasks
 -----
@@ -304,6 +313,11 @@ these results.
 Consumers usually consume the next result that some subtask yields until the
 generator reaches an end and is closed, either by the producer or the consumer.
 
+L8.Generator( block) builds a "Generator Constructor" much like L8.Task( block)
+does with "Task Constructor". When the constructor is invoked a generator task
+is spawn. That task uses L8.yield() to produce results. On the consumer side,
+the task uses L8.next([opt]) to get that results and optionaly provide a hint
+about future results.
 
 API
 ===
@@ -319,7 +333,7 @@ API
     .generator( body )  -- queue a step that spwan a paused subtask
 
     -- step walking
-    .next( block )      -- walk a step on its path, at most once per step
+    .proceed( block )   -- walk a step on its path, at most once per step
     .walk               -- idem but params of block become results of step
     .continue           -- stop executing current task, reschedule it instead
     .break              -- "break" for loop steps
@@ -355,7 +369,6 @@ API
     .fail               -- true if task done but with an error
     .error              -- last raised error (ie last thrown exception)
     .result             -- result of last executed step
-    .results            -- array of results of forked tasks
     .timeout( milli )   -- cancel task if it is not done in time
     .sleep( milli )     -- block on step for a while, then move to next step
     .wait( promise )    -- block task until some lock opens, promise agnostic
@@ -386,7 +399,8 @@ API
   .port()               -- like a message queue but without any buffering
   .signal()             -- signal, ..., like a promise that fires many times
   .timeout( delay )     -- a promise fulfilled after a delay
-  .generator( block )   -- spawn a generator task, paused until first .next()
+  .generator()          -- a next()/yield() consumer/producer resource
+  .Generator( blck )    -- build a Generator Constructor.
 
   Semaphores, mutexes and locks provide
 
@@ -420,6 +434,11 @@ API
     .yield( msg )       -- pause task until consumer calls .next(), send a msg
     .close()            -- break paused tasks (using .break())
     .closed             -- true once generator is closed
+
+  When a producer task is created using a Generator Constructor, that task can
+  use L8.yield() while the parent task can use L8.next() ; the associated
+  generator will automatically get closed when either the producer or the
+  consuler terminates.
 
   Many things are possible when you have a hand of promises:
 
@@ -526,7 +545,7 @@ Multiple steps, run sequentially:
   fetch_all_seq = l8.Task (urls) ->
     results = []
     for url in urls then do (url) ->
-      @step -> scrap url, @next -> result.push {url, err, content}
+      @step -> scrap url, @proceed -> result.push {url, err, content}
     @success -> results
 ```
 
@@ -537,7 +556,7 @@ Multiple steps, each run in parallel:
     results = []
     for url in urls then do (url) ->
       @fork ->
-        scrap url, @next (err, content) -> results.push {url, err, content}
+        scrap url, @proceed (err, content) -> results.push {url, err, content}
     @success -> results
 ```
 
@@ -597,11 +616,11 @@ This translates to:
 show_news = l8.Task ->
   news = null
   @fork -> http.get "http://news.bbc.co.uk",
-      @next (err,item) -> @return news = item
+      @proceed (err,item) -> @return news = item
   @fork ->
     @step -> @sleep 1000
     @step -> http.get "http://news.cnn.com",
-       @next (err, item ) -> @return news = item
+       @proceed (err, item ) -> @return news = item
   @fork ->
     @step -> @sleep 1000 * 60
     @step -> throw "sorry, no news. timeout"
@@ -917,13 +936,13 @@ a step often describes sub-steps and/or sub pathes/tasks. These steps then
 "block" waiting for the sub items to complete.
 
 For simple steps, that only depend on the completion of a simple asynchronous
-function, .walk or .next() provides the callback to register with that
+function, .walk or .proceed() provides the callback to register with that
 function. When the callback is called, flow walks from the current step to the
 next one.
 
 Note: in the frequent case where the callback only needs to store the result
 of the asychronous operation and move forward to the next step, please use
-"walk" instead of next( function( x ){ this.result = x }).
+"walk" instead of proceed( function( x ){ this.result = x }).
 
 However, if the action's result dictates that some new "nested" steps are
 required, one adds new steps from within the callback itself. Often, this style
@@ -933,30 +952,30 @@ let the next step handle that.
 
 Do:
 ```
-  @step -> fetch                       @walk
-  @step -> if @result then more_fetch  @walk
-  @step -> if @result then fetch_again @walk
-  @step -> if @result then use @result @walk
-  @step -> done()
+  @step           -> fetch                      @walk
+  @step( result ) -> if result then more_fetch  @walk
+  @step( result ) -> if result then fetch_again @walk
+  @step( result ) -> if result then use result  @walk
+  @step           -> done()
 ```
 
 Don't:
 ```
-  @step -> fetch @next (result) ->
+  @step -> fetch @proceed (result) ->
     if result
-      more_fetch @next (result) ->
+      more_fetch @proceed (result) ->
         if result
-          fetch_again @next (result) ->
+          fetch_again @proceed (result) ->
             if result then use result @walk
   @step -> done()
 ```
 
 Or, even better, use task constructors instead of functions with callbacks:
 ```
-  @step -> fetch()
-  @step -> more_fetch()  if @result
-  @step -> fetch_again() if @result
-  @step -> use @result   if @result
+  @step      -> fetch()
+  @step( r ) -> more_fetch()  if r
+  @step( r ) -> fetch_again() if r
+  @step( r ) -> use r         if r
 ```
 
 Extensions
