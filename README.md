@@ -1,4 +1,4 @@
-l8 0.1.22
+l8 0.1.23
 =========
 
 L8 is a task/promise scheduler for javascript. L8 sounds like "leight",
@@ -155,7 +155,7 @@ There can be multiple "threads" of control, with actions initiated concurrently
 and various styles of collaboration between these actions.
 
 Please note that the ajax_xxx() functions of the example are not regular
-functions, they are "task constructor". When you invoke such a function, a new
+functions, they are "task constructors". When you invoke such a function, a new
 task is created.
 
 If they were usual ajax_xxx( p1, p2, cb) style of functions, one would need to
@@ -234,8 +234,8 @@ what is usually a function can be a list of steps:
 ```
 
 There is also a trans-compiler option that takes a funny looking function and
-turns it into a task constructor. It's compact but you loose the ability to
-set break-points in a debugger.
+turns it into a task constructor. It's compact but you lose the ability to set
+break-points in a debugger.
 
 ```
   do_something_task = l8.compile( do_something_as_task );
@@ -269,8 +269,10 @@ task's promise will be called.
 In a function, statements are executed in a purely sequentiel order. That
 restriction does not apply with steps in a task. While the sequential order
 is still the "normal", steps that run in parallel paths can also exist. Such
-steps are the result of "forks". When all forks are done, the forks "join" and
-execution continues with the next normal step.
+steps can be the result of "forks". When all forks are done, the forks "join"
+and execution continues with the next normal step. When using a generator, the
+steps of the producer and those of the consumer are executed alternatively when
+.yield() and .next() are called to handle a new generated results.
 
 Promises
 --------
@@ -314,10 +316,34 @@ Consumers usually consume the next result that some subtask yields until the
 generator reaches an end and is closed, either by the producer or the consumer.
 
 L8.Generator( block) builds a "Generator Constructor" much like L8.Task( block)
-does with "Task Constructor". When the constructor is invoked a generator task
-is spawn. That task uses L8.yield() to produce results. On the consumer side,
-the task uses L8.next([opt]) to get that results and optionaly provide a hint
-about future results.
+does with "Task Constructor". When the constructor is invoked, a generator task
+is spawn. That task uses .yield() to produce results. On the consumer side, the
+task uses .next([opt]) to get that result and optionaly provide a hint about
+future results.
+
+```
+  var fibonacci = L4.Generator( function(){
+    var i = 0, j = 1;
+    this.repeat( function(){
+      this.yield( i);
+      var tmp = i;
+      i  = j;
+      j += tmp;
+    })
+  })
+
+  var gen = fibonacci()
+  var count_down = 10
+  this.repeat( function(){
+    this.step( function(){
+      if( !count_down-- ) this.break
+      gen.next()
+    }).step( function( r ){
+      trace( count_down, "fibo", r)
+    })
+  })
+```
+
 
 API
 ===
