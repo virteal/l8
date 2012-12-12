@@ -208,8 +208,8 @@ L8.queuedStep  = null
 L8.stepQueue   = []
 L8.isScheduled = false
 var CurrentStep = new Step( L8, NoOp, false, true) // empty loop
-L8.currentStep = L8.pausedStep = CurrentStep
 CurrentStep.isBlocking = true
+L8.currentStep = L8.pausedStep = CurrentStep
 
 // Browser & nodejs way to schedule code execution in the event loop.
 // Note: you can provide yours if you get an efficient one.
@@ -229,7 +229,7 @@ L8.returnEvent   = "return"
 L8.failureEvent  = "failure"
 L8.closeEvent    = "close"
 
-/*
+/* ----------------------------------------------------------------------------
  *  Scheduler, aka "step walker"
  */
 
@@ -348,6 +348,10 @@ ProtoStep.execute = function step_execute(){
   }
   // Execute block, set "this" to the current task
   try{
+    // If step is a promise, block until that promise delivers
+    if( block.then ){
+      return this.wait( block)
+    }
     // If step(), don't provide any parameter
     if( !block.length ){
       result = block.apply( task)
@@ -369,9 +373,13 @@ ProtoStep.execute = function step_execute(){
     }
     de&&mand( !task.parentTask || task.parentTask.subtasksCount > 0 )
     // Update last result only when block returned something defined.
-    // Result can be set asynchronously using next(), see below
+    // Result can be set asynchronously using proceed(), see below
     if( result !== void null ){
       task.stepResult = result
+      // If result is a promise, block until promise is done
+      //if( result.then ){
+        //return this.wait( result)
+      //}
     }
     if( DEBUG ){ task.progressing() }
   }catch( e ){
@@ -618,8 +626,8 @@ ProtoTask.proceed = function( block ){
   task.pausedStep = step
   return function walk_cb(){
     if( task.currentStep !== step ){
-      // ToDo: quid if multiple next() fire?
-      // throw new Error( "Cannot walk same step again")
+      // ToDo: quid if multiple proceed() fire?
+      throw new Error( "Cannot walk same step again")
     }
     var previous_step = CurrentStep
     CurrentStep = step
@@ -639,9 +647,15 @@ ProtoTask.proceed = function( block ){
         if( step.isBlocking ){
           de&&mand( task.pausedStep === step )
           task.stepResult = result
-          step.isBlocking = false
-          task.pausedStep = null
-          step.scheduleNext()
+          // If result is a promise, wait for it
+          if( result.then ){
+            task.wait( result)
+          // Else, resume task
+          }else{
+            step.isBlocking = false
+            task.pausedStep = null
+            step.scheduleNext()
+          }
         }
       }
     }catch( e ){
@@ -658,7 +672,7 @@ ProtoTask.__defineGetter__( "walk", function(){
 })
 
 
-/*
+/* ----------------------------------------------------------------------------
  *  API
  */
 
@@ -815,12 +829,19 @@ ProtoTask.repeat = function task_repeat( block ){
 ProtoTask.interpret = function task_interpret( steps ){
 // Add steps according to description.
   var task = this.current
+  if( steps.then ){
+    this.step( function(){ this.wait( steps) })
+    return task
+  }
   var block
   for( step in steps ){
     if( step instanceof Function ){
       this.step( step)
     }else if( step instanceof Array ){
       this.task( step)
+    }else if( step.then ){
+      (function( promise ){ this.step( function(){ this.wait( promise) }) })
+      ( promise)
     }else{
       if( block = step.step     ){ this.step(     block) }
       if( block = step.task     ){ this.task(     block) }

@@ -1,4 +1,4 @@
-l8 0.1.23
+l8 0.1.24
 =========
 
 L8 is a task/promise scheduler for javascript. L8 sounds like "leight",
@@ -196,7 +196,7 @@ A "task constructor" is to a "task" what a "function" is to a "function call":
 both define (statically) what happens when they are invoked (dynamically).
 
 Tasks queue steps that the l8 scheduler will execute much like functions queue
-statements that the Javascript interpretor execute. With functions, statements
+statements that the Javascript interpretor executes. With functions, statements
 queueing is implicit. With tasks, it becomes explicit. As a result, defining
 what a task does is of course sligthly less syntaxically easy.
 
@@ -254,9 +254,9 @@ break-points in a debugger.
       step; act()
       step( r ); if( !r ) this.break
     end
-    success; done();
-    failure; problem();
-    final;   always();
+    success( r ); done( r);
+    failure( e ); problem( e);
+    final( r, e); always();
   }
 ```
 
@@ -454,23 +454,26 @@ API
 
   Generators let a producer and a consumer collaborate in a next()/yield() way:
 
-    .in                 -- a "can next()" promise, alias for .promise
-    .out                -- a "can yield()" promise
-    .next( [msg] )      -- pause task until producer yields, send it a msg
-    .yield( msg )       -- pause task until consumer calls .next(), send a msg
+    .get                -- a "can next()" promise, alias for .promise
+    .put                -- a "can yield()" promise
+    .next( [msg] )      -- pause task until producer yields, get/send a msg
+    .yield( msg )       -- pause task until consumer calls .next(), get/send
+    .tryNext( [msg] )   -- if .get promise is ready, get yield's msg
+    .tryYield( msg )    -- if .put promise is ready, get next's msg
     .close()            -- break paused tasks (using .break())
     .closed             -- true once generator is closed
 
   When a producer task is created using a Generator Constructor, that task can
   use L8.yield() while the parent task can use L8.next() ; the associated
   generator will automatically get closed when either the producer or the
-  consuler terminates.
+  consumer task terminates.
 
   Many things are possible when you have a hand of promises:
 
   .selector( promises )  -- fires when any promise does
   .aggregator( promises) -- collect results, fires when all promises did
 
+  Additional librairies provides usefull services. See Q.js, When.js, etc
 
 ```
 
@@ -528,9 +531,9 @@ Idem but returning a promise instead of using a callback:
 
 ```
   fetch = l8.Task (a) ->
-    @step        -> meth1 a, @walk
-    @step  (e,r) -> if e then throw e else meth2 a, @walk
-    @step  (e,r) -> if e then throw e else r
+    @step       -> meth1 a, @walk
+    @step (e,r) -> if e then throw e else meth2 a, @walk
+    @step (e,r) -> if e then throw e else r
 ```
 
 Idem but assuming meth1 and meth2 make tasks returning promises too:
@@ -559,7 +562,7 @@ Using the "trans-compiler":
   })
 ```
 
-The conclusion is that using tasks, steps and promises, the code is very
+The conclusion is that using tasks, steps and promises, the code's structure is
 similar to the hypothetical javascript blocking function.
 
 Other examples
@@ -636,21 +639,60 @@ or {
 show(news);
 ```
 
-This translates to:
+The equivalent code with L8 is:
 
 ```
+
+// JavaScript
+var show_news = l8.Task( function(){
+  this
+  .fork( function(){ http.get( "http://news.bbc.co.uk",
+    this.proceed( function( item ){ this.return( item) }) )
+  })
+  .fork( function(){
+    this.step( function(){ this.sleep( 1000) });
+    this.step( function(){ http.get( "http://news.cnn.com",
+      this.proceed( function( item ){ this.return( item) }) )
+    })
+  })
+  .fork( function(){
+    this.step( function(){ this.sleep( 1000 * 60) });
+    this.step( function(){ throw( "sorry, no news. timeout") })
+  })
+  .success( function( news ){ show( news) });
+})
+
+// CoffeeScript
 show_news = l8.Task ->
-  news = null
-  @fork -> http.get "http://news.bbc.co.uk",
-      @proceed (err,item) -> @return news = item
+  @fork ->
+    @step -> http.get "http://news.bbc.co.uk"
+    @step -> @return
   @fork ->
     @step -> @sleep 1000
-    @step -> http.get "http://news.cnn.com",
-       @proceed (err, item ) -> @return news = item
+    @step -> http.get "http://news.cnn.com"
+    @step -> @return
   @fork ->
     @step -> @sleep 1000 * 60
     @step -> throw "sorry, no news. timeout"
-  @success -> show news
+  @success( news ) -> show news
+
+// L8 trans-compiler
+var show_new = L8.compile( function(){
+  fork; begin
+    step; http.get( "http://news.bbc.co.uk");
+    step; this.return();
+  end
+  fork; begin
+    step; this.sleep( 1000);
+    step; http.get( "http://news.cnn.com");
+    step; this.return();
+  end
+  fork; begin
+    step; this.sleep( 1000 * 60);
+    step; throw( "sorry, no news. timeout");
+  end
+  success( news ); show( news);
+})
 
 ```
 
@@ -689,9 +731,9 @@ pipe = l8.Task (in,out) ->
 
 pipe = l8.compile( function( in, out ){
   repeat; begin
-    step; in.read()
-    step( data ); if( !data ) this.break
-    out.write( data)
+    step; in.read();
+    step( data ); if( !data ) this.break;
+    out.write( data);
   end
 })
 ```
@@ -702,10 +744,25 @@ is left as an exercize.
 Cooperating tasks examples:
 ===========================
 
+Use promises:
+
+A step can block waiting for a promise using L8.wait( promise). If waiting for
+a promise is the only action of a step, then L8.step( promise) can be used as
+a shortcut for L8.step( function(){ L8.wait( promise) }). Note however that the
+two forms are not semantically identical because L8.step( promise) uses the
+promise available when the new step is created/scheduled whereas in the second
+form L8.wait() uses the promise available when the step is actually executed,
+not when it is scheduled.
+
 Access to a critical resource:
 
 ```
-  TBD
+var mutex = L8.mutex()
+  ...
+  .step( mutex)   // or .step( function(){ this.wait( mutex) })
+    .step( xxx )
+    .step( xxx )
+  .final( function(){ mutex.release() } )
 ```
 
 Producer/consumer:
@@ -836,19 +893,18 @@ becomes:
   init
   this.repeat( function(){
     if( condition ) this.break
-    this.step( function(){ this.begin.step( function(){
+    this.task( function(){
       ...
-      if( extra ) this.return
+      this.step( function(){ if( extra ) this.return })
       ...
-    }).end }).step( function(){
-      next
+      this.step( function(){ next })
     })
   })
 
 or
 
 xx = l8.compile( function(){
-  init; repeat ; begin ; if( condition ) this.break ; begin
+  init; repeat; begin ; if( condition ) this.break ; begin
     ...
     if( extra ) this.return
     ...
@@ -864,19 +920,18 @@ for( var key in object ){
 becomes:
 
 ```
-  var keys, key
-  this.step( function(){
-    keys = object.keys
-  }).repeat( function(){
-    key = keys.shift()
+  var keys = object.keys(), key
+  this.repeat( function(){
+    if( !(key = keys.shift()) ) this.break
     ...
   })
 
 or
 
 xx = l8.compile( function(){
-  var keys, key
-  step; keys = object.keys; repeat; begin; key = keys.shift()
+  var keys = object.keys(), key
+  repeat; begin;
+    if( !(key = keys.shift()) ) this.break
     ...
   end
 })
