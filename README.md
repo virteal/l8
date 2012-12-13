@@ -468,12 +468,22 @@ API
   generator will automatically get closed when either the producer or the
   consumer task terminates.
 
-  Many things are possible when you have a hand of promises:
+  Many actions are possible when you have a hand of promises, L8 provides some
+  of them:
 
   .selector( promises )  -- fires when any promise does
+  .any( promises )       -- alias for .selector()
+  .or( promises )        -- fires when a promise with a non falsy result fires
   .aggregator( promises) -- collect results, fires when all promises did
+  .all( promises )       -- alias for .aggregator()
+  .and( promises )       -- fires with "false" early or with collected results
+  Note: in addition to promises, the array can contain immediate values and
+  functions returning either an immediate value, a function to evaluate or a
+  promise. The result of a promise can be a Function that will be evaluated and
+  will replace the initial promise.
 
-  Additional librairies provides usefull services. See Q.js, When.js, etc
+  Additional librairies provides other usefull services. See Q.js, When.js,
+  Promise.io, etc
 
 ```
 
@@ -645,14 +655,14 @@ The equivalent code with L8 is:
 
 // JavaScript
 var show_news = l8.Task( function(){
-  this
+  var news = this
   .fork( function(){ http.get( "http://news.bbc.co.uk",
-    this.proceed( function( item ){ this.return( item) }) )
+    this.proceed( function( item ){ news.return( item) }) )
   })
   .fork( function(){
     this.step( function(){ this.sleep( 1000) });
     this.step( function(){ http.get( "http://news.cnn.com",
-      this.proceed( function( item ){ this.return( item) }) )
+      this.proceed( function( item ){ news.return( item) }) )
     })
   })
   .fork( function(){
