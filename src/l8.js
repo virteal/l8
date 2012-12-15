@@ -112,6 +112,9 @@ ProtoTask.init = function( parent, is_fork, is_spawn ){
   /*
   this.optional.wasCanceled     = false    // "brutal cancel" flag
   this.optional.shouldStop      = false    // "gentle cancel" flag
+  this.optional.deferredSteps   = null     // Go lang style "defer"
+  this.optional.deferredResult  = null
+  this.optional.deferredError   = null
   this.optional.successBlock    = null
   this.optional.failureBlock    = null
   this.optional.progressBlock   = null
@@ -508,6 +511,37 @@ ProtoStep.scheduleNext = function schedule_next(){
       this.isBlocking = true
       task.pausedStep = this
       return
+    }
+  }
+  // Handle defered steps
+  var steps = task.optional.deferedSteps
+  if( task.optional.deferedSteps ){
+    step = steps.pop()
+    if( step ){
+      // Save task result before running first defered step
+      if( !task.optional.deferedResult ){
+        task.optional.deferredResult = task.stepResult
+        task.optional.deferredError  = task.stepError
+      }
+      // Schedule the defered step
+      task.firstStep = null
+      step = MakeStep( null, step[0])
+      if( step.length === 1 ){
+        task.stepResult = step[1]
+      }else{
+        step.shift()
+        task.stepResults = step
+      }
+      if( NO_SCHEDULER ){
+        L8_NextTick( function(){ L8_Execute( step) })
+      }else{
+        L8_EnqueueStep( step)
+      }
+      return
+    // Restore "pre-defered" task result
+    }else{
+      task.stepResult = task.optional.deferredResult
+      task.stepError  = task.optional.deferredError
     }
   }
   // When nothing more, handle task termination
@@ -951,6 +985,20 @@ ProtoTask.spawn = function task_spawn( block, starts_paused ){
 ProtoTask.repeat = function task_repeat( block ){
 // Add a step that will repeately start a new task with a first step to execute
   return this.task( block, false, false, false, true) // repeated
+}
+
+ProtoTask.defer = function task_defer(){
+// Add a step that will push a step to execute when task terminates
+  var task = this.current
+  var args = arguments
+  MakeStep( task, function(){
+    var steps = task.optional.deferredSteps
+    if( steps ){
+      step.push( args)
+    }else{
+      task.optional.deferredSteps = [args]
+    }
+  })
 }
 
 ProtoTask.interpret = function task_interpret( steps ){

@@ -679,13 +679,14 @@ var show_news = l8.Task( function(){
 
 // CoffeeScript
 show_news = l8.Task ->
+  news = @current
   @fork ->
     @step -> http.get "http://news.bbc.co.uk"
-    @step -> @return
+    @step -> @news.return()
   @fork ->
     @step -> @sleep 1000
     @step -> http.get "http://news.cnn.com"
-    @step -> @return
+    @step -> @news.return()
   @fork ->
     @step -> @sleep 1000 * 60
     @step -> throw "sorry, no news. timeout"
@@ -693,14 +694,15 @@ show_news = l8.Task ->
 
 // L8 trans-compiler
 var show_new = L8.compile( function(){
+  var news = this
   fork; begin
     step; http.get( "http://news.bbc.co.uk");
-    step; this.return();
+    step; news.return();
   end
   fork; begin
     step; this.sleep( 1000);
     step; http.get( "http://news.cnn.com");
-    step; this.return();
+    step; news.return();
   end
   fork; begin
     step; this.sleep( 1000 * 60);
@@ -775,9 +777,9 @@ Access to a critical resource:
 var mutex = L8.mutex()
   ...
   .step( mutex)   // or .step( function(){ this.wait( mutex) })
-    .step( xxx )
-    .step( xxx )
-  .final( function(){ mutex.release() } )
+  .defer( function(){ mutex.release() }) })
+  .step( xxx )
+  ...
 ```
 
 Producer/consumer:
