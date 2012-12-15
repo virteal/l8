@@ -1,4 +1,4 @@
-l8 0.1.24
+l8 0.1.25
 =========
 
 L8 is a task/promise scheduler for javascript. L8 sounds like "leight",
@@ -484,6 +484,11 @@ API
 
   Additional librairies provides other usefull services. See Q.js, When.js,
   Promise.io, etc
+
+  Misc:
+    .debug( [on])       -- get/set debug mode
+    .trace( p1, ... )   -- output trace
+    .de                 -- my de&&bug darling
 
 ```
 
@@ -984,7 +989,7 @@ MainTask
         Step
         Step
       Step
-  Task.2 - a task with two paths (two sub tasks)
+  Task.2 - a task with two paths (two forked subtasks)
     MainPath
       ForkedPath
         Step
@@ -1012,12 +1017,12 @@ shortcut for that special frequent case, please use .task().
 
 To insert steps that won't block the current step, use spawn() instead. Such
 steps are also run in a new task but the current step is not blocked until
-the new task is complete. However, task won't reach completion until all spawn
-subtasks complete.
+the new task is complete.
 
 Note that is it possible to cancel tasks and/or their subtasks. That cancel
 action can be either "gentle" (using .stop() & .stopping) or "brutal" using
-.cancel().
+.cancel(). a_task.return( x) also cancel a task (and it's subtasks) but
+provides the result of that task (whereas .cancel() makes the task fail).
 
 Blocking
 --------
