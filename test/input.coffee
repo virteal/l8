@@ -33,6 +33,7 @@ respond = ->
 
 input = l8.Task (question) ->
   @step ->
+    Question = question
     respond()
     HttpQueue.get()
   @step (req,res) ->
@@ -41,16 +42,19 @@ input = l8.Task (question) ->
       res.writeHead 404, {"Content-Type": "text/plain"}
       res.end "404 Not Found\n"
       return input question
-    Res      = res
-    Question = question
+    Res  = res
     data = url.parse( req.url, true).query.input
     return data if data
     input question
 
 game = l8.Task ->
   @repeat ->
-    random = Math.floor Math.random() * 1000
-    round  = 0
+    round = random = 0
+    @step -> input "Enter a decent number to start a new game"
+    @step (r) ->
+      @continue if (r = parseInt( r)) < 10
+      random = Math.floor Math.random() * r
+      round  = 0
     @repeat ->
       @step -> input "Guess a number"
       @step (r) ->
