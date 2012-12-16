@@ -265,13 +265,15 @@ L8.returnEvent   = "return"
 L8.failureEvent  = "failure"
 L8.closeEvent    = "close"
 
-L8.debug = function( on ){
+ProtoTask.debug = function( on ){
   if( arguments.length ){
     L8.de = de = DEBUG = on
   }
   return DEBUG
 }
 L8.debug( DEBUG)
+ProtoTask.trace  = trace
+ProtoTask.assert = assert
 
 
 /* ----------------------------------------------------------------------------
@@ -304,8 +306,8 @@ var L8_Tick = function tick(){
     L8_QueuedStep = next_step
     //step.execute()
     L8_Execute( step)
-    L8_IsScheduled = false
   }
+  L8_IsScheduled = false
   // When done, assume code runs from within the "root" task
   CurrentStep = L8.currentStep
 }
@@ -661,6 +663,9 @@ ProtoTask.subtaskDoneEvent = function( subtask ){
     var err = subtask.stepError
     if( err ){
       this.stepError = err
+      if( !this.parentTask ){
+        trace( "Unhandled exception", subtask, err)
+      }
     }else if( subtask.isFork ){
       this.forkResults[subtask.forkResultsIndex] = subtask.stepResult
     }
@@ -939,6 +944,15 @@ ProtoTask.task = function task_task( block, forked, paused, detached, repeat ){
       detached ? "detached" : "",
       repeat   ? "repeated" : ""
     )
+  }
+  if( this === L8 ){
+    var task = MakeTask( L8)
+    task.task( block, forked, paused, detached, repeat)
+    if( NO_SCHEDULER ){
+      L8_NextTick( function(){ L8_Execute( task.firstStep) })
+    }else{
+      L8_EnqueueStep( task.firstStep)
+    }
   }
   return this.step( function(){
     var task = this.current
@@ -1874,7 +1888,7 @@ ProtoPort.__defineGetter__( "out", function(){
 
 function MessageQueue( capacity ){
   this.capacity   = capacity || 1
-  this.queue      = new Array( this.capacity)
+  this.queue      = new Array() // ToDo: preallocate this.capacity
   this.length     = 0
   this.getPromise = null // "in"  promise, ready when ready to .get()
   this.putPromise = null // "out" promise, ready when ready to .put()
@@ -1896,12 +1910,20 @@ ProtoMessageQueue.then = function message_queue_then( callback, errback ){
 
 ProtoMessageQueue.put = function message_queue_put( msg ){
   var that = this
-  var task = CurrentStep.task
+  var step = CurrentStep
+  var task = step.task
+  if( arguments.length > 1 ){
+    msg = arguments
+  }
   if( this.full ){
     task.pause()
     this.out.then( function(){
       task.queue.push( msg)
-      task.resume()
+      if( task.pausedStep === step ){
+        task.resume()
+        task.stepResult = msg
+      }
+      that.putPromise = null
       that.in.resolve()
       ++that.length
       if( !that.full ){
@@ -1911,7 +1933,7 @@ ProtoMessageQueue.put = function message_queue_put( msg ){
   }else{
     this.queue.push( msg)
     this.length++
-    this.out.resolve()
+    this.in.resolve()
   }
 }
 
@@ -1919,7 +1941,7 @@ ProtoMessageQueue.tryPut = function message_queue_try_put( msg ){
   if( this.closed
   ||  this.full
   )return false
-  this.queue.push( msg)
+  this.queue.push( arguments.length > 1 ? arguments : msg)
   this.length++
   this.out.resolve()
   return true
@@ -1932,11 +1954,14 @@ ProtoMessageQueue.get = function message_queue_get(){
   if( this.empty ){
     task.pause()
     this.in.then( function(){
-      if( task.step !== step )return
-      task.stepResult = this.queue.shift()
+      if( task.pausedStep !== step )return
+      that.getPromise = null
+      task.stepResult = that.queue.shift()
+      that.length--
       task.resume()
     })
   }else{
+    that.getPromise = null
     task.stepResult = this.queue.shift()
     --this.length
     if( !that.empty ){
@@ -1978,7 +2003,7 @@ ProtoMessageQueue.__defineGetter__( "out", function(){
 })
 
 ProtoMessageQueue.__defineGetter__( "empty", function(){
-  return !!this.length
+  return this.length === 0
 })
 
 ProtoMessageQueue.__defineGetter__( "full", function(){
@@ -2748,7 +2773,7 @@ ProtoAggregator.then = function( callback, errback ){
     var n = 3
     var p = 100000
     var factor = 50 // 50 by december 2012
-    var ii
+    var ii          // 15 is average in nodejs. Best ever is 3, in Chrome
     var duration
     var l8duration
     var tid
@@ -2805,13 +2830,13 @@ ProtoAggregator.then = function( callback, errback ){
     trace( "SUCCESS!!! All tests ok")
   }
 
-if( DEBUG ){
+if( DEBUG && false ){
   trace( "starting L8")
   var count_down = 10
   setInterval(
     function(){
-      trace( "tick " + --count_down)
-      if( !count_down ){
+      de&&bug( "tick " + --count_down)
+      if( !count_down && DEBUG ){
         trace( "exiting...")
         process.exit( 0)
       }

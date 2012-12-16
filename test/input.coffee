@@ -3,22 +3,23 @@
 #
 # 2012/12/16 by JHR
 
-l8      = require( "../src/l8.js")
+l8   = require( "../src/l8.js")
 l8.debug false
 http = require( "http")
 url  = require( "url")
+
+# IO tools. BASIC style
 
 screen    = []
 cls       =       -> screen = []
 print     = (msg) -> screen.push msg
 printnl   = (msg) -> print msg + "\n"
-HttpQueue = l8.queue( 1000)
-Res       = null
 
+PendingResponse = null
 respond = (question) ->
-  return unless Res
-  Res.writeHead 200, {'Content-Type': 'text/html'}
-  Res.end [
+  return unless PendingResponse
+  PendingResponse.writeHead 200, {'Content-Type': 'text/html'}
+  PendingResponse.end [
     '<html>'
     screen.join "<br\>"
     '<form url="/">'
@@ -28,8 +29,9 @@ respond = (question) ->
     '</form>'
     '</html>'
   ].join '\n'
-  Res = null
+  PendingResponse = null
 
+HttpQueue = l8.queue( 1000)
 input = l8.Task (question) ->
   @step ->
     respond question
@@ -40,12 +42,15 @@ input = l8.Task (question) ->
       res.writeHead 404, {"Content-Type": "text/plain"}
       res.end "404 Not Found\n"
       return input question
-    Res  = res
+    PendingResponse = res
     data = url.parse( req.url, true).query.input
     return data if data
     input question
+http.createServer( HttpQueue.put.bind HttpQueue).listen process.env.PORT
 
-game = l8.Task ->
+# Main
+
+l8.task ->
   @repeat ->
     round = random = 0
     @step -> input "Enter a decent number to start a new game"
@@ -64,8 +69,4 @@ game = l8.Task ->
           cls()
           printnl "Win in #{round} rounds! Try again"
           @break
-
-game()
-
-http.createServer( HttpQueue.put.bind HttpQueue).listen process.env.PORT
-l8.trace "Game is running on http port #{process.env.PORT}"
+l8.trace "Game is running"
