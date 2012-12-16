@@ -187,12 +187,15 @@ var ProtoStep = Step.prototype
 var step_init =
 ProtoStep.init = function( task, block, is_fork, is_repeat ){
   if( DEBUG ) this.id = ++task.stepCount
-  this.task        = task
+  while( task.isDone ){
+    task = task.parentTask
+    if( task === L8 )throw new Error( "Cannot add step to done L8 task")
+  }
+  this.task = task
   if( block ){
-    // If step is a promise, block until that promise delivers
-    if( block.then ){
-      var promise = block
-      block = function(){ this.wait( promise) }
+    // If step is a promise, step will block until that promise delivers
+    if( !(block instanceof Function) ){
+      block = function(){ task.interpret( block) }
     }
     this.block     = block
   }else{
@@ -703,10 +706,6 @@ ProtoTask.subtaskDoneEvent = function( subtask ){
 ProtoTask.step = function step( block, is_fork, is_repeat ){
 // Add a step to execute later
   var task = this.current
-  if( task.isDone )throw new Error( "Cannot add new step, l8 task is done")
-  if( !(block instanceof Function) ){
-    block = function(){ task.interpret( block) }
-  }
   MakeStep( task, block, is_fork, is_repeat)
   return task
 }
@@ -1009,7 +1008,9 @@ ProtoTask.interpret = function task_interpret( steps ){
     return task
   }
   var block
-  for( step in steps ){
+  var len = steps.length
+  for( var ii = 0 ; ii < len ; ii++ ){
+    step = steps[ii]
     if( step instanceof Function ){
       this.step( step)
     }else if( step instanceof Array ){
@@ -1018,14 +1019,20 @@ ProtoTask.interpret = function task_interpret( steps ){
       (function( promise ){ this.step( function(){ this.wait( promise) }) })
       ( step)
     }else{
-      if( block = step.step     ){ this.step(     block) }
-      if( block = step.task     ){ this.task(     block) }
-      if( block = step.repeat   ){ this.repeat(   block) }
-      if( block = step.fork     ){ this.fork(     block) }
-      if( block = step.progress ){ this.progress( block) }
-      if( block = step.success  ){ this.success(  block) }
-      if( block = step.failure  ){ this.failure(  block) }
-      if( block = step.final    ){ this.final(    block) }
+      var done = false
+      if( block = step.step     ){ this.step(     block); done = true }
+      if( block = step.task     ){ this.task(     block); done = true }
+      if( block = step.repeat   ){ this.repeat(   block); done = true }
+      if( block = step.fork     ){ this.fork(     block); done = true }
+      if( block = step.progress ){ this.progress( block); done = true }
+      if( block = step.success  ){ this.success(  block); done = true }
+      if( block = step.failure  ){ this.failure(  block); done = true }
+      if( block = step.final    ){ this.final(    block); done = true }
+      if( block = step.defer    ){ this.defer(    block); done = true }
+      if( !done ){
+        // Immediate value
+        (function( value ){ this.step( function(){ return value }) })( step)
+      }
     }
   }
   return task
@@ -1156,7 +1163,7 @@ ProtoTask.compile = function task_compile( code, generator ){
   var fragment
   var fragments = []
   code.replace(
-    / (begin|end|step;|step\([^\)]*\);|task;|task\([^\)]*\);|fork;|fork\([^\)]*\);|repeat;|repeat\([^\)]*\);|progress;|progress\([^\)]*\);|success;|success\([^\)]*\);|failure;|failure\([^\)]*\);|final;|final\([^\)]*\);)/g,
+    / (begin|end|step;|step\([^\)]*\);|task;|task\([^\)]*\);|fork;|fork\([^\)]*\);|repeat;|repeat\([^\)]*\);|progress;|progress\([^\)]*\);|success;|success\([^\)]*\);|failure;|failure\([^\)]*\);|final;|final\([^\)]*\);|defer;|defer\([^\)]*\);)/g,
     function( match, keyword, index ){
       fragment = code.substring( ii, index - 1)
       fragments.push( fragment)
@@ -1273,6 +1280,7 @@ ProtoTask.compile = function task_compile( code, generator ){
     else if( block = head.success  ){ g( buf, "success",  head.params, block) }
     else if( block = head.failure  ){ g( buf, "failure",  head.params, block) }
     else if( block = head.final    ){ g( buf, "final",    head.params, block) }
+    else if( block = head.defer    ){ g( buf, "defer",    head.params, block) }
   }
 
   function generate( tree, buf ){

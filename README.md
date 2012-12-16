@@ -1,4 +1,4 @@
-l8 0.1.25
+l8 0.1.26
 =========
 
 L8 is a task/promise scheduler for javascript. L8 sounds like "leight",
@@ -35,7 +35,14 @@ The main flow control structures are the sequential execution of steps, the
 execution and join of forked steps on parallel paths, steps that loop until
 they exit, steps that wait for something, error propagation similar to
 exception handling and synchronisation using the usual suspects (semaphores,
-mutexes, reentrant locks, message queues, ports, signals, generators...)
+mutexes, reentrant locks, message queues, ports, signals, generators...).
+
+When compared to callbacks, steps add some overhead due to the fact that
+what to do next is computed (based on pre-queued steps) instead of being
+specified by the callback itself. The overhead is small (see test_11 in the
+test suite) considering the extra features provided (ie. nesting, cancelation,
+tasks hierarchie, etc). When that overhead is useless, one can revert to the
+classic callback style, ie. blocking and callback modes intermix well.
 
 Steps vs Statements
 ===================
@@ -352,17 +359,18 @@ API
   l8
      -- step/task creation. "body" can create additional steps/subtasks
     .step(   body )     -- queue a step on the path to task's completion
-    .task(   body )     -- queue a step that waits on a blocking sub-task
-    .fork(   body )     -- queue a new forked sub-task, forked tasks join
-    .repeat( body )     -- queue a step that repeats a blocking sub-task
+    .task(   body )     -- queue a step that waits on a blocking subtask
+    .fork(   body )     -- queue a step that starts a forked task, forks "join"
+    .repeat( body )     -- queue a step that repeats a blocking subtask
     .spawn(  body )     -- like fork() but next step does not wait for subtask
-    .generator( body )  -- queue a step that spwan a paused subtask
+    .generator( body )  -- queue a step that spwans a task that yields results
+    .defer( body )      -- queue a step that queues a step run when task ends
 
     -- step walking
     .proceed( block )   -- walk a step on its path, at most once per step
     .walk               -- idem but params of block become results of step
     .continue           -- stop executing current task, reschedule it instead
-    .break              -- "break" for loop steps
+    .break              -- "break" for "repeat" steps
     .return( [val] )    -- like "return" in normal flow, skip all queued steps
     .raise( error )     -- raise an error in task, skip all queued steps
     .throw( error )     -- alias for raise()
@@ -376,7 +384,7 @@ API
     .success( block )   -- block to run when task is done without error
     .failure( block )   -- block to run when task is done but with error
     .catch( block )     -- alias for failure()
-    .final( block )     -- block to run when task is all done
+    .final( block )     -- block to run when task is all done (after .defer())
     .finally( block )   -- alias for final()
 
     -- task state related
@@ -777,7 +785,7 @@ Access to a critical resource:
 var mutex = L8.mutex()
   ...
   .step( mutex)   // or .step( function(){ this.wait( mutex) })
-  .defer( function(){ mutex.release() }) })
+  .defer( function(){ mutex.release() })
   .step( xxx )
   ...
 ```
@@ -954,8 +962,94 @@ xx = l8.compile( function(){
 })
 ```
 
-Design
-------
+.defer() versus .final()
+========================
+
+.final( block) provides a solution that mimics the finally clause of the "try"
+javascript construct. The final block typically performs "clean up" work
+associated with the task it is attached too.
+
+```
+  var file
+  l8
+  .step(  function(){ file = file_open( file_name) })
+  .step(  function(){ xxxx work with that file })
+  .final( function(){ file_close( file) })
+```
+
+There is only one final clause per task. That clause is attached to the task
+when the .final() method is executed. When multiple clauses are needed, one
+needs to create nested tasks. The final block is executed once the task is
+done. As a result additional steps are attached to the "parent" task, not to
+the current task (this may change in a future version).
+
+```
+  var file1
+  var file2
+  l8
+  .step( function(){ file2 = file_open( file1_name) })
+  .step( function(){ xxxx work with file1 xxx })
+  .step( function(){
+    if( some_thing ){ l8.begin
+      .step(  function(){ file = file_open( file2_name) })
+      .step(  function(){ xxx work with file2 xxx })
+      .final( function(){ file_close( file2) })
+    .end })
+  .final( function(){ file_close( file1) })
+```
+
+.defer( block) is inspired by the Go language "defer" keyword. It is itself
+a variation around the C++ notion of "destructors". There can be multiple
+deferred blocks for a task. Each such block is registered when the .defer()
+step is executed, not when it is queued (whereas .final() registers a block
+immediately). Because deferred steps are executed just before the task reach
+its end, they can register additional steps to handle async activities. As a
+result, the task is not fully done until all the defered work is done too.
+Deferred blocks are executed in a LIFO order, ie the last deferred step is run
+first.
+
+```
+  var resourceA
+  var resourceB
+  l8
+  .step( function(){ acquireResource( xxx) })
+  .step( function( r ){ ressourceA = r })
+  .defer( function(){ releaseResource( resourceA) })
+  .step( function(){ xxx work with resourceA xxx })
+  .step( function(){ acquireResource( yyy) })
+  .step( function( r ){ resourceB = r })
+  .defer( function(){ releaseResource( resourceB) })
+  .step( function(){ xxx work with resourceB xxx })
+```
+
+Because multiple deferred blocks are possible, .defer() is more modular. For
+example, it makes it possible to implement the "Resource Acquisition is
+Initialization" pattern.
+See http://en.wikipedia.org/wiki/Resource_Acquisition_Is_Initialization
+
+```
+  var with_file = l8.Task( function( file_name ){
+    var file
+    l8
+    .step(){ function(){ file_open( file_name) })
+    .step( r ){ return file = r }
+    .parent.defer( function(){ file_close( file)}
+  })
+
+  Usage:
+
+  var file
+  l8
+  .step( function(){ with_file( file_name) })
+  .step( function( r ){ xxx work with file r xxx })
+  xxx don't worry about closing that file xxx
+```
+
+The general "rule of thumb" is to use .final() for quick & simple stuff and
+use .defer() for more elaborated async stuff.
+
+L8 Design
+---------
 
 The key idea is to break a javascript function into "steps" and then walk thru
 these steps much like the javascript interpreter runs thru the statements
@@ -973,7 +1067,7 @@ interruptible executable entities. Each Step belongs to a task. Task can
 involve sub tasks that cooperate across multiple paths.
 
 This becomes really interesting when the AST gets dynamically modified! This
-happens when a step decides that is requires additional sub steps to complete.
+happens when a step decides that it requires additional sub steps to complete.
 
 On a path, execution goes from step to step. When a step involves sub-steps,
 the step is blocked until the sub-steps complete, unless sub-steps are created
@@ -1011,15 +1105,18 @@ queued. To queue  a new step to execute after the currently executing step, use
 To insert a new step on a new parallel task/path, use .fork(). Such steps block
 the current step until they are completed. When multiple such forked steps are
 inserted, the next non forked step will execute when all the forked steps are
-done. The result of such multiple steps is the result of the last executed step
-prior to execution of the non forked step. This is a "join". When only one
+done. The result of such multiple steps is accumulated into an array that can be
+the parameter of the next non forked step. This is a "join". When only one
 forked step is inserted, this is similar to calling a function, ie the next
 step receives the result of the task that ran the forked step. There is a
 shortcut for that special frequent case, please use .task().
 
 To insert steps that won't block the current step, use spawn() instead. Such
 steps are also run in a new task but the current step is not blocked until
-the new task is complete.
+the new task is complete. If the parent task terminates before the spawn tasks
+are completed, the spawn tasks are re-attached to the parent task of the task
+that created them, ie. spawn tasks are "inherited" by the parent of their
+creator (Unix processes are similar).
 
 Note that is it possible to cancel tasks and/or their subtasks. That cancel
 action can be either "gentle" (using .stop() & .stopping) or "brutal" using
