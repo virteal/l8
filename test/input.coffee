@@ -14,16 +14,15 @@ print     = (msg) -> screen.push msg
 printnl   = (msg) -> print msg + "\n"
 HttpQueue = l8.queue( 1000)
 Res       = null
-Question  = ""
 
-respond = ->
+respond = (question) ->
   return unless Res
   Res.writeHead 200, {'Content-Type': 'text/html'}
   Res.end [
     '<html>'
     screen.join "<br\>"
     '<form url="/">'
-    Question
+    question
     '<input type="text" name="input">'
     '<input type="submit">'
     '</form>'
@@ -33,8 +32,7 @@ respond = ->
 
 input = l8.Task (question) ->
   @step ->
-    Question = question
-    respond()
+    respond question
     HttpQueue.get()
   @step (req,res) ->
     @trace "Handling new http request, #{req.method}, #{req.url}"
