@@ -1,15 +1,15 @@
 // l8.js
-//   Task/promise manager
+//   Task manager
 //   https://github.com/JeanHuguesRobert/l8
 //
 // 2012/10/24, JHR, create
 //
 // (c) Jean Hugues Robert
-// VanityLicense
+// Licensed under the MIT license.
 
-/* Boiler for module loaders */
+// Boilerplate for module loaders
 (function(define) { 'use strict';
-define(function () {
+define( function(){
 
 /* ----------------------------------------------------------------------------
  *  Debug
@@ -75,8 +75,8 @@ function Task( parent, is_fork, is_spawn ){
 // Tasks are like function call activation records, but with a spaghetti stack
 // because more than one child task can be active at the same time.
 // See also http://en.wikipedia.org/wiki/Spaghetti_stack
-// Forked tasks have parent collect multiple results, one per fork.
-// Spawn tasks don't block their parent and don't provide results.
+// Forked tasks's parent task collect the multiple results, one per fork.
+// Spawn tasks don't block their parent and don't provide a result.
   this.nextFree = void null // Task allocator reuse objects
   task_init.call( this, parent, is_fork, is_spawn)
   return this
@@ -85,7 +85,7 @@ var ProtoTask = Task.prototype
 
 var task_init =
 ProtoTask.init = function( parent, is_fork, is_spawn ){
-  this.id               = NextTaskId++ // .toString() uses it
+  this.id               = NextTaskId++ // unique id. .toString() uses it too
   if( DEBUG ){
     this.stepCount = 0  // Step ids generator
   }
@@ -123,14 +123,10 @@ ProtoTask.init = function( parent, is_fork, is_spawn ){
   this.optional.generator       = null
   */
   if( TraceStartTask && NextTaskId > TraceStartTask )trace( "DEBUG New", this)
-
-// Add new task to it's parent's list of pending subtasks
-  //if( !parent )return this // This is L8, the root task
+  // Add new task to it's parent's list of pending subtasks
   // When a done task creates a subtask, the parent task inherit it
   // The root task is obviously never done, or else this would break
-  while( parent.isDone ){
-    parent = parent.parentTask
-  }
+  while( parent.isDone ){ parent = parent.parentTask }
   // Parent remembers all pending subtasks, both forked & spawn ones
   if( !parent.subtasks ){
     de&&mand( !parent.subtasksCount, parent.subtasksCount)
@@ -141,25 +137,28 @@ ProtoTask.init = function( parent, is_fork, is_spawn ){
   }
   parent.subtasks[this.id] = this
   // Forked tasks also block their parent and accumulate results
-  if( !is_spawn ){ // && parent != L8 ){
+  if( !is_spawn ){
     if( !parent.forkedTasks ){
+      // When only one member, direct link, efficient because frequent
       parent.forkedTasks      = this
       parent.forkedTasksCount = 1
     }else{
       de&&mand( is_fork || parent === L8 )
       parent.forkedTasksCount++
+      // With two members, mutate into an array
       if( parent.forkedTasksCount === 2 ){
         parent.forkedTasks = [parent.forkedTasks,this]
+      // More members, push them
       }else{
         parent.forkedTasks.push( this)
       }
     }
-    // Allocate entry for forked task result, set to undefined for now
+    // Allocate entry for forked tasks results, set to undefined for now
     if( is_fork ){
       if( !parent.forkResults ){
         parent.forkResults      = [void null]
         parent.forkResultsCount = 1
-        this.forkResultsIndex = 0 // this task's result in parent.forkResults
+        this.forkResultsIndex   = 0 // this task's result in parent.forkResults
       }else{
         parent.forkResults[
           this.forkResultsIndex = parent.forkResultsCount++
@@ -167,7 +166,7 @@ ProtoTask.init = function( parent, is_fork, is_spawn ){
       }
     }
   }
-  // Please see what happens in Task.subtaskDoneEvent()
+  // Please see what happens in Task.subtaskDoneEvent(), ie "destructor"
   if( TraceStartTask && NextTaskId > TraceStartTask )trace( "New", this)
   return this
 }
@@ -189,7 +188,8 @@ ProtoStep.init = function( task, block, is_fork, is_repeat ){
   if( DEBUG ) this.id = ++task.stepCount
   while( task.isDone ){
     task = task.parentTask
-    if( task === L8 )throw new Error( "Cannot add step to done L8 task")
+    // ToDo: maybe I could create a task "on the fly"?
+    if( task === L8 )throw new Error( "Cannot add step to root L8 task")
   }
   this.task = task
   if( block ){
@@ -236,7 +236,7 @@ ProtoStep.init = function( task, block, is_fork, is_repeat ){
 }
 
 // Bootstrap root task, id 0
-var L8 = new Task( {})
+var L8 = new Task( {}/*dummy parent*/)
 var l8 = L8
 L8.parentTask = null
 L8.L8 = L8.l8 = L8
@@ -298,12 +298,8 @@ var L8_Tick = function tick(){
   // ToDo: Use V8/Mozilla Date.now() ?
   L8.timeNow = (L8.dateNow = new Date()).getTime()
   var step
-  var next_step
-  while( true ){
-    var next_step = L8_StepQueue.shift()
-    step = L8_QueuedStep
-    if( !step )break
-    L8_QueuedStep = next_step
+  while( step = L8_QueuedStep ){
+    L8_QueuedStep = L8_StepQueue.shift()
     //step.execute()
     L8_Execute( step)
   }
@@ -353,6 +349,7 @@ L8_EnqueueStep = function enqueue_step( step ){
 
 // The code above does the equivalent of this, but it does it faster.
 var L8_EnqueueStep = function( step ){
+  de&&mand( !step.task.isDone )
   L8_NextTick(
     // slower: execute.bind( step)
     function(){
@@ -394,9 +391,9 @@ ProtoStep.execute = L8_Execute = function step_execute( that ){
     return
   }
   task.currentStep = that
+  CurrentStep      = that
   // Steps created by this step are queued after the insertionStep
   task.insertionStep = that
-  CurrentStep        = that
   var block = that.block
   var result
   // Consume previous fork results if any unless step is a fork itself
@@ -716,6 +713,7 @@ ProtoTask.step = function step( block, is_fork, is_repeat ){
 }
 
 ProtoTask.proceed = function( block ){
+// Pause current task and return a callback to be called to resume execution.
   var task = this.current
   var step = task.currentStep
   if( step.isBlocking ){
@@ -746,16 +744,18 @@ ProtoTask.proceed = function( block ){
       if( task.currentStep === step ){
         if( step.isBlocking ){
           de&&mand( task.pausedStep === step )
-          task.stepResult = result
-          // If result is a promise, wait for it
-          if( result.then ){
-            task.wait( result)
-          // Else, resume task
-          }else{
-            step.isBlocking = false
-            task.pausedStep = null
-            step.scheduleNext()
+          if( result ){
+            task.stepResult = result
+            // If result is a promise, wait for it
+            if( result.then ){
+              task.wait( result)
+              return
+            }
           }
+          // resume task
+          step.isBlocking = false
+          task.pausedStep = null
+          step.scheduleNext()
         }
       }
     }catch( e ){
@@ -769,6 +769,18 @@ ProtoTask.proceed = function( block ){
 
 ProtoTask.__defineGetter__( "walk", function(){
   return this.proceed( null)
+})
+
+ProtoTask.__defineGetter__( "flow", function(){
+// NodeJs friendly "walk" that checks first result to detect errors and throw
+// error when present, or else filters out first result to set result of step
+// using rest.
+  return function(){
+    var err = arguments[0]
+    if( err )throw err
+    if( arguments.length === 2 )return arguments[1]
+    return Array.splice.call( arguments, 1)
+  }
 })
 
 
@@ -830,7 +842,8 @@ ProtoTask.Task = function task_task( fn ){
     fn = function(){ this.interpret( block) }
   }
   return function (){
-    var parent_task = CurrentStep.task.isDone ? L8 : CurrentStep.task
+    var parent_task = CurrentStep.task
+    while( parent_task.isDone ){ parent_task = parent_task.parentTask }
     var args = arguments
     // Don't create a useless task if parent task is still a "single step" task
     if( parent_task.isSingleStep && !parent_task.firstStep.next ){
@@ -848,6 +861,96 @@ ProtoTask.Task = function task_task( fn ){
   }
 }
 
+ProtoTask.task = function task_task( block, forked, paused, detached, repeat ){
+// Add a step that will start a new task with some initial step to execute.
+// Such tasks are initially "single step" task. If the single step calls a
+// task constructor, that constructor will get optimized and will reuse the
+// single step task instead of creating a new task.
+  if( TraceStartTask && NextTaskId > TraceStartTask ){
+    trace( this.current.currentStep , "invokes fork()",
+      forked   ? "forked"   : "",
+      paused   ? "paused"   : "",
+      detached ? "detached" : "",
+      repeat   ? "repeated" : ""
+    )
+  }
+  var task = this.current
+  if( task === L8 ){
+    var task = MakeTask( L8)
+    task.isSingleStep = true
+    task.task( block, forked, paused, detached, repeat)
+    if( NO_SCHEDULER ){
+      L8_NextTick( function(){ L8_Execute( task.firstStep) })
+    }else{
+      L8_EnqueueStep( task.firstStep)
+    }
+    return task
+  }
+  return task.step( function(){
+    if( TraceStartTask && TraceStartTask >= NextTaskId ){
+      trace( task.currentStep , "executes scheduled fork",
+        forked   ? "forked"   : "",
+        paused   ? "paused"   : "",
+        detached ? "detached" : "",
+        repeat   ? "repeated" : ""
+      )
+    }
+    var new_task
+    // Don't create a useless task if parent task is still a "single step" task
+    // ToDo: fix this
+    if( false && task.isSingleStep && !task.firstStep.next ){
+      new_task = task
+    }else{
+      new_task = MakeTask( task, forked, detached)
+    }
+    // Mark as reuseable, unless spawn
+    new_task.wasSpawn     = detached
+    new_task.isSingleStep = true
+    if( paused ){
+      // Pause task, need a new "first step" for that
+      MakeStep( new_task)
+      new_task.pausedStep = new_task.firstStep
+      new_task.pausedStep.isBlocking = true
+      MakeStep( new_task, block)
+    }else{
+      var next_step = MakeStep( new_task, block)
+      if( NO_SCHEDULER ){
+        L8_NextTick( function(){ L8_Execute( next_step) })
+      }else{
+        L8_EnqueueStep( next_step)
+      }
+    }
+  }, forked, repeat)
+}
+
+ProtoTask.fork = function task_fork( block, starts_paused ){
+// Add a step that will start a forked task with some initial step to execute
+  return this.task( block, true, starts_paused)
+}
+
+ProtoTask.spawn = function task_spawn( block, starts_paused ){
+// Add a step that will start a detached task with some initial step to execute
+  return this.task( block, true, starts_paused, true) // detached
+}
+
+ProtoTask.repeat = function task_repeat( block ){
+// Add a step that will repeately start a new task with a first step to execute
+  return this.task( block, false, false, false, true) // repeated
+}
+
+ProtoTask.defer = function task_defer(){
+// Add a step that will push a step to execute when task terminates
+  var task = this.current
+  var args = arguments
+  MakeStep( task, function(){
+    var steps = task.optional.deferredSteps
+    if( steps ){
+      step.push( args)
+    }else{
+      task.optional.deferredSteps = [args]
+    }
+  })
+}
 ProtoTask.toString = function task_to_string(){ return "Task " + this.id }
 
 ProtoTask.__defineGetter__( "current", function(){
@@ -931,88 +1034,6 @@ ProtoTask.__defineGetter__( "stopped", function(){
 ProtoTask.__defineGetter__( "canceled", function(){
   return this.current.optional.wasCanceled
 })
-
-ProtoTask.task = function task_task( block, forked, paused, detached, repeat ){
-// Add a step that will start a new task with some initial step to execute.
-// Such tasks are initially "single step" task. If the single step calls a
-// task constructor, that constructor will get optimized and will reuse the
-// single step task instead of creating a new task.
-  if( TraceStartTask && NextTaskId > TraceStartTask ){
-    trace( this.current.currentStep , "invokes fork()",
-      forked   ? "forked"   : "",
-      paused   ? "paused"   : "",
-      detached ? "detached" : "",
-      repeat   ? "repeated" : ""
-    )
-  }
-  if( this === L8 ){
-    var task = MakeTask( L8)
-    task.task( block, forked, paused, detached, repeat)
-    if( NO_SCHEDULER ){
-      L8_NextTick( function(){ L8_Execute( task.firstStep) })
-    }else{
-      L8_EnqueueStep( task.firstStep)
-    }
-  }
-  return this.step( function(){
-    var task = this.current
-    if( TraceStartTask && TraceStartTask >= NextTaskId ){
-      trace( task.currentStep , "executes scheduled fork",
-        forked   ? "forked"   : "",
-        paused   ? "paused"   : "",
-        detached ? "detached" : "",
-        repeat   ? "repeated" : ""
-      )
-    }
-    var new_task = MakeTask( task, forked, detached)
-    // Mark as reuseable, unless spawn
-    new_task.wasSpawn     = detached
-    new_task.isSingleStep = true
-    if( paused ){
-      // Pause task, need a new "first step" for that
-      MakeStep( new_task)
-      new_task.pausedStep = new_task.firstStep
-      new_task.pausedStep.isBlocking = true
-      MakeStep( new_task, block)
-    }else{
-      var next_step = MakeStep( new_task, block)
-      if( NO_SCHEDULER ){
-        L8_NextTick( function(){ L8_Execute( next_step) })
-      }else{
-        L8_EnqueueStep( next_step)
-      }
-    }
-  }, forked, repeat)
-}
-
-ProtoTask.fork = function task_fork( block, starts_paused ){
-// Add a step that will start a forked task with some initial step to execute
-  return this.task( block, true, starts_paused)
-}
-
-ProtoTask.spawn = function task_spawn( block, starts_paused ){
-// Add a step that will start a detached task with some initial step to execute
-  return this.task( block, true, starts_paused, true) // detached
-}
-
-ProtoTask.repeat = function task_repeat( block ){
-// Add a step that will repeately start a new task with a first step to execute
-  return this.task( block, false, false, false, true) // repeated
-}
-
-ProtoTask.defer = function task_defer(){
-// Add a step that will push a step to execute when task terminates
-  var task = this.current
-  var args = arguments
-  MakeStep( task, function(){
-    var steps = task.optional.deferredSteps
-    if( steps ){
-      step.push( args)
-    }else{
-      task.optional.deferredSteps = [args]
-    }
-  })
-}
 
 ProtoTask.interpret = function task_interpret( steps ){
 // Add steps according to description.
@@ -1106,7 +1127,7 @@ ProtoTask.cancel = function task_cancel(){
   return task
 }
 
-ProtoTask.progressing = function task_progressing(){
+ProtoTask.progressing = function(){
   if( this.optional.progressBlock ){
     try{
       this.optional.progressBlock( this)
@@ -1128,6 +1149,7 @@ ProtoTask.return = function task_return( val ){
   task.optional.wasCanceled = true
   task.raise( L8.returnEvent, val)
 }
+
 ProtoTask.__defineGetter__( "continue", function task_continue(){
   return this.raise( L8.continueEvent)
 })
@@ -1138,23 +1160,19 @@ ProtoTask.__defineGetter__( "break",  function task_break(){
 
 ProtoStep.toString = function(){ return this.task.toString() + "/" + this.id }
 
-ProtoTask.final = function final( block ){
+ProtoTask.final = function( block ){
   var task = this.current
   task.optional.finalBlock = block
   return task
 }
 
-ProtoTask.finally = Task.final
-
-ProtoTask.failure = function failure( block ){
+ProtoTask.failure = function( block ){
   var task = this.current
   task.optional.failureBlock = block
   return task
 }
 
-ProtoTask.catch = Task.failure
-
-ProtoTask.success = function success( block ){
+ProtoTask.success = function( block ){
   var task = this.current
   task.optional.successBlock = block
   return task
@@ -1163,9 +1181,14 @@ ProtoTask.success = function success( block ){
 /* ----------------------------------------------------------------------------
  *  Trans-compiler
  */
+ 
+// L8.compile() may need to be provided a well scoped "eval()" or else it's
+// result function may lack access to the global variables referenced by the
+// code to (re)compile. This should be necessary on nodejs only, not in browsers
+l8.eval = null // l8.eval = function( txt ){ eval( txt) }
 
 ProtoTask.compile = function task_compile( code, generator ){
-// Expand some macros to make a "task constructor" or a generator constructor.
+// Expand some macros to make a "task constructor" or a "generator constructor".
 
   // Lexer
 
@@ -1345,12 +1368,28 @@ ProtoTask.compile = function task_compile( code, generator ){
 
   //trace( Util.inspect( fragments))
   var str  = []
-  str.push( head + ";this")
+  str.push( ";this")
   generate( body, str)
   // trace( Util.inspect( str))
-  str = str.join( ".\n") + "}"
+  str = str.join( ".\n") 
   var fn
-  eval( "fn = " + str)
+  // Compile code, with user provided "scoped eval" maybe
+  if( l8.eval ){
+    fn = l8.eval( "L8_compiled = " + head + str + "}") // WTF, xxx = is needed
+    // l8.eval = null
+  }else{
+    // Remove 'function xx(p1,p2..){' declaration, but remember parameters
+    var params
+    head = head.replace(
+      /function.*\((.*)\).*{/,
+      function( match, p1 ){
+        params = p1.replace( / /, "")
+        return ""
+      }
+    )
+    // Compile code, using "global scope", something that is platform dependant
+    fn = new Function( params, head + str)
+  }
   return !generator ? L8.Task( fn) : L8.Generator( fn)
 }
 
@@ -1358,7 +1397,7 @@ L8.compileGenerator = function( code ){
   return L8.compile( code, true)
 }
 
-if( DEBUG ){
+if( false && DEBUG ){
 var do_something_as_task = function(){
     var ii = 0
     step; this.sleep( 1000);
@@ -1390,7 +1429,7 @@ var do_something_as_task = function(){
     failure; problem();
     final;   always();
 }
-trace( L8.compile( do_something_as_task))
+L8.compile( do_something_as_task)
 } // DEBUG
 
 /* ----------------------------------------------------------------------------
@@ -1428,6 +1467,20 @@ ProtoTask.then = function task_then( success, failure, progress ){
     promise = this.optional.donePromise = MakePromise()
   }
   return promise.then( success, failure, progress)
+}
+
+ProtoTask.node = function l8_node( promise, cb ){
+// Register a node style calback to handle a promise completion.
+// Promise defaults to current thead when not specified.
+  if( !cb ){
+    de&&mand( promise instanceof Function )
+    cb      = promise
+    promise = this.current
+  }
+  return promise.then(
+    function( ok){ cb( null, ok) },
+    function( ko){ cb( ko)       }
+  )
 }
 
 ProtoPromise.then = function promise_then( success, failure, progress ){
@@ -1604,8 +1657,6 @@ ProtoTask.raise = function task_raise( err, val ){
   }
   return task
 }
-
-ProtoTask.throw = Task.raise
 
 ProtoTask.sleep = function task_sleep( delay ){
   var task = this.current
@@ -1951,23 +2002,31 @@ ProtoMessageQueue.get = function message_queue_get(){
   var that = this
   var step = CurrentStep
   var task = step.task
-  if( this.empty ){
-    task.pause()
-    this.in.then( function(){
-      if( task.pausedStep !== step )return
-      that.getPromise = null
-      task.stepResult = that.queue.shift()
-      that.length--
-      task.resume()
-    })
-  }else{
+  if( that.closed )return task.break
+  var get = function(){
+    de&&mand( that.getPromise )
     that.getPromise = null
-    task.stepResult = this.queue.shift()
-    --this.length
+    task.stepResult = that.queue.shift()
+    that.length--
     if( !that.empty ){
       that.in.resolve()
     }
+    return that
   }
+  if( !this.empty )return get()
+  var consume = function(){
+    if( task.pausedStep !== step )return
+    if( that.closed )return task.break
+    if( that.empty ){
+      that.in.then( consume)
+      return
+    }
+    get()
+    task.resume()
+  }
+  task.pause()
+  this.in.then( consume)
+  return that
 }
 
 ProtoMessageQueue.tryGet = function message_queue_try_get(){
@@ -2009,6 +2068,18 @@ ProtoMessageQueue.__defineGetter__( "empty", function(){
 ProtoMessageQueue.__defineGetter__( "full", function(){
   return this.length >= this.capacity
 })
+
+ProtoMessageQueue.close = function(){
+  if( this.closed )return this
+  this.closed = true
+  if( this.getPromise ){
+    this.getPromise.resolve()
+  }
+  if( this.putPromise ){
+    this.putPromise.resolve()
+  }
+  return true
+}
 
 /* ----------------------------------------------------------------------------
  *  Generator. next()/yield() protocol
@@ -2433,423 +2504,7 @@ ProtoAggregator.then = function( callback, errback ){
   return this.promise.then( callback, errback)
 }
 
-/* ----------------------------------------------------------------------------
- *  Tests
- */
-
-  var test
-
-  var traces = []
-  function t(){
-    if( traces.length > 200 ){
-      trace( "!!! Too many traces, infinite loop? exiting...")
-      process.exit( 1)
-    }
-    var buf = ["test" + (test ? " " + test : ""), "" + CurrentStep]
-    for( var ii = 0 ; ii < arguments.length ; ii++ ) buf.push( arguments[ii])
-    buf = trace.apply( this, buf)
-    traces.push( buf)
-    return buf
-  }
-
-  function check(){
-    var ii = 0
-    var msg
-    var tt = 0
-    var tmsg
-    while( ii < arguments.length ){
-      msg = arguments[ii++]
-      while( true ){
-        tmsg = traces[tt]
-        if( tmsg && tmsg.indexOf( msg) >= 0 )break
-        if( ++tt >= traces.length ){
-          var msg = "FAILED test " + test + ", missing trace: " + msg
-          trace( msg)
-          for( var jj = 0 ; jj < ii ; jj++ ){
-            trace( arguments[jj])
-          }
-          traces = []
-          throw new Error( msg)
-        }
-      }
-    }
-    trace( "Test " + test, "PASSED")
-    traces = []
-  }
-
-  var test_1 = function test1(){
-    test = 1
-    t( "go")
-    l8.begin
-      .step(  function(){ t( "start")      })
-      .step(  function(){ t( "step")       })
-      .step(  function(){ t( "sleep")
-                          this.sleep( 100)
-                          t( "sleeping")   })
-      .step(  function(){ t( "sleep done") })
-      .failure( function( e ){ t( "unexpected failure", e) })
-      .final( function(){ t( "final")
-        check( "start",
-               "step",
-               "sleep",
-               "sleeping",
-               "sleep done",
-               "final"
-        )
-        test_2()
-      })
-    .end
-  }
-
-  var test_2 = L8.Task( function test2(){
-    test = 2; this
-    .step(  function(){ t( "start")               })
-    .step(  function(){ setTimeout( this.walk, 0) })
-    .step(  function(){ t( "sleep/timeout done")  })
-    .failure( function( e ){ t( "unexpected failure", e) })
-    .final( function(){ t( "final")
-      check( "start",
-             "sleep/timeout done",
-             "final"
-      )
-      test_3()
-    })
-  })
-
-  var test_3 = L8.Task( function test3(){
-    test = 3; this
-    .step(    function(){ t( "start")             })
-    .step(    function(){ t( "add step 1"); this
-      .step(  function(){   t( "first step")  })
-                          t( "add step 2"); this
-      .step(  function(){   t( "second step") })  })
-    .step(    function(){ t("third & final step") })
-    .success( function(){ t("success")            })
-    .failure( function( e ){ t( "unexpected failure", e) })
-    .final(   function(){ t( "final")
-      check( "start",
-             "success",
-             "final"
-      )
-      test_4()
-    })
-  })
-
-  var test_4 = L8.Task( function test4(){
-    test = 4; this
-    .step(    function(){ t( "start")                    })
-    .step(    function(){ t( "raise error")
-                          throw new Error( "step error") })
-    .step(    function(){ t("!!! skipped step")          })
-    .failure( function(){ t("error raised", this.error)  })
-    .final(   function(){ t( "final")
-      check( "start",
-             "error raised",
-             "final"
-      )
-      test_5()
-    })
-  })
-
-  var test_5 = L8.Task( function test5(){
-    test = 5; t( "start"); this
-    .fork(    function(){ this.label = t( "fork 1"); this
-      .step(  function(){ this.sleep( 10)       })
-      .step(  function(){ t( "end fork 1")      })        })
-    .fork(    function(){ this.label = t( "fork 2"); this
-      .step(  function(){ this.sleep( 5)        })
-      .step(  function(){ t( "end fork 2")      })        })
-    .step(    function(){ t( "joined")          })
-    .fork(    function(){ this.label = t( "fork 3"); this
-      .step(  function(){ this.sleep( 1)        })
-      .final( function(){ t( "final of fork 3") })        })
-    .fork(    function(){ this.label = t( "fork 4"); this
-      .final( function(){ t( "final of fork 4") })        })
-    .step(    function(){ t( "joined again") })
-    .failure( function( e ){ t( "unexpected failure", e)  })
-    .final(   function(){ t( "final")
-      check( "start",
-             "fork 1",
-             "fork 2",
-             "end fork 2",
-             "end fork 1",
-             "joined",
-             "fork 3",
-             "fork 4",
-             "final of fork 4",
-             "final of fork 3",
-             "joined again",
-             "final"
-      )
-      test_6()
-    })
-  })
-
-  var test_6 = L8.Task( function test6(){
-    function other1(){ l8.step( function(){ t( "in other1")} )}
-    function other2(){ l8.fork( function(){ t( "in other2")} )}
-    test = 6; this
-    .step(  function(){ other1(); t( "other1() called")        })
-    .step(  function(){ t( "other1 result", this.result); this
-                        other2(); t( "other2() called")        })
-    .step(  function(){ t( "other2 result", this.result)       })
-    .failure( function( e ){ t( "unexpected failure", e) })
-    .final( function(){ t( "final result", this.result)
-      check( "other1() called",
-             "in other1",
-             "other1 result",
-             "other2() called",
-             "in other2",
-             "other2 result",
-             "final result"
-      )
-      test_7()
-    })
-  })
-
-  var test_7 = L8.Task( function test7(){
-    test = 7
-    var ii; this
-    .step(   function(){ t( "simple, times", ii = 3)     })
-    .repeat( function(){ t( "repeat simple step", ii)
-                         if( --ii === 0 ){
-                           t( "break simple repeat")
-                           this.break
-                         }                               })
-    .step(   function(){ t( "simple repeat done")        })
-    .step(   function(){ t( "sleep, times", ii = 2)      })
-    .repeat( function(){ this
-      .step( function(){   t( "repeat sleep", ii)
-                           this.sleep( 1)                })
-      .step( function(){   t( "done sleep", ii)          })
-      .step( function(){   if( --ii === 0 ){
-                             t( "break sleep repeat")
-                             this.break
-                           }                          }) })
-    .step(   function(){ t( "done ")                     })
-    .failure( function( e ){ t( "unexpected failure", e) })
-    .final(  function(){ t( "final result", this.result)
-      check( "simple, times",
-             "repeat simple",
-             "break simple repeat",
-             "simple repeat done",
-             "sleep, times",
-             "done sleep",
-             "break sleep repeat",
-             "done",
-             "final result"
-      )
-      test_8()
-    })
-  })
-
-  var test_8 = L8.compile( function r(){
-    test = 8
-    var f1 = L8.Task( function( p1, p2 ){
-      t( "p1", p1, "p2", p2)
-      return [p1,p2]
-    })
-    step;
-      t( "pass parameter, get result");
-      f1( "aa", "bb")
-    step( r );
-      t( "both", r.join( "+"))
-      f1( "11", "22")
-    step( a, b ); t( "a", a, "b", b)
-    fork; return "f1"
-    fork; return "f2"
-    step( f1, f2 ); t( "f1", f1, "f2", f2)
-    fork; f1( "hello", "world")
-    fork; f1( "keep calm", "carry on")
-    step( h, k ); t( h.join( "! "), k.join( "? "))
-    failure( e ); t( "unexpected error", e)
-    final; check(
-      "p1, aa, p2, bb",
-      "both, aa+bb",
-      "a, 11, b, 22",
-      "f1, f1, f2, f2",
-      "hello! world, keep calm? carry on"
-    )
-    test_9()
-  })
-
-  var test_9 = L8.Task( function(){
-    test = 9
-    var fibonacci = function(){
-      var i = 0, j = 1;
-      repeat; begin
-        t( "yield", i)
-        this.yield( i);
-        var tmp = i;
-        i  = j;
-        j += tmp;
-      end
-      step; t( "producer done")
-      failure( e ); t( "fib, unexpected error", e)
-    }
-    fibonacci = L8.compileGenerator( fibonacci)
-    var gen = fibonacci()
-    var count_down = 10
-    this.repeat( function(){
-      this.step( function(   ){
-        if( !count_down-- ) this.break
-        gen.next()
-      }).step( function( r ){
-        t( count_down, "fibo", r)
-      })
-    }).step( function(){
-      t( "consumer done")
-    }).failure( function( e ){ t( "unexpected error", e)
-    }).final( function(){
-      check(
-        "fibo, 1",
-        "fibo, 1",
-        "fibo, 2",
-        "fibo, 3",
-        "fibo, 5",
-        "fibo, 8",
-        "fibo, 13",
-        "fibo, 21",
-        "fibo, 34",
-        "yield, 55",
-        "consumer done"
-      )
-      test_10()
-    })
-  })
-
-  var test_10 = L8.Task( function(){
-    test = 10
-    var inner = L8.Task( function(){
-      innerer( this)
-      this.step(    function(      ){ t( "!!! Unexpected step in inner()")})
-      this.success( function( r    ){ t( "inner success", r) })
-      this.final(   function( e, r ){ t( "inner final", e, r) })
-    })
-    var innerer = L8.Task( function( ret ){
-      innerest( ret)
-      this.step(    function(      ){ t( "!!! Unexpected step in innerer()")})
-      this.success( function( r    ){ t( "innerer success", r) })
-      this.final(   function( e, r ){ t( "innerer final", e, r) })
-    })
-    var innerest = L8.Task( function( ret ){
-      this.final(   function( e, r ){ t( "innerest final", e, r) })
-      ret.return( "From innerest")
-      this.step(    function(      ){ t( "!!! Unexpected step in innerer()")})
-      this.success( function( r    ){ t( "!!! Unexpected success", r) })
-    })
-    this
-    .step(    function(   ){ t( "inner()")             })
-    .step(    function(   ){ inner()                   })
-    .step(    function( r ){ t( "return", r)           })
-    .failure( function( e ){ t( "Unexpected error", e) })
-    .final(   function(   ){
-      check(
-        "inner()",
-        "innerest final, From innerest",
-        "innerer success, From innerest",
-        "innerer final, From innerest",
-        "inner success, From innerest",
-        "inner final, From innerest",
-        "return, From innerest"
-      )
-      test_11()
-    })
-  })
-
-  var test_11 = L8.Task( function(){
-    test = 11
-    function recur( n, next ){
-      if( --n > 0 ){
-        L8_NextTick( function(){ recur( n, next) })
-      }else{
-        next()
-      }
-    }
-    var l8recur = L8.Task( function l8recur_task( n ){
-      if( --n > 0 ){ l8recur( n) }
-    })
-    var now
-    var n = 3
-    var p = 100000
-    var factor = 50 // 50 by december 2012
-    var ii          // 15 is average in nodejs. Best ever is 3, in Chrome
-    var duration
-    var l8duration
-    var tid
-    var was_debug = L8.debug()
-    this
-    .step( function(){ this.sleep( 1) })
-    .step( function(){ now = L8.timeNow; L8.debug( false) })
-    .step( function(){
-      var done = 0
-      var task = this
-      for( var ii = 0 ; ii < p ; ii++ ){
-        L8_NextTick( function(){
-          recur( n, function(){ if( ++done === p ) task.resume() })
-        })
-      }
-      task.pause()
-    })
-    .step( function(){ this.sleep( 1) })
-    .step( function(){
-      duration = -1 + L8.timeNow - now
-      t( n * p, "times async recur()", duration, "millisecs")
-    })
-    .step( function(){ this.sleep( 1) })
-    .step( function(){
-      now = L8.timeNow
-      ii  = 0
-      tid = NextTaskId
-    })
-    .repeat( function(){
-      if( ii >= p / factor ) this.break
-      l8recur( n)
-      ii++
-    })
-    .step( function(){ this.sleep( 1) })
-    .step( function(){
-      L8.debug( was_debug)
-      l8duration = (-1 + (L8.timeNow - now)) * factor
-      t( n * p, "times l8recur()", l8duration, "estimated millisecs")
-      t( l8duration / duration, "times slower than if native")
-      t( (n * p) / duration   * 1000, "native call/sec")
-      t( (n * p) / l8duration * 1000, "l8 call/sec")
-      t( (NextTaskId - tid) / l8duration * 1000 * factor, "l8 task/sec")
-    })
-    .failure( function( e ){ t( "!!! Unexpected error, e") })
-    .final( function(){
-      check(
-        "l8 call/sec"
-      )
-      test_last()
-    })
-  })
-
-  var test_last = function(){
-    trace( "SUCCESS!!! All tests ok")
-  }
-
-if( DEBUG && false ){
-  trace( "starting L8")
-  var count_down = 10
-  setInterval(
-    function(){
-      de&&bug( "tick " + --count_down)
-      if( !count_down && DEBUG ){
-        trace( "exiting...")
-        process.exit( 0)
-      }
-    },
-    1000
-  )
-  test_1()
-}else{
-  L8.tests = test_1
-}
-
 return L8
-
 })
 })(typeof define == 'function' && define.amd
   ? define

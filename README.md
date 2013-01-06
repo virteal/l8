@@ -1,13 +1,35 @@
-l8 0.1.26
+l8 0.1.27
 =========
 
-L8 is a task/promise scheduler for javascript. L8 sounds like "leight",
-something between "late" and "light".
+L8 is a task scheduler for javascript.
 
 A task is any activity that a "normal" non-blocking javascript function cannot
-do because... javascript's functions cannot block! Where functions provide
+do because... javascript functions cannot block! Where functions provide
 results, tasks provide promises instead. To become tasks that can block,
 functions are broken into steps that the l8 scheduler executes.
+
+'''
+l8.task ->
+  @repeat ->
+    round = random = 0
+    @step -> input "Enter a decent number to start a new game"
+    @step (r) ->
+      @continue if (r = parseInt( r)) < 10
+      random = Math.floor Math.random() * r
+      round  = 0
+    @repeat ->
+      @step -> input "Guess a number"
+      @step (r) ->
+        round++
+        r = parseInt( r)
+        if r > random then printnl "#{r} is too big"
+        if r < random then printnl "#{r} is too small"
+        if r is random
+          cls()
+          printnl "Win in #{round} rounds! Try again"
+          @break
+# extracted from test/input.coffee
+'''
 
 What is it?
 ===========
@@ -21,7 +43,7 @@ like a function is made of statements. Steps are walked on multiple "paths".
 Such tasks and paths (sub-tasks) can nest, like blocks of statements.
 
 Execution goes from "step" to "step", steps are closures. If one cannot walk a
-step immediatly, one does block, waiting for something before resuming.
+step immediately, one does block, waiting for something before resuming.
 
 l8 tasks are kind of user level non preemptive threads. They are neither
 native threads, nor worker threads, nor fibers nor the result of some CPS
@@ -146,27 +168,27 @@ This is less verbose with CoffeeScript:
 
 ```
   user = null
-  @step      -> ajax_get_user name
-  @step( r ) -> ajax_check_credential (user = r)
-  @step( r ) -> if !r then @return() else
+  @step     -> ajax_get_user name
+  @step (r) -> ajax_check_credential (user = r)
+  @step (r) -> if !r then @return() else
                 ajax_do_action user, "delete"
-  @step( r ) -> if err = r then signal err
+  @step (r) -> if err = r then signal err
 ```
 
 By "breaking" a function into multiple "steps", code become almost as readable
 as it would be if statements in javascript could block, minus the "step" noise.
 
 This example is a fairly simple one. Execution goes from step to step in a
-sequential way. Sometimes the flow of control can be much more sophisticated.
+sequential way. Sometimes the flow of control is much more sophisticated.
 There can be multiple "threads" of control, with actions initiated concurrently
 and various styles of collaboration between these actions.
 
 Please note that the ajax_xxx() functions of the example are not regular
 functions, they are "task constructors". When you invoke such a function, a new
-task is created.
+task is created. See below.
 
 If they were usual ajax_xxx( p1, p2, cb) style of functions, one would need to
-use .walk or .proceed() as the callback in order to ask l8 to move to the next
+use .walk or .proceed() as the callback in order to ask L8 to move to the next
 step:
 
 ```
@@ -248,9 +270,9 @@ break-points in a debugger.
   do_something_task = l8.compile( do_something_as_task );
   function do_something_as_task(){
     step; this.sleep( 1000);
-    fork; do_some_other_task();
-    fork; another_task();
-    step( a, b ); use( a); use( b);
+    fork; do_some_other_task_xx();
+    fork; another_task_xx();
+    step( a, b ); use_xx( a); use_xx( b);
     begin
       ...
       step; ...
@@ -258,12 +280,12 @@ break-points in a debugger.
     end
     repeat; begin
       ...
-      step; act()
+      step; act_xx()
       step( r ); if( !r ) this.break
     end
-    success( r ); done( r);
-    failure( e ); problem( e);
-    final( r, e); always();
+    success( r ); done_xx( r);
+    failure( e ); problem_xx( e);
+    final( r, e); always_xx();
   }
 ```
 
@@ -297,10 +319,10 @@ fullfilled or rejected depending on the result of these callbacks; this makes
 chaining easy.
 
 Please note that "promises" in the Javascript world is not a mature feature.
-The "de facto" CommonJS standard is beeing challenged by another "de facto"
+The "de facto" CommonJS standard is challenged by another "de facto" strong
 strong contender: jQuery. Their implementation of then() differs significantly
 regarding chaining and exception handling. l8.wait() does not use these
-features and consequently .wait() should work with most implementations,
+features and consequently l8.wait() should work with most implementations,
 including jQuery's one.
 
 One can invoke .then() multiple times on the same promise. When that promise is
@@ -369,23 +391,21 @@ API
     -- step walking
     .proceed( block )   -- walk a step on its path, at most once per step
     .walk               -- idem but params of block become results of step
+    .flow               -- idem but first param is filtered out unless thrown
     .continue           -- stop executing current task, reschedule it instead
     .break              -- "break" for "repeat" steps
     .return( [val] )    -- like "return" in normal flow, skip all queued steps
-    .raise( error )     -- raise an error in task, skip all queued steps
-    .throw( error )     -- alias for raise()
+    .raise( error )     -- raise an exception in task, skip all queued steps
 
     -- task completion monitoring, for task users
     .then( ... )        -- Promise/A protocol, tasks are promises
-    .node( callback )   -- Node.js style callback
+    .node( callback )   -- Node.js style callback. Also .node( promise, cb)
 
     -- task completion handling, for task implementers
     .progress( block )  -- block to run when a subtask is done or step walked
-    .success( block )   -- block to run when task is done without error
-    .failure( block )   -- block to run when task is done but with error
-    .catch( block )     -- alias for failure()
-    .final( block )     -- block to run when task is all done (after .defer())
-    .finally( block )   -- alias for final()
+    .success(  block )  -- block to run when task is done without error
+    .failure(  block )  -- block to run when task is done but with error
+    .final(    block )  -- block to run when task is all done (after .defer())
 
     -- task state related
     .state              -- return state of task, I->[Run|Pause]*->Success/Fail
@@ -401,10 +421,10 @@ API
     .done               -- true if task done, else either running or paused
     .succeed            -- true if task done without error
     .fail               -- true if task done but with an error
-    .error              -- last raised error (ie last thrown exception)
-    .result             -- result of last executed step
-    .timeout( milli )   -- cancel task if it is not done in time
-    .sleep( milli )     -- block on step for a while, then move to next step
+    .error              -- last raised error (ie last exception)
+    .result             -- result of last successful step
+    .timeout( milli )   -- cancel task if it is not done on time
+    .sleep(   milli )   -- block on step for a while, then move to next step
     .wait( promise )    -- block task until some lock opens, promise agnostic
 
     -- misc, hierarchy
@@ -434,9 +454,9 @@ API
   .signal()             -- signal, ..., like a promise that fires many times
   .timeout( delay )     -- a promise fulfilled after a delay
   .generator()          -- a next()/yield() consumer/producer resource
-  .Generator( blck )    -- build a Generator Constructor.
+  .Generator( block )   -- build a Generator Constructor.
 
-  Semaphores, mutexes and locks provide
+  Semaphores, mutexes and locks provide:
 
     .promise            -- provide a promise fullfilled when rsrc is acquired
     .release()          -- make resource available
@@ -448,7 +468,9 @@ API
     .in                 -- a "can get()" promise, alias for .promise
     .out                -- a "can put()" promise
     .get()              -- pause current task until queue is not empty, get msg
-    .put( [msg] )       -- pause current task until queue is not full, put msg
+    .tryGet()           -- get msg when one is available, don't block
+    .put( msg )         -- pause current task until queue is not full, put msg
+    .tryPut( msg )      -- put msg in queue unless queue is full
     .capacity           -- total capacity (bound)
     .length             -- used capacity
     .full               -- when capacity is totally used
@@ -680,7 +702,7 @@ var show_news = l8.Task( function(){
   })
   .fork( function(){
     this.step( function(){ this.sleep( 1000 * 60) });
-    this.step( function(){ throw( "sorry, no news. timeout") })
+    this.step( function(){ throw "sorry, no news. timeout" })
   })
   .success( function( news ){ show( news) });
 })
@@ -714,7 +736,7 @@ var show_new = L8.compile( function(){
   end
   fork; begin
     step; this.sleep( 1000 * 60);
-    step; throw( "sorry, no news. timeout");
+    step; throw "sorry, no news. timeout";
   end
   success( news ); show( news);
 })
@@ -765,6 +787,45 @@ pipe = l8.compile( function( in, out ){
 
 Note: for this example to work, node.js streams need to be "taskified". This
 is left as an exercize.
+
+The "recursive dir walk" nodejs challenge:
+
+```
+Var fs = require('fs');
+var path = require('path');
+
+var recurseDir = function(dir) {
+  fs.readdirSync(dir).forEach(function(child) {
+    if (child[0] != '.') {
+      var childPath = path.join(dir, child);
+      if (fs.statSync(childPath).isDirectory()) {
+        recurseDir(childPath);
+      } else {
+        console.log(childPath);
+      }
+    }
+  });
+};
+recurseDir(process.argv[2]);
+
+// Async version:
+var recurseDir = l8.Task( function( dir ){
+  l8.step( function(   ){ fs.readdir( dir, this.flow) })
+  l8.step( function( l ){ l.forEach( function( child ){
+    if( child[0] != "." ){
+      var childPath = path.join( dir, child);
+      l8.step( function(   ){ fs.stat( childPath, this.flow) })
+      l8.step( function( r ){
+        if( r.isDirectory() ){
+          recurseDir( childPath)
+        }else{
+          console.log(dchildPath)
+        }
+      })
+    }
+  }) })
+})
+```
 
 Cooperating tasks examples:
 ===========================
