@@ -8,7 +8,7 @@ do because... javascript functions cannot block! Where functions provide
 results, tasks provide promises instead. To become tasks that can block,
 functions are broken into steps that the l8 scheduler executes.
 
-'''
+```
 l8.task ->
   @repeat ->
     round = random = 0
@@ -29,7 +29,7 @@ l8.task ->
           printnl "Win in #{round} rounds! Try again"
           @break
 # extracted from test/input.coffee
-'''
+```
 
 What is it?
 ===========
