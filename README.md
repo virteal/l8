@@ -1,7 +1,7 @@
 l8 0.1.27
 =========
 
-L8 is a task scheduler for javascript.
+l8 is a task scheduler for javascript.
 
 A task is any activity that a "normal" non-blocking javascript function cannot
 do because... javascript functions cannot block! Where functions provide
@@ -146,7 +146,7 @@ is something like this:
 However, this cannot exist in javascript because no function can "block". The
 function "ajax_get_user()" cannot "block" until it receives an answer.
 
-This is where L8 helps.
+This is where l8 helps.
 
 Steps
 -----
@@ -188,7 +188,7 @@ functions, they are "task constructors". When you invoke such a function, a new
 task is created. See below.
 
 If they were usual ajax_xxx( p1, p2, cb) style of functions, one would need to
-use .walk or .proceed() as the callback in order to ask L8 to move to the next
+use .walk or .proceed() as the callback in order to ask l8 to move to the next
 step:
 
 ```
@@ -203,7 +203,7 @@ step:
 Tasks
 -----
 
-About the notion of "task". A Task is a L8 object that consolidates the result
+About the notion of "task". A Task is a l8 object that consolidates the result
 of multiple threads of control (aka sub-tasks) that all participate in the
 completion of a task.
 
@@ -328,7 +328,7 @@ including jQuery's one.
 One can invoke .then() multiple times on the same promise. When that promise is
 either fullfilled or rejected, all the registered callbacks are processed.
 
-Some features of L8 that involve promises require a promise factory. L8 can use
+Some features of l8 that involve promises require a promise factory. l8 can use
 the factories of Q.js, When.js, Angular.js, etc. The factory must return a new
 object that supports .resolve(), .reject() and a .promise() that returns an
 object that supports a Promise/A compliant .then().
@@ -344,7 +344,7 @@ these results.
 Consumers usually consume the next result that some subtask yields until the
 generator reaches an end and is closed, either by the producer or the consumer.
 
-L8.Generator( block) builds a "Generator Constructor" much like L8.Task( block)
+l8.Generator( block) builds a "Generator Constructor" much like l8.Task( block)
 does with "Task Constructor". When the constructor is invoked, a generator task
 is spawn. That task uses .yield() to produce results. On the consumer side, the
 task uses .next([opt]) to get that result and optionaly provide a hint about
@@ -439,11 +439,11 @@ API
     .end                -- start that new task
     .Task( function )   -- the .begin/.end guarded version of a function
 
-  All these methods, if invoked against the global L8 object, will usually get
+  All these methods, if invoked against the global l8 object, will usually get
   forwarded to the "current task", the task that is currently executing. That
   task is often the returned value of such methods, when it makes sense.
 
-  To synchronize the access to resources, L8 provide a few well known basic
+  To synchronize the access to resources, l8 provide a few well known basic
   solutions implemented using promises and invoked using task.wait( resource):
 
   .semaphore( [n] )     -- create a new semaphore, also a promise provider
@@ -494,11 +494,11 @@ API
     .closed             -- true once generator is closed
 
   When a producer task is created using a Generator Constructor, that task can
-  use L8.yield() while the parent task can use L8.next() ; the associated
+  use l8.yield() while the parent task can use l8.next() ; the associated
   generator will automatically get closed when either the producer or the
   consumer task terminates.
 
-  Many actions are possible when you have a hand of promises, L8 provides some
+  Many actions are possible when you have a hand of promises, l8 provides some
   of them:
 
   .selector( promises )  -- fires when any promise does
@@ -684,7 +684,7 @@ or {
 show(news);
 ```
 
-The equivalent code with L8 is:
+The equivalent code with l8 is:
 
 ```
 
@@ -722,8 +722,8 @@ show_news = l8.Task ->
     @step -> throw "sorry, no news. timeout"
   @success( news ) -> show news
 
-// L8 trans-compiler
-var show_new = L8.compile( function(){
+// l8 trans-compiler
+var show_new = l8.compile( function(){
   var news = this
   fork; begin
     step; http.get( "http://news.bbc.co.uk");
