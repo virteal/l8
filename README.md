@@ -1,4 +1,4 @@
-l8 0.1.27
+l8 0.1.29
 =========
 
 l8 is a task scheduler for javascript.
@@ -386,7 +386,6 @@ API
     .repeat( body )     -- queue a step that repeats a blocking subtask
     .spawn(  body )     -- like fork() but next step does not wait for subtask
     .generator( body )  -- queue a step that spwans a task that yields results
-    .defer( body )      -- queue a step that queues a step run when task ends
 
     -- step walking
     .proceed( block )   -- walk a step on its path, at most once per step
@@ -400,12 +399,20 @@ API
     -- task completion monitoring, for task users
     .then( ... )        -- Promise/A protocol, tasks are promises
     .node( callback )   -- Node.js style callback. Also .node( promise, cb)
+    .join()             -- pause task until all subtasks are done
 
     -- task completion handling, for task implementers
+    .defer(    body )   -- push a block to execute when task is almost done
     .progress( block )  -- block to run when a subtask is done or step walked
     .success(  block )  -- block to run when task is done without error
     .failure(  block )  -- block to run when task is done but with error
     .final(    block )  -- block to run when task is all done (after .defer())
+    
+    -- task "local" variables, subtasks inherit them, a binding store them
+    .var( name, val )   -- define a new variable in current task's binding
+    .get( name )        -- get value of task local variable
+    .set( name, val )   -- set value of task local variable
+    .binding( name )    -- return binding where task local variable is stored
 
     -- task state related
     .state              -- return state of task, I->[Run|Pause]*->Success/Fail
@@ -846,8 +853,10 @@ Access to a critical resource:
 var mutex = L8.mutex()
   ...
   .step( mutex)   // or .step( function(){ this.wait( mutex) })
-  .defer( function(){ mutex.release() })
-  .step( xxx )
+  .step( function(){
+    l8.defer( function(){ mutex.release() })
+    xxx
+  })
   ...
 ```
 
@@ -1061,25 +1070,27 @@ the current task (this may change in a future version).
 
 .defer( block) is inspired by the Go language "defer" keyword. It is itself
 a variation around the C++ notion of "destructors". There can be multiple
-deferred blocks for a task. Each such block is registered when the .defer()
-step is executed, not when it is queued (whereas .final() registers a block
-immediately). Because deferred steps are executed just before the task reach
-its end, they can register additional steps to handle async activities. As a
-result, the task is not fully done until all the defered work is done too.
-Deferred blocks are executed in a LIFO order, ie the last deferred step is run
-first.
+deferred blocks for a task. Because deferred steps are executed just before the
+task reach its end, they can register additional steps to handle async
+activities. As a result, the task is not fully done until all the defered work
+is done too. Deferred blocks are executed in a LIFO order, ie the last deferred
+step is run first.
 
 ```
   var resourceA
   var resourceB
   l8
   .step( function(){ acquireResource( xxx) })
-  .step( function( r ){ ressourceA = r })
-  .defer( function(){ releaseResource( resourceA) })
+  .step( function( r ){
+    ressourceA = r
+    l8.defer( function(){ releaseResource( resourceA) })
+  })
   .step( function(){ xxx work with resourceA xxx })
   .step( function(){ acquireResource( yyy) })
-  .step( function( r ){ resourceB = r })
-  .defer( function(){ releaseResource( resourceB) })
+  .step( function( r ){
+    resourceB = r
+    l8.defer( function(){ releaseResource( resourceB) })
+  })
   .step( function(){ xxx work with resourceB xxx })
 ```
 
@@ -1093,8 +1104,10 @@ See http://en.wikipedia.org/wiki/Resource_Acquisition_Is_Initialization
     var file
     l8
     .step(){ function(){ file_open( file_name) })
-    .step( r ){ return file = r }
-    .parent.defer( function(){ file_close( file)}
+    .step( r ){
+      file = r
+      l8.parent.defer( function(){ file_close( file) })
+    }
   })
 
   Usage:
@@ -1108,6 +1121,55 @@ See http://en.wikipedia.org/wiki/Resource_Acquisition_Is_Initialization
 
 The general "rule of thumb" is to use .final() for quick & simple stuff and
 use .defer() for more elaborated async stuff.
+
+Task "local" variables
+======================
+
+Task can define variables much like functions can. There are some differences.
+Contary to function local variables, task local variables are "fluid", as per
+Scheme jargon, ie they are dynamically scoped (whereas javascript variables use
+lexical scoping). See also http://en.wikipedia.org/wiki/Thread_local_storage
+
+A nice property of task local variables is the fact that a variable defined by
+a parent task is accessible from a child subtask. As a result, task local
+variables are "global" to a subset of all tasks, based on the task hierarchy.
+
+When a subtask needs to override an inherited variables, it uses ".var()" to
+set a new value that it's own subtasks will share. When a subtask, on the
+contrary, wants to share an inherited variables, it uses ".set()" to set a new
+value that it's parent task can query using ".get()".
+
+Please note that tasks can also use regular lexically scoped variables, as long
+as such a variable is part of a function's closure. This is the most convenient
+and fast use case. When more global variables are required, l8 fluid variables
+are handy.
+
+```
+var trace = function(){
+  l8.trace( l8.get( "message") + " from " + l8.binding( "message").task)
+}
+var subtask = function(){
+  l8.label = "sub"
+  l8.step( function(){ trace()                       })
+  l8.step( function(){ l8.var( "message", "deeper")  })
+  l8.step( function(){ l8.delay( 10)                 })
+  l8.step( function(){ trace()                       })
+}
+
+l8.task( function(){
+  l8.label = "main"
+  l8.var( "message", "top")
+  l8.spawn( subtask )
+  l8.step( function(){ l8.var( "message", "deeper")  })
+  l8.step( function(){ trace()                       })
+})
+
+displays: top from Task/x[main], top from Task/x[main], deeper from Task/x[sub]
+```
+
+
+
+
 
 L8 Design
 ---------
