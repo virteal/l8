@@ -8,7 +8,7 @@
 // Licensed under the MIT license.
 
 // Boilerplate for module loaders
-(function(define) { 'use strict';
+(function( define ){ 'use strict';
 define( function(){
 
 /* ----------------------------------------------------------------------------
@@ -108,6 +108,7 @@ ProtoTask.init = function( parent, is_fork, is_spawn ){
   this.forkResults      = void null // Array of these task's result
   this.forkResultsCount = void null // Number of entries in that array
   this.forkResultsIndex = void null // in parent's forkResults array
+  this.data             = void null // bindings for task local variables
   this.optional         = {}        // Some JIT compilers prefer that
   /*
   this.optional.wasCanceled     = false    // "brutal cancel" flag
@@ -185,7 +186,11 @@ var ProtoStep = Step.prototype
 
 var step_init =
 ProtoStep.init = function( task, block, is_fork, is_repeat ){
-  if( DEBUG ) this.id = ++task.stepCount
+  if( DEBUG ){
+    this.id = ++task.stepCount
+    this.wasQueued   = false
+    this.wasExecuted = false
+  }
   while( task.isDone ){
     task = task.parentTask
     // ToDo: maybe I could create a task "on the fly"?
@@ -238,6 +243,8 @@ ProtoStep.init = function( task, block, is_fork, is_repeat ){
 // Bootstrap root task, id 0
 var l8 = new Task( {}/*dummy parent*/)
 l8.parentTask = null
+l8.data = {task:l8}
+l8.proto = ProtoTask
 l8.l8 = l8
 var CurrentStep = new Step( l8, NoOp, false, true) // empty loop
 CurrentStep.isBlocking = true
@@ -321,6 +328,10 @@ var L8_Scheduler = function scheduler(){
 
 L8_EnqueueStep = function enqueue_step( step ){
 // Schedule step to execute. Restart scheduler if it is not started.
+  if( DEBUG ){
+    assert( !step.wasQueued || step.isRepeat )
+    step.wasQueued = true
+  }
   // Store step, efficiently if only one exist, in an array if more is needed
   if( L8_QueuedStep ){
     L8_StepQueue.push( step)
@@ -383,6 +394,10 @@ ProtoStep.trace = function step_trace( msg ){
 ProtoStep.execute = L8_Execute = function step_execute( that ){
   if( TraceStartTask && NextTaskId > TraceStartTask ){
     this.trace( "DEBUG execute")
+  }
+  if( false && DEBUG ){
+    assert( !that.wasExecuted || that.isRepeat )
+    that.wasExecuted = true
   }
   var task = that.task
   if( DEBUG && task.isDone )throw new Error( "BUG, exec done l8 step: " + that)
@@ -612,7 +627,10 @@ ProtoStep.scheduleNext = function schedule_next(){
     parent.subtaskDoneEvent( task)
   //}
   // Ask the Step allocator to reuse this now done task's steps
-  task.firstStep.free()
+  if( !task.data ){
+    // ToDo: I could free task when binding contains only references, not defs
+    task.firstStep.free()
+  }
 }
 
 ProtoTask.subtaskDoneEvent = function( subtask ){
@@ -824,7 +842,19 @@ ProtoTask.free = function(){
  *  API
  */
 
-ProtoTask.toString = function task_to_string(){ return "Task " + this.id }
+ProtoTask.toString = function task_to_string(){
+  var label = this === l8 ? "" : this.label
+  label = label ? "[" + label + "]" : ""
+  return "Task/" + this.id + label
+}
+
+ProtoTask.__defineGetter__( "label", function(){
+  return this.get( "label") || ""
+})
+
+ProtoTask.__defineSetter__( "label", function( label ){
+  return this.var( "label", label)
+})
 
 ProtoTask.Task = function task_task( fn ){
 // Build a "task constructor". When such a beast is called, it creates a task
@@ -857,6 +887,36 @@ ProtoTask.Task = function task_task( fn ){
   }
 }
 
+ProtoTask._task = function( block, forked, paused, detached, repeat ){
+  var task = this.current
+  var new_task
+  // Don't create a useless task if parent task is still a "single step" task
+  // ToDo: fix this
+  if( task.isSingleStep && !task.firstStep.next ){
+     new_task = task
+  }else{
+    new_task = MakeTask( task, forked, detached)
+  }
+  // Mark as reuseable, unless spawn
+  new_task.wasSpawn     = detached
+  new_task.isSingleStep = true
+  if( paused ){
+    // Pause task, need a new "first step" for that
+    MakeStep( new_task)
+    new_task.pausedStep = new_task.firstStep
+    new_task.pausedStep.isBlocking = true
+    MakeStep( new_task, block)
+  }else{
+    var next_step = MakeStep( new_task, block)
+    if( NO_SCHEDULER ){
+      L8_NextTick( function(){ L8_Execute( next_step) })
+    }else{
+      L8_EnqueueStep( next_step)
+    }
+  }
+  return new_task
+}
+
 ProtoTask.task = function task_task( block, forked, paused, detached, repeat ){
 // Add a step that will start a new task with some initial step to execute.
 // Such tasks are initially "single step" task. If the single step calls a
@@ -873,14 +933,7 @@ ProtoTask.task = function task_task( block, forked, paused, detached, repeat ){
   var task = this.current
   if( task === l8 ){
     var task = MakeTask( l8)
-    task.isSingleStep = true
-    task.task( block, forked, paused, detached, repeat)
-    if( NO_SCHEDULER ){
-      L8_NextTick( function(){ L8_Execute( task.firstStep) })
-    }else{
-      L8_EnqueueStep( task.firstStep)
-    }
-    return task
+    return task._task( forked, paused, detached, repeat)
   }
   return task.step( function(){
     if( TraceStartTask && TraceStartTask >= NextTaskId ){
@@ -891,31 +944,7 @@ ProtoTask.task = function task_task( block, forked, paused, detached, repeat ){
         repeat   ? "repeated" : ""
       )
     }
-    var new_task
-    // Don't create a useless task if parent task is still a "single step" task
-    // ToDo: fix this
-    if( false && task.isSingleStep && !task.firstStep.next ){
-      new_task = task
-    }else{
-      new_task = MakeTask( task, forked, detached)
-    }
-    // Mark as reuseable, unless spawn
-    new_task.wasSpawn     = detached
-    new_task.isSingleStep = true
-    if( paused ){
-      // Pause task, need a new "first step" for that
-      MakeStep( new_task)
-      new_task.pausedStep = new_task.firstStep
-      new_task.pausedStep.isBlocking = true
-      MakeStep( new_task, block)
-    }else{
-      var next_step = MakeStep( new_task, block)
-      if( NO_SCHEDULER ){
-        L8_NextTick( function(){ L8_Execute( next_step) })
-      }else{
-        L8_EnqueueStep( next_step)
-      }
-    }
+    return task._task( block, forked, paused, detached, repeat)
   }, forked, repeat)
 }
 
@@ -924,9 +953,17 @@ ProtoTask.fork = function task_fork( block, starts_paused ){
   return this.task( block, true, starts_paused)
 }
 
+ProtoTask._fork = function( block, starts_paused ){
+  return this._task( block, true, starts_paused)
+}
+
 ProtoTask.spawn = function task_spawn( block, starts_paused ){
 // Add a step that will start a detached task with some initial step to execute
   return this.task( block, true, starts_paused, true) // detached
+}
+
+ProtoTask._spawn = function( block, starts_paused ){
+  return this._task( block, true, starts_paused, true) // detached
 }
 
 ProtoTask.repeat = function task_repeat( block ){
@@ -934,19 +971,15 @@ ProtoTask.repeat = function task_repeat( block ){
   return this.task( block, false, false, false, true) // repeated
 }
 
-ProtoTask.defer = function task_defer(){
-// Add a step that will push a step to execute when task terminates
+ProtoTask.defer = function(){
   var task = this.current
   var args = arguments
-  MakeStep( task, function(){
-    var steps = task.optional.deferredSteps
-    if( steps ){
-      step.push( args)
-    }else{
-      task.optional.deferredSteps = [args]
-    }
-  })
-  return this
+  var steps = task.optional.deferredSteps
+  if( steps ){
+    step.push( args)
+  }else{
+    task.optional.deferredSteps = [args]
+  }
 }
 
 ProtoTask.__defineGetter__( "current", function(){
@@ -1141,9 +1174,9 @@ ProtoTask.return = function task_return( val ){
   if( task.isDone ){
     throw new Error( "Cannot return(), done l8 task")
   }
-  if( val ){ task.stepResult = val }
+  if( arguments.length === 1 ){ task.stepResult = val }
   task.optional.wasCanceled = true
-  task.raise( l8.returnEvent)
+  task.raise( l8.returnEvent, false, task.stepResult)
 }
 
 ProtoTask.__defineGetter__( "continue", function task_continue(){
@@ -1323,7 +1356,6 @@ ProtoTask.compile = function task_compile( code, generator ){
     }
     var head = tree.shift()
     if( !head )return generate( tree, buf)
-    var block
     pushed = false
     if( head.begin && previous ){
       var content
@@ -1446,7 +1478,7 @@ var ProtoPromise = Promise.prototype
 var P_defer = null // q.js or when.js 's defer(), or angular's $q's one
 
 l8.setPromiseFactory = function( factory ){
-  P = factory
+  P_defer = factory
 }
 
 function MakePromise(){
@@ -1567,6 +1599,121 @@ ProtoPromise.progress = function promise_progress(){
 }
 
 /* ----------------------------------------------------------------------------
+ *  Task "local" variables.
+ *  Such a variable is stored in a "binding" that subtasks inherit.
+ */
+
+ProtoTask.var = function( attr, val ){
+// Define a new variable.
+// Note: please use global() to create variables in the root binding because
+// l8.var() will actually create a variable in the current task when applied
+// on the root l8 task.
+// Note: when a task is done, it's bindings are erased. As a consequence, any
+// pending spawn task gets inherited by the done task's parent task and cannot
+// access the erased bindings they previously accessed, resulting in access
+// attemtps returning typically "undefined" instead of the expected value. To
+// avoid such a situation, when spawn tasks accessed shared variable from their
+// parent, please make sure that the parent task does not terminate until all
+// spawn task are done too. Use .join() for that purpose.
+  if( attr === "task" )throw( "no 'task' variable, reserved")
+  var task = this.current
+  var data = task.data
+  if( !data ){
+    data = task.data = {task:task}
+  }
+  data[attr] = {value:val,task:task}
+  return task
+}
+
+ProtoTask.global = function( attr, val ){
+  if( arguments.length === 1 ){
+    return this.data[attr] = {value:val,task:l8}
+  }else{
+    return this.data[attr]
+  }
+}
+
+ProtoTask.set = function( attr, val ){
+// Change the value of an existing task local variable or create a new
+// variable as .var() would.
+  if( attr === "task" )throw( "no 'task' l8 variable, reserved")
+  var task   = this.current
+  var data   = task.data
+  if( !data ){
+    task.data = {task:task}
+  }
+  var target = task
+  var slot
+  while( target ){
+    if( (data = target.data)
+    &&   data.hasOwnProperty( attr)
+    ){
+      slot = data[attr]
+      slot.task.data[attr].value = val
+      if( target != task ){
+        task.data[attr] = {task:target}
+      }
+      return task
+    }
+    target = target.parentTask
+  }
+  return task.var( attr, val)
+}
+
+ProtoTask.get = function( attr ){
+// Get the value of a task's variable. If the current task does not define
+// that variable in it's own binding, follow binding chain in parent task.
+  if( attr === "task" )throw( "no 'task' l8 variable, reserved")
+  var task   = this.current
+  var data   = task.data
+  if( !data ){
+    task.data = {task:task}
+  }
+  var target = task
+  var slot
+  while( target ){
+    if( (data = target.data)
+    &&   data.hasOwnProperty( attr)
+    ){
+      slot = data[attr]
+      if( target !== task ){
+        task.data[attr] = {task:target}
+      }
+      return slot.task.data[attr].value
+    }
+    target = target.parentTask
+  }
+  // "undefined" is returned when attribute does not exists  
+}
+
+ProtoTask.binding = function( attr ){
+// Return the "binding" where a variable is stored (or would be stored).
+// That binding is an object with a "task" property (the binding owner) and
+// a property for each variable ever accessed by that task or it's subtasks.
+// That property has a "value" property when that variable is stored directly
+// inside that binding. Or else it has a "task" property that tells which task
+// stores the variable's value.
+  var task   = this.current
+  var data
+  var target = task
+  while( target ){
+    if( !(data = target.data) ){
+      target = target.parentTask
+      continue
+    }
+    if( !attr )return data
+    if( data.hasOwnProperty( attr) ){
+      if( target != task ){
+        task.data[attr] = {task:target}
+      }
+      return data[attr].task.data
+    }
+    target = target.parentTask
+  }
+  return l8.data
+}
+
+/* ----------------------------------------------------------------------------
  *  Tasks synchronization
  */
 
@@ -1584,6 +1731,27 @@ ProtoTask.wait = function task_wait( promise ){
       task.raise( e)
     }
   )
+  return task
+}
+
+ProtoTask.join = function task_join(){
+  var task = this.current
+  var step = task.currentStep
+  var j = function(){
+    if( task.subtasksCount ){
+      for( var subtask in task.subtasks ){
+        subtask = task.subtasks[subtask]
+        task.pause()
+        subtask.then( j, j)
+        return
+      }
+      return
+    }
+    if( task.pausedStep === step ){
+      task.resume()
+    }
+  }
+  j()
   return task
 }
 
@@ -1621,11 +1789,15 @@ ProtoTask.resume = function task_resume(){
   return task
 }
 
-ProtoTask.raise = function task_raise( err, dont_throw ){
+ProtoTask.raise = function task_raise( err, dont_throw, val ){
+// Note: val parameter is needed when err is l8.returnEvent
   var task = this.current
   de&&mand( task !== l8 )
   if( task.isDone )return task
   err = task.stepError = err || task.stepError || l8.failureEvent
+  if( err === l8.returnEvent ){
+    task.stepResult = val
+  }
   var step = task.currentStep
   if( step ){
     // If there exists subtasks, forward error to them
@@ -1633,10 +1805,10 @@ ProtoTask.raise = function task_raise( err, dont_throw ){
     if( queue ){
       if( queue instanceof Array ){
         for( var subtask in queue ){
-          queue[subtask].raise( err)
+          queue[subtask].raise( err, dont_throw, val)
         }
       }else{
-        queue.raise( err, dont_throw)
+        queue.raise( err, dont_throw, val)
       }
       return
     }
@@ -2082,7 +2254,6 @@ ProtoMessageQueue.close = function(){
  */
 
 function Generator(){
-  var that = this
   this.task       = null // generator task, the one that yields
   this.getPromise = null // ready when ready to .next()
   this.getMessage  = null
@@ -2431,6 +2602,7 @@ function Aggregator( list, is_and ){
   this.results     = []
   this.result      = list.length
   this.firePromise = null
+  this.isAnd       = is_and
 }
 var ProtoAggregator = Aggregator.prototype
 
