@@ -3,7 +3,6 @@
  */
 
 var l8 = require( "../src/l8.js")
-var L8 = l8
 
 /* ----------------------------------------------------------------------------
  *  Tests
@@ -78,7 +77,7 @@ var test // current test id
     .end
   }
 
-  var test_2 = L8.Task( function test2(){
+  var test_2 = l8.Task( function test2(){
     test = 2; this
     .step(  function(){ t( "start")               })
     .step(  function(){ setTimeout( this.walk, 0) })
@@ -93,7 +92,7 @@ var test // current test id
     })
   })
 
-  var test_3 = L8.Task( function test3(){
+  var test_3 = l8.Task( function test3(){
     test = 3; this
     .step(    function(){ t( "start")             })
     .step(    function(){ t( "add step 1"); this
@@ -112,7 +111,7 @@ var test // current test id
     })
   })
 
-  var test_4 = L8.Task( function test4(){
+  var test_4 = l8.Task( function test4(){
     test = 4; this
     .step(    function(){ t( "start")                    })
     .step(    function(){ t( "raise error")
@@ -128,7 +127,7 @@ var test // current test id
     })
   })
 
-  var test_5 = L8.Task( function test5(){
+  var test_5 = l8.Task( function test5(){
     test = 5; t( "start"); this
     .fork(    function(){ this.label = t( "fork 1"); this
       .step(  function(){ this.sleep( 10)       })
@@ -162,7 +161,7 @@ var test // current test id
     })
   })
 
-  var test_6 = L8.Task( function test6(){
+  var test_6 = l8.Task( function test6(){
     function other1(){ l8.step( function(){ t( "in other1")} )}
     function other2(){ l8.fork( function(){ t( "in other2")} )}
     test = 6; this
@@ -184,7 +183,7 @@ var test // current test id
     })
   })
 
-  var test_7 = L8.Task( function test7(){
+  var test_7 = l8.Task( function test7(){
     test = 7
     var ii; this
     .step(   function(){ t( "simple, times", ii = 3)     })
@@ -220,14 +219,14 @@ var test // current test id
     })
   })
 
-  // L8.compile() needs to be provided a well scoped "eval()" or else it's result
+  // l8.compile() needs to be provided a well scoped "eval()" or else it's result
   // function would lack access to the global variables referenced by the code to
   // (re)compile.
   l8.eval = function( expr ){ return eval( expr) }
   
-  var test_8 = L8.compile( function xx(){
+  var test_8 = l8.compile( function xx(){
     test = 8
-    var f1 = L8.Task( function( p1, p2 ){
+    var f1 = l8.Task( function( p1, p2 ){
       t( "p1", p1, "p2", p2)
       return [p1,p2]
     })
@@ -255,7 +254,7 @@ var test // current test id
     test_9()
   })
 
-  var test_9 = L8.Task( function(){
+  var test_9 = l8.Task( function(){
     test = 9
     var fibonacci = function(){
       var i = 0, j = 1;
@@ -269,7 +268,7 @@ var test // current test id
       step; t( "producer done")
       failure( e ); t( "fib, unexpected error", e)
     }
-    fibonacci = L8.compileGenerator( fibonacci)
+    fibonacci = l8.compileGenerator( fibonacci)
     var gen = fibonacci()
     var count_down = 10
     this.repeat( function(){
@@ -300,21 +299,21 @@ var test // current test id
     })
   })
 
-  var test_10 = L8.Task( function(){
+  var test_10 = l8.Task( function(){
     test = 10
-    var inner = L8.Task( function(){
+    var inner = l8.Task( function(){
       innerer( this)
       this.step(    function(      ){ t( "!!! Unexpected step in inner()")})
       this.success( function( r    ){ t( "inner success", r) })
       this.final(   function( e, r ){ t( "inner final", e, r) })
     })
-    var innerer = L8.Task( function( ret ){
+    var innerer = l8.Task( function( ret ){
       innerest( ret)
       this.step(    function(      ){ t( "!!! Unexpected step in innerer()")})
       this.success( function( r    ){ t( "innerer success", r) })
       this.final(   function( e, r ){ t( "innerer final", e, r) })
     })
-    var innerest = L8.Task( function( ret ){
+    var innerest = l8.Task( function( ret ){
       this.final(   function( e, r ){ t( "innerest final", e, r) })
       ret.return( "From innerest")
       this.step(    function(      ){ t( "!!! Unexpected step in innerer()")})
@@ -339,16 +338,16 @@ var test // current test id
     })
   })
 
-  var test_11 = L8.Task( function(){
+  var test_11 = l8.Task( function(){
     test = 11
     function recur( n, next ){
       if( --n > 0 ){
-        L8.nextTick( function(){ recur( n, next) })
+        l8.nextTick( function(){ recur( n, next) })
       }else{
         next()
       }
     }
-    var l8recur = L8.Task( function l8recur_task( n ){
+    var l8recur = l8.Task( function l8recur_task( n ){
       if( --n > 0 ){ l8recur( n) }
     })
     var now
@@ -360,15 +359,15 @@ var test // current test id
     var l8duration
     var tid
     var last_tid
-    var was_debug = L8.debug()
+    var was_debug = l8.debug()
     this
     .step( function(){ this.sleep( 1) })
-    .step( function(){ now = L8.timeNow; L8.debug( false) })
+    .step( function(){ now = l8.timeNow; l8.debug( false) })
     .step( function(){
       var done = 0
       var task = this
       for( var ii = 0 ; ii < p ; ii++ ){
-        L8.nextTick( function(){
+        l8.nextTick( function(){
           recur( n, function(){ if( ++done === p ) task.resume() })
         })
       }
@@ -376,14 +375,14 @@ var test // current test id
     })
     .step( function(){ this.sleep( 1) })
     .step( function(){
-      duration = -1 + L8.timeNow - now
+      duration = -1 + l8.timeNow - now
       t( n * p, "times async recur()", duration, "millisecs")
     })
     .step( function(){ this.sleep( 1) })
     .step( function(){
-      now = L8.timeNow
+      now = l8.timeNow
       ii  = 0
-      tid = L8.current.id
+      tid = l8.current.id
     })
     .repeat( function(){
       if( ii >= p / factor ) this.break
@@ -393,37 +392,61 @@ var test // current test id
     .step( function(){ this.sleep( 1) })
     .fork( function(){ last_tid = this.current.id } )
     .step( function(){
-      L8.debug( was_debug)
-      l8duration = (-1 + (L8.timeNow - now)) * factor
+      l8.debug( was_debug)
+      l8duration = (-1 + (l8.timeNow - now)) * factor
       t( n * p, "times l8recur()", l8duration, "estimated millisecs")
       t( l8duration / duration, "times slower than if native")
       t( (n * p) / duration   * 1000, "native call/sec")
       t( (n * p) / l8duration * 1000, "l8 call/sec")
       t( (last_tid - tid) / l8duration * 1000 * factor, "l8 task/sec")
     })
-    .failure( function( e ){ t( "!!! Unexpected error", e) })
+    .failure( function( e ){ t( "!!! unexpected error", e) })
     .final( function(){
       check(
         "l8 call/sec"
       )
+      test_12()
+    })
+  })
+  
+  var test_12 = l8.Task( function(){
+  try{
+    test = 12
+    var trace = function(){
+      t( "Current task " + l8.current 
+      + " gets message '" + l8.get( "message")
+      + "' from " + l8.binding( "message").task)
+    }
+    var subtask = function(){
+      l8.label = "sub"
+      l8.step( function(){ trace()                       })
+      l8.step( function(){ l8.var( "message", "deeper")  })
+      l8.step( function(){ l8.sleep( 100)                })
+      l8.step( function(){ trace()                       })
+    }
+    l8.task( function(){
+      l8.label = "main"
+      l8.var( "message", "top")
+      l8.spawn( subtask )
+      l8.step( function(){ trace()                       }) 
+      l8.step( function(){ l8.join()                     })
+    })
+    l8.failure( function( e ){ t( "!!! unexpected error", e) })
+    l8.final( function(){
+      check(
+        "top",
+        "top",
+        "deeper"
+      )
       test_last()
     })
+  }catch( e ){ t( "!!! error " + e) }
   })
 
   var test_last = function(){
     trace( "SUCCESS!!! All tests ok")
   }
 
-trace( "starting L8")
-var count_down = 10
-setInterval(
-  function(){
-    de&&bug( "tick " + --count_down)
-    if( !count_down ){
-      trace( "exiting...")
-      process.exit( 0)
-    }
-  },
-  1000
-)
+trace( "starting l8")
+l8.countdown( 10)
 test_1()
