@@ -933,7 +933,7 @@ ProtoTask.task = function task_task( block, forked, paused, detached, repeat ){
   var task = this.current
   if( task === l8 ){
     var task = MakeTask( l8)
-    return task._task( forked, paused, detached, repeat)
+    return task._task( block, forked, paused, detached, repeat)
   }
   return task.step( function(){
     if( TraceStartTask && TraceStartTask >= NextTaskId ){

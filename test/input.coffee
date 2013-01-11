@@ -51,6 +51,7 @@ http.createServer( HttpQueue.put.bind HttpQueue).listen process.env.PORT
 # Main
 
 l8.task ->
+  @step   -> l8.trace "Game is running"
   @repeat ->
     round = random = 0
     @step -> input "Enter a decent number to start a new game"
@@ -69,4 +70,5 @@ l8.task ->
           cls()
           printnl "Win in #{round} rounds! Try again"
           @break
-l8.trace "Game is running"
+  l8.trace "Game is scheduled"
+l8.trace "Game is starting"
