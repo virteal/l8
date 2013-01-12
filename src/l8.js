@@ -32,14 +32,39 @@ try{
 
 var trace = function(){
 // Print trace. Offer an easy breakpoint when output contains "DEBUG"
-  var buf = ["l8"]
-  for( var ii = 0 ; ii < arguments.length ; ii++ ){
-    if( arguments[ii] ){ buf.push( arguments[ii]) }
+  var buf          = []
+  var args         = ["l8"]
+  var only_strings = true
+  if( arguments.length === 1 && arguments[0] instanceof Array){
+    args = args.concat( arguments[0])
+  }else{
+    args = args.concat( Array.prototype.slice.call( arguments, 0))
   }
-  buf = buf.join( ", ")
+  var item
+  for( var ii = 0 ; ii < args.length ; ii++ ){
+    if( item = args[ii] ){
+      if( item.toLabel ){
+        item = item.toLabel()
+      }else if( typeof item === 'string' || !Util ){
+        item = item
+      }else{
+        item = Util.inspect( item)
+      }
+      if( only_strings && typeof item !== "string" ){
+        only_strings = false
+      }
+      if( item ){
+        buf.push( item)
+      }
+    }
+  }
   try{
     if( Util ){
-      Util.puts( buf)
+      if( only_strings ){
+        Util.puts( buf = buf.join( ", "))
+      }else{
+        Util.puts( buf = Util.inspect( buf))
+      }
     }else{
       console.log( buf)
     }
@@ -54,6 +79,7 @@ var trace = function(){
 }
 
 var assert = function( cond ){
+  // ToDo: https://github.com/visionmedia/better-assert
   if( !cond ){
     trace.apply( this, arguments)
     trace( "DEBUG assert failure")
@@ -283,6 +309,9 @@ ProtoTask.bug    = trace
 ProtoTask.assert = assert
 ProtoTask.mand   = assert
 
+l8.client = !Util
+l8.server = Util
+
 
 /* ----------------------------------------------------------------------------
  *  Scheduler, aka "step walker"
@@ -378,17 +407,16 @@ l8.__defineGetter__( "timeNow", function(){
 
 } // endif !NO_SCHEDULER
 
-ProtoStep.trace = function step_trace( msg ){
+ProtoStep.trace = function step_trace(){
+  var args = Array.prototype.slice.call( arguments, 0)
   var task = this.task
-  trace(
-    msg,
-    this,
+  trace( [this].concat( args).concat([
     task.isDone     ? "task done" : "",
     this === task.firstStep ? "first" : "",
     this.isRepeat   ? "repeat" : "",
     this.isFork     ? "fork"   : "",
     this.isBlocking ? "pause"  : ""
-  )
+  ]))
 }
 
 ProtoStep.execute = L8_Execute = function step_execute( that ){
@@ -455,7 +483,7 @@ ProtoStep.execute = L8_Execute = function step_execute( that ){
     // scheduleNext() will handle the error propagation
     task.stepError = e
     if( DEBUG ){
-      that.trace( "task failure: " + e)
+      that.trace( "task failure", e)
       if( TraceStartTask && NextTaskId > TraceStartTask ){
         that.trace( "DEBUG execute failed" + e)
       }
@@ -842,7 +870,7 @@ ProtoTask.free = function(){
  *  API
  */
 
-ProtoTask.toString = function task_to_string(){
+ProtoTask.toString = ProtoTask.toLabel = function task_to_string(){
   var label = this === l8 ? "" : this.label
   label = label ? "[" + label + "]" : ""
   return "Task/" + this.id + label
@@ -1140,6 +1168,7 @@ ProtoTask.cancel = function task_cancel(){
     done = true
     var tasks = task.tasks
     for( var subtask in tasks ){
+      subtask = tasks[subtask]
       if( subtask.optional.wasCanceled )continue
       if( subtask.currentStep === CurrentStep ){
         on_self = subtask
@@ -1187,7 +1216,8 @@ ProtoTask.__defineGetter__( "break",  function task_break(){
   return this.raise( l8.breakEvent)
 })
 
-ProtoStep.toString = function(){ return this.task.toString() + "/" + this.id }
+ProtoStep.toString = ProtoStep.toLabel
+= function(){ return this.task.toString() + "/" + this.id }
 
 ProtoTask.final = function( block ){
   var task = this.current
@@ -1485,9 +1515,7 @@ function MakePromise(){
   return P_defer ? P_defer() : new Promise()
 }
 
-ProtoTask.__defineGetter__( "promise", function task_promise(){
-  return MakePromise()
-})
+ProtoTask.promise = function(){ return MakePromise() }
 
 ProtoTask.then = function task_then( success, failure, progress ){
   var promise = this.optional.donePromise
@@ -1497,8 +1525,8 @@ ProtoTask.then = function task_then( success, failure, progress ){
   return promise.then( success, failure, progress)
 }
 
-ProtoTask.node = function l8_node( promise, cb ){
-// Register a node style calback to handle a promise completion.
+ProtoTask.callback = function l8_node( promise, cb ){
+// Register a node style callback to handle a promise completion.
 // Promise defaults to current thead when not specified.
   if( !cb ){
     de&&mand( promise instanceof Function )
@@ -2131,6 +2159,7 @@ ProtoMessageQueue.put = function message_queue_put( msg ){
   var that = this
   var step = CurrentStep
   var task = step.task
+  if( that.closed )return task.break
   if( arguments.length > 1 ){
     msg = arguments
   }
@@ -2162,7 +2191,7 @@ ProtoMessageQueue.tryPut = function message_queue_try_put( msg ){
   )return false
   this.queue.push( arguments.length > 1 ? arguments : msg)
   this.length++
-  this.out.resolve()
+  this.in.resolve()
   return true
 }
 
@@ -2230,11 +2259,11 @@ ProtoMessageQueue.__defineGetter__( "out", function(){
 })
 
 ProtoMessageQueue.__defineGetter__( "empty", function(){
-  return this.length === 0
+  return this.length === 0 || this.closed
 })
 
 ProtoMessageQueue.__defineGetter__( "full", function(){
-  return this.length >= this.capacity
+  return this.length >= this.capacity && !this.closed
 })
 
 ProtoMessageQueue.close = function(){
