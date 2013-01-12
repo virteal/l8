@@ -1,16 +1,22 @@
 // actor.js
-//  actor style RPC using l8 and websockets
+//  actor style RPC using l8 and websockets/socket.io
 //
 // 2013/01/07 by JHR
 //
-// Depends on https://github.com/natefaubion/matches.js
+// npm install socket.io
+// npm install zeparser
+// npm install socket.io-client
+// Also depends on https://github.com/natefaubion/matches.js
 //   npm install matches
 
 
-var l8 = require( "../src/l8.js")
-var Pattern = require( "matches").pattern
+var l8             = require( "../src/l8.js")
+var Pattern        = require( "matches").pattern
+var SocketIo       = require( "socket.io")
+var SocketIoClient = require( "socket.io-client")
 
 l8.debug( true)
+
 var de   = l8.de
 var bug  = l8.bug
 var mand = l8.mand
@@ -62,7 +68,8 @@ function Actor( name, delegate ){
 }
 var ProtoActor = Actor.prototype
 
-ProtoActor.toString = function(){ return "Actor/" + this.name }
+ProtoActor.toString = ProtoActor.toLabel
+= function(){ return "Actor/" + this.name }
 
 ProtoActor.register = function( name, object ){
   if( !name ){ name = "." }
@@ -193,7 +200,7 @@ ProtoActor.act = function( delegate, after, timeout, loop ){
     // Either a match or add to backlog
     }).step( function( msg ){
        if( !that.match( msg, delegate) ){
-        l8.de&&bug.apply( log, ["backlog"].concat( msg))
+        de&&bug( ["backlog"].concat( msg))
         that.backlog.push( msg)
       }
       if( !loop ) this.break
@@ -256,28 +263,54 @@ ProtoActor.receive = function( pattern, options ){
       })( pattern[attr])
     }
     that.pattern = Pattern( pattern)
-    that.act( after, timeout)
+    that.act( null, after, timeout, loop)
   })
 }
 
-ProtoActor.send = function(){
-  this.queue.put( {message:Array.prototype.slice.call( arguments, 0)})
+ProtoActor.send = function( message ){
+  var r
+  r = this.queue.tryPut( {message:message})
+  if( !r )throw new Error( "invalid send() on " + this)
   return this
 }
 
-ProtoActor.call = function( caller, message ){
-// 'caller' is a function( err, rslt) callback.
-  this.queue.put( {caller:caller,message:message})
+ProtoActor.call = function( message, caller ){
+// optional 'caller' is a function( err, rslt) callback. If not provided,
+// a new promise is returned.
+  var promise = null
+  if( !caller ){
+    promise = l8.promise()
+    caller = function( err, rslt ){
+      if( err ){
+        promise.reject( err)
+      }else{
+        promise.resolve( rslt)
+      }
+    }
+  }
+  var r = this.queue.tryPut( {caller:caller,message:message})
+  if( !r ){
+    caller( "invalid actor")
+  }
+  return promise
 }
 
 function MakeActorConstructor( name, pattern ){
   return function(){
     de&&bug( "create actor " + name)
     var act = new Actor( name)
+    function byebye(){
+      act.queue.close()
+      // Deregister actor, unless another one already took over it
+      if( ProtoActor.lookup( name) === act ){
+        ProtoActor.register( name, null)
+      }
+    }
     var task = l8._spawn( function(){
       task.var( "actor", act)
-      task.step( function(){ act.receive( pattern, {loop:true}) })
-      task.step( function(){ task.join() })
+      task.step(  function(){ act.receive( pattern, {loop:true}) })
+      task.step(  function(){ byebye(); task.join() })
+      task.final( function(){ byebye() })
     })
     return act.task = task
   }
@@ -294,6 +327,7 @@ function MakeActorConstructor( name, pattern ){
  */
 
 function Role( options ){
+  this.name     = options && options.name
   this.delegate = options && options.delegate
   this.sync     = options && options.sync
   this.actor    = null
@@ -315,7 +349,7 @@ ProtoRole.match = function( msg, actor ){
     var target = that.delegate || that
     var target_method = target[verb]
     if( target_method ){
-      msg.message.unshift()
+      msg.message.shift()
     }else{
       target_method = target["catch"]
     }
@@ -378,75 +412,270 @@ ProtoRole.match = function( msg, actor ){
   }
 }
 
+/* ---------------------------------------------------------------------------
+ *  Stages, with actors in them. Each nodejs process (or browser) hosts a
+ *  local stage and is connected to remote stages.
+ */
+ 
+var LocalStage      = null
+var AllStages       = {}
+var AllConnections  = {}
+var AllCalls        = {}
+var NextCallbackId  = 0
+var NextClientId    = 0
+
+function Stage( name, address, not_lazy ){
+  this.name    = name
+  var promise
+  this.promise = promise = l8.promise()
+  this.address = address
+  this.isLocal = !address
+  this.lazy    = !not_lazy && !this.isLocal
+  AllStages[name] = this
+  var that = this
+  // Handle "local" stage, it hosts local actors
+  if( this.isLocal ){
+    AllStages["local"] = this
+    LocalStage = this
+    // Local stage running server side must listen for client connections
+    if( l8.server ){
+      this.listenSocket  = null
+      this.allConnection = {}
+      // note, io.listen(<port>) will create a http server for you
+      try{
+        this.listenSocket = SocketIo.listen( parseInt( process.env.PORT))
+      }catch( e ){
+        l8.trace( "Cannot listen for socket.io")
+        promise.reject()
+      }
+      promise.resolve( null)
+      this.listenSocket.sockets.on( 'connection', function( connection ){
+        var client_id = NextClientId++
+        var client_promise = l8.promise()
+        client_promise.resolve()
+        AllConnections[client_id] = connection
+        that.registerConnection( client_id, connection, client_promise)
+        connection.on( 'message', function( msg ){
+          l8.trace( ["'send' from client " + client_id].concat( msg))
+        })
+        connection.on( 'ack', function( msg ){
+          l8.trace( ["'ack' from client " + client_id].concat( msg))
+        })
+        connection.on( 'disconnect', function( msg ){
+          l8.trace( ["'disconnect' from client " + client_id].concat( msg))
+          AllConnections[client_id] = null
+        })
+      })
+    }
+  // Handle "remote" stage
+  }else{
+    if( !this.lazy ){
+      this.connect()
+    }
+  }
+  return this
+}
+
+var ProtoStage = Stage.prototype
+
+ProtoStage.toString = ProtoStage.toLabel
+= function(){ return "Stage/" + this.name }
+
+ProtoStage.connect = function(){
+  var that    = this
+  var promise = this.promise
+  if( !this.lazy || this.isLocal )return this
+  this.lazy = false
+  var reuse = false
+  var connection = AllConnections[this.address]
+  if( connection ){
+    reuse = true
+    this.promise = promise = connection.promise
+    connection = connection.socket
+  }else{
+    connection = SocketIoClient.connect( this.address)
+  }
+  this.connection = connection
+  if( reuse )return this
+  that.registerConnection( this.address, connection, promise)
+  connection.on( 'connect', function(){
+    promise.resolve( connection)
+  })
+  connection.on( 'connect_failed', function(){
+    that.connection = AllConnections[that.address] = null
+    AllStages[that.name] = null
+    promise.reject( 'connect_failed')
+  })
+  return this
+}
+
+ProtoStage.registerConnection = function( id, conn, promise ){
+  AllConnections[id] = {socket:conn,promise:promise}
+  if( !conn )return
+  conn.on( 'send', function( msg ){
+    l8.trace( ["'send' from " + id].concat( msg))
+    var actor = ProtoActor.lookup( msg.name)
+    if( !actor ){
+      l8.trace( "'send' message for unknown " + msg.name + " actor")
+      return
+    }
+    actor.send.apply( actor, msg.send)
+  })
+  conn.on( 'call', function( msg ){
+    l8.trace( ["'call' from " + id].concat( msg))
+    var actor = ProtoActor.lookup( msg.name)
+    if( !actor ){
+      l8.trace( "'send' message for unknown " + msg.name + " actor")
+      conn.emit( "ack", [msg.caller, "bad actor"])
+      return
+    }
+    actor.call(
+      function( err, rslt ){
+        conn.emit( "ack", [msg.caller, err, rslt])
+      },
+      msg.call
+    )
+  })
+  conn.on( 'ack', function( msg ){
+    l8.trace( ["'ack' from " + id].concat( msg))
+    var cb_id = msg[0]
+    var err   = msg[1]
+    var rslt  = msg[2]
+    if( err ){
+      AllCalls[cb_id].reject( err)
+    }else{
+      AllCalls[cb_id].resolve( rslt)
+    }
+    delete AllCalls[cb_id]
+  })
+  conn.on( 'disconnect', function( msg ){
+    l8.trace( ["'disconnect' from " + id].concat( msg))
+     AllConnections[id] = null
+  })
+}
+
+ProtoStage.then = function( ok, ko ){
+  return this.connect().promise.then( ok, ko)
+}
+
+function MakeStage( name, address ){
+  // Create local stage if never started so far
+  if( !LocalStage ){
+    new Stage( name || "local")
+  }
+  // Return existing stage if possible
+  var stage = AllStages[name || "local"]
+  if( stage && (!address || stage.address === address))return stage
+  // If local stage, let's rename it if never done before
+  if( !address && LocalStage.name === "local" ){
+    LocalStage.name = name
+    AllStages[name] = LocalStage
+    return LocalStage
+  }
+  // Else, create a connection to a new remote stage
+  if( !address )throw new Error( "Missing address for remote l8 stage")
+  var stage = new Stage( name, address)
+  return stage
+}
+
+
 /* ----------------------------------------------------------------------------
- *  ProxyActor is a proxy for an actor that lives in a remote stage
+ *  ProxyActor is a proxy for an actor that lives in a remote stage.
+ *  It provides .send() and .call() as regular actors do.
  */
 
-var AllConnections = {}
-var AllCalls       = {}
-var NextCallbackId = 0
+AllProxyActors = {}
 
-function ProxyActor( address, name ){
-  var actor = this
-  this.address = address
-  this.name    = name
-  this.connection = AllConnections[address]
-  if( !this.connection ){
-    var promise = l8.promise()
-    this.connection = AllConnections[address] = promise
-    var socket = SocketIo.connect( address)
-    socket.on( 'connect',        function(){ promise.resolve()})
-    socket.on( 'connect_failed', function(){
-      this.connection = AllConnections[address] = null
-      promise.reject()
-    })
-    socket.on( 'ack', function( data ){
-      actor.ack.apply( this, data)
-    })
+function ProxyActor( name, stage, address ){
+  if( stage ){
+    if( address ){
+      stage = MakeStage( stage, address)
+    }else if( (typeof stage === 'string') && (stage.indexOf( "://") !== -1) ){
+      stage = MakeStage( name, stage)
+    }
   }
+  this.stage = stage || LocalStage
+  this.name  = name
+  var stage_name = this.stage.name
+  AllProxyActors[stage_name + " /" + name] = this
+  return this
 }
 
 ProtoProxyActor = ProxyActor.prototype
 
-ProtoProxyActor.send = function(){
-  var that = this
-  var promise = l8.promise()
-  this.connection.then(
-    function( conn ){
-      conn.emit( "send", {name:that.name,send:arguments})
-      promise.resolve()
-    },
-    function(){ promise.reject() }
-  )
-  return promise
-}
-
-ProtoProxyActor.call = function(){
-  return this.apply( arguments)
-}
-
-ProtoProxyActor.apply = function( args ){
-  var that = this
-  var promise = l8.promise()
-  var cb_id = NextCallbackId++
-  this.connection.then(
-    function( conn ){
-      conn.emit( "call", {name:that.name,call:args,cb:cb_id})
-      AllPromises[cb_id] = promise
-    },
-    function(){ promise.reject() }
-  )
-  return promise
-}
-
-ProtoProxyActor.act = function( cb_id, err, rslt ){
-  if( err ){
-    AllCalls[cb_id].reject( err)
-  }else{
-    AllCalls[cb_id].resolve( rslt)
+function MakeProxyActor( name, stage, address ){
+  if( !LocalStage ){
+    new Stage( "local")
   }
+  if( !stage ){ stage = LocalStage }
+  var proxy = AllProxyActors[stage.name + "/" + name]
+  if( proxy && proxy.stage === stage) return proxy
+  return new ProxyActor( name, stage, address)
 }
 
+ProtoProxyActor.toString = ProtoProxyActor.toLabel
+= function(){ return "Proxy/" + this.stage.name + "/" + this.name }
+
+ProtoProxyActor.send = function( args ){
+  var that = this
+  var promise = l8.promise()
+  this.stage.then(
+    function( conn ){
+      if( !conn ){
+        var actor = ProtoActor.lookup( that.name)
+        try{
+          actor.send.apply( actor, args)
+          promise.resolve()
+        }catch( err ){
+          promise.reject( err)
+        }
+        return
+      }
+      try{
+        conn.emit( "send", {name:that.name,send:args})
+        promise.resolve()
+      }catch( err ){
+        promise.reject( err)
+      }
+    },
+    function(){ promise.reject() }
+  )
+  return promise
+}
+
+ProtoProxyActor.call = function( args, caller ){
+  var that = this
+  var promise = l8.promise()
+  if( caller ){
+    promise.then(
+      function( ok ){ caller( null, ok) },
+      function( ko ){ caller( ko) }
+    )
+  }
+  this.stage.then(
+    function( conn ){
+      if( !conn ){
+        var actor = ProtoActor.lookup( that.name)
+        actor.call(
+          function( err, rslt ){ 
+            if( err ){
+              promise.reject( err)
+            }else{
+              promise.resolve( rslt)
+            }
+          },
+          args
+        )
+        return
+      }
+      var cb_id = NextCallbackId++
+      AllPromises[cb_id] = promise
+      conn.emit( "call", {name:that.name,call:args,cb:cb_id})
+    },
+    function( err ){ promise.reject( err) }
+  )
+  return promise
+}
 
 /*
  *  Exports are added to existing l8 object
@@ -458,6 +687,9 @@ l8.Actor.all     = Registry
 l8.proto.__defineGetter__( "actor", function(){ return this.get( "actor")})
 l8.Role          = Role
 l8.role          = MakeRole
+l8.stage         = MakeStage
+l8.proxy         = MakeProxyActor
+
 
 /*
  *  Example. A "logging" actor
@@ -469,21 +701,6 @@ var Logger = l8.Actor( "l8_logger", {
   '"throw", e': function( e ){ l8.trace( "throw...", e); throw e }
   //'...': function(){ l8.trace( "unsupported) }
 })
-
-function test_it(){
-  l8.trace( "Start Logger")
-  Logger()
-  var mylog = l8.Actor.lookup( "l8_logger")
-  de&&mand( mylog)
-  mylog.task.then(
-    function(){ l8.trace( "actor done")},
-    function(){ l8.trace( "actor dead")}
-  )
-  mylog.send( "Hello")
-  mylog.send( "error", "is ok")
-  mylog.send( "does not understand", "this")
-  mylog.send( "throw", "something that kills")
-}
 
 /*
  *  Example. A "logging" actor using a delegate playing a role.
@@ -515,26 +732,66 @@ var LoggerBis = l8.Actor( "l8_logger", l8.role( {
   }
 }))
 
+/*
+ *  Example, access to actor via a proxy. In this case, it's a mock because
+ *  the proxied actor and the actual actor are on the same stage
+ */
+
+var LoggerTer = l8.proxy( "l8_logger")
+
+var Logger4 = l8.proxy( "l8_logger", "http://localhost:" + process.env.PORT)
+
+function test_it( logger ){
+  l8.trace( "Start Logger")
+  Logger()
+  var mylog = logger || l8.Actor.lookup( "l8_logger")
+  de&&mand( mylog)
+  mylog.task && mylog.task.then(
+    function(){ l8.trace( "actor done")},
+    function(){ l8.trace( "actor dead")}
+  )
+  mylog.send([ "Hello"])
+  mylog.send([ "error", "is ok"])
+  mylog.send([ "does not understand", "this"])
+  mylog.send([ "throw", "something that kills"])
+}
+
 l8.task( function(){
   l8.trace( "Scheduling test")
   l8.step( function(){ test_it() })
   l8.step( function(){ l8.sleep( 1000) })
-  l8.step( function(){ Logger = LoggerBis; test_it() })
+//  l8.step( function(){ Logger = LoggerBis; test_it() })
+//  l8.step( function(){ l8.sleep( 1000) })
+//  l8.step( function(){ test_it( LoggerTer) })
+//  l8.step( function(){ l8.sleep( 1000) })
+  l8.step( function(){ test_it( Logger4) })
   l8.step( function(){ l8.sleep( 1000) })
   l8.failure( function( e ){ l8.trace( "!!! unexpected error", e) })
 })
 
- 
-l8.countdown( 5)
+l8.countdown( 10)
 
-/* ---------------------------------------------------------------------------
- *  Stages, with actors in them. Each nodejs process (or browser) is a stage.
- */
- 
 /* ---------------------------------------------------------------------------
  *  Campaign, where actors on multiple stages cooperate
  */
 
+function Campaign( name ){
+  this.name = name
+  this.allServerStages = {}
+}
+var ProtoCampaign = Campaign.prototype
+
+ProtoCampaign.register = function( Stage ){
+  this.allServerStages[Stage.name] = Stage
+}
+
+ProtoCampaign.deregister = function( Stage ){
+  this.allServerStages[Stage.name] = null
+}
+
+ProtoCampaign.lookup = function( name ){
+  return this.allServerStages[name]
+}
 
 
 
