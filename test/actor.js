@@ -519,7 +519,7 @@ ProtoStage.registerConnection = function( id, conn, promise ){
       l8.trace( "'send' message for unknown " + msg.name + " actor")
       return
     }
-    actor.send.apply( actor, msg.send)
+    actor.send( msg.send)
   })
   conn.on( 'call', function( msg ){
     l8.trace( ["'call' from " + id].concat( msg))
