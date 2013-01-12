@@ -1,4 +1,4 @@
-l8 0.1.29
+l8 0.1.30
 =========
 
 l8 is a task scheduler for javascript.
@@ -398,7 +398,7 @@ API
 
     -- task completion monitoring, for task users
     .then( ... )        -- Promise/A protocol, tasks are promises
-    .node( callback )   -- Node.js style callback. Also .node( promise, cb)
+    .callback( cb )   -  - Node.js style callback. Also .callback( promise, cb)
     .join()             -- pause task until all subtasks are done
 
     -- task completion handling, for task implementers
@@ -1125,7 +1125,7 @@ use .defer() for more elaborated async stuff.
 Task "local" variables
 ======================
 
-Task can define variables much like functions can. There are some differences.
+Tasks can define variables much like functions can. There are some differences.
 Contary to function local variables, task local variables are "fluid", as per
 Scheme jargon, ie they are dynamically scoped (whereas javascript variables use
 lexical scoping). See also http://en.wikipedia.org/wiki/Thread_local_storage
