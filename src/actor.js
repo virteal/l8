@@ -11,7 +11,7 @@
 
 (function(){
 
-var l8             = require( "../src/l8.js")
+var l8             = require( "../lib/l8.js")
 var Pattern        = require( "matches").pattern
 var SocketIo       = require( "socket.io")
 var SocketIoClient = require( "socket.io-client")
