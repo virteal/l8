@@ -3,7 +3,7 @@
 #
 # 2012/12/16 by JHR
 
-l8   = require( "../src/l8.js")
+l8   = require( "../lib/l8.js")
 l8.debug false
 http = require( "http")
 url  = require( "url")

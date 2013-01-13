@@ -2,7 +2,7 @@
  *  l8 test suite
  */
 
-var l8 = require( "../src/l8.js")
+var l8 = require( "../lib/l8.js")
 
 /* ----------------------------------------------------------------------------
  *  Tests
@@ -37,9 +37,9 @@ var test // current test id
       msg = arguments[ii++]
       while( true ){
         tmsg = traces[tt]
-        if( tmsg && tmsg.indexOf( msg) >= 0 )break
+        if( tmsg && tmsg.indexOf( msg) >= 0 )break;
         if( ++tt >= traces.length ){
-          var msg = "FAILED test " + test + ", missing trace: " + msg
+          msg = "FAILED test " + test + ", missing trace: " + msg
           trace( msg)
           for( var jj = 0 ; jj < ii ; jj++ ){
             trace( arguments[jj])
@@ -206,7 +206,7 @@ var test // current test id
     .failure( function( e ){ t( "unexpected failure", e) })
     .final(  function(){ t( "final result", this.result)
       check( "simple, times",
-             "repeat simple",
+             "repeat simple step",
              "break simple repeat",
              "simple repeat done",
              "sleep, times",
