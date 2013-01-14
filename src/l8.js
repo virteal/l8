@@ -42,7 +42,8 @@ var trace = function(){
   }
   var item
   for( var ii = 0 ; ii < args.length ; ii++ ){
-    if( item = args[ii] ){
+    item = args[ii] 
+    if( item ){
       if( item.toLabel ){
         item = item.toLabel()
       }else if( typeof item === 'string' || !Util ){

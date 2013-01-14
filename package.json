@@ -1,8 +1,8 @@
 {
   "name": "l8",
-  "version": "0.1.31",
+  "version": "0.1.33",
   "description": "l8 is a task manager for javascript. A task is a function broken in steps. l8 comes with synchronisation and distribution tools including semaphores, mutexes, message queues, generators, actors and socket.io proxied actors, among others.",
-  "main": ".lib/l8",
+  "main": "./lib/l8.js",
   "files": [ 
     "lib/l8.js",
     "lib/actor.js",
@@ -16,11 +16,11 @@
     "node": ">=0.6.0"
   },
   "dependencies": {
-    "matches": "~0.5.0",
-    "socket.io": "~0.9.13",
-    "zeparser": "~0.0.5",
-    "socket.io-client": "~0.9.11",
-    "connect": "~2.7.1"
+    "matches": ">=0.5.0",
+    "socket.io": ">=0.9.13",
+    "zeparser": ">=0.0.5",
+    "socket.io-client": ">=0.9.11",
+    "connect": ">=2.7.1"
   },
   "devDependencies": {
     "coffee-script": "~1.4.0"

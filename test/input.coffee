@@ -56,7 +56,7 @@ l8.task ->
     round = random = 0
     @step -> input "Enter a decent number to start a new game"
     @step (r) ->
-      @continue if (r = parseInt( r)) < 10
+      @continue if (r = parseInt( r) or 0) < 10 or r 
       random = Math.floor Math.random() * r
       round  = 0
     @repeat ->
@@ -64,8 +64,8 @@ l8.task ->
       @step (r) ->
         round++
         r = parseInt( r)
-        if r > random then printnl "#{r} is too big"
-        if r < random then printnl "#{r} is too small"
+        if r >  random then printnl "#{r} is too big"
+        if r <  random then printnl "#{r} is too small"
         if r is random
           cls()
           printnl "Win in #{round} rounds! Try again"
