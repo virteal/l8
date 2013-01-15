@@ -461,7 +461,7 @@ function Stage( name, address, not_lazy ){
       this.listenSocket.sockets.on( 'connection', function( connection ){
         var client_id = "client." + NextClientId++
         l8.trace( "new connection, " + client_id)
-        var MakeStage( client_id, client_id)
+        var stage = MakeStage( client_id, client_id)
         stage.connection = connection
         stage.promise.resolve( connection)
         stage.setConnectionHandlers()
