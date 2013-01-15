@@ -1,6 +1,8 @@
 l8 0.1.34
 =========
 
+[![Build Status](https://travis-ci.org/JeanHuguesRobert/l8.png)](https://travis-ci.org/JeanHuguesRobert/l8)
+
 l8 is a task scheduler for javascript.
 
 A task is any activity that a "normal" non-blocking javascript function cannot
