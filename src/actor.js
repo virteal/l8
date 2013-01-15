@@ -460,20 +460,16 @@ function Stage( name, address, not_lazy ){
       promise.resolve( null)
       this.listenSocket.sockets.on( 'connection', function( connection ){
         var client_id = "client." + NextClientId++
-        var client_promise = l8.promise()
-        client_promise.resolve()
-        var stage = MakeStage( client_id, client_id)
+        l8.trace( "new connection, " + client_id)
+        var AllStagesMakeStage( client_id, client_id)
         stage.connection = connection
+        stage.promise.resolve( connection)
         stage.setConnectionHandlers()
         connection.on( 'message', function( msg ){
           l8.trace( ["'send' from " + client_id].concat( msg))
         })
         connection.on( 'ack', function( msg ){
           l8.trace( ["'ack' from " + client_id].concat( msg))
-        })
-        connection.on( 'disconnect', function( msg ){
-          l8.trace( ["'disconnect' from " + client_id].concat( msg))
-          AllStages[client_id] = null
         })
       })
     }
@@ -514,7 +510,7 @@ ProtoStage.setConnectionHandlers = function(){
   var that = this
   var conn = this.connection
   conn.on( 'send', function( msg ){
-    l8.trace( ["'send' from " + that].concat( msg))
+    //l8.trace( ["'send' from " + that].concat( msg))
     var actor = ProtoActor.lookup( msg.name)
     if( !actor ){
       l8.trace( "'send' message for unknown " + msg.name + " actor")
@@ -551,7 +547,10 @@ ProtoStage.setConnectionHandlers = function(){
   })
   conn.on( 'disconnect', function( msg ){
     l8.trace( ["'disconnect' from " + that].concat( msg))
-    AllStages[that.name] = null
+    that.promise.reject()
+    that.promise = l8.promise()
+    that.promise.reject()
+    delete AllStages[that.name]
   })
 }
 
