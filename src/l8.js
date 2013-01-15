@@ -2712,8 +2712,8 @@ l8.countdown = function( n ){
     function(){
       de&&bug( "tick " + --count_down)
       if( !count_down ){
-        trace( "exiting...")
-        process.exit( 0)
+        trace( "exiting, with error status...")
+        process.exit( 1)
       }
     },
     1000

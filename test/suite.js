@@ -445,6 +445,7 @@ var test // current test id
 
   var test_last = function(){
     trace( "SUCCESS!!! All tests ok")
+    process.exit( 0)
   }
 
 trace( "starting l8")
