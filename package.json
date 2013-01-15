@@ -2,7 +2,7 @@
   "name": "l8",
   "version": "0.1.36",
   "description": "l8 is a task manager for javascript. A task is a function broken in steps. l8 comes with synchronisation and distribution tools including semaphores, mutexes, message queues, generators, actors and socket.io proxied actors, among others.",
-  "main": "./lib/l8.js",
+  "main": "lib/l8.js",
   "files": [ 
     "lib/l8.js",
     "lib/actor.js",
@@ -35,8 +35,11 @@
   "keywords": [
     "flow",
     "control",
+    "flow control"
     "async",
+    "promise",
     "actor",
+    "erlang",
     "semaphore",
     "mutex",
     "thread",
