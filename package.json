@@ -28,7 +28,7 @@
     "coffee-script": "~1.4.0"
   },
   "scripts": {
-    "test": "echo "pwd" ; pwd ; echo "ls ." ; ls . ; echo "ls lib" ; ls lib ; echo "ls test" ; ls test; ln -s . node_modules/l8 ; echo "ls node_modules" ; ls node_modules ; echo "ls node_modules/l8" ;  ls node_modules/l8 ; node test/suite.js && node test/actor.js"
+    "test": "echo \"pwd\" ; pwd ; echo \"ls .\" ; ls . ; echo \"ls lib\" ; ls lib ; echo \"ls test\" ; ls test; ln -s . node_modules/l8 ; echo \"ls node_modules\" ; ls node_modules ; echo \"ls node_modules/l8\" ;  ls node_modules/l8 ; echo \"run tests...\" ; node test/suite.js && node test/actor.js"
   },
   "repository": {
     "type": "git",
