@@ -1,6 +1,6 @@
 {
   "name": "l8",
-  "version": "0.1.39",
+  "version": "0.1.40",
   "description": "l8 is a task manager for javascript. A task is a function broken in steps. l8 comes with synchronisation and distribution tools including semaphores, mutexes, message queues, generators, actors and socket.io proxied actors, among others.",
   "main": "lib/l8.js",
   "files": [ 
@@ -27,7 +27,7 @@
     "coffee-script": "~1.4.0"
   },
   "scripts": {
-    "test": "cd test ; node suite.js"
+    "test": "node test/suite.js"
   },
   "repository": {
     "type": "git",
