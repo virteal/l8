@@ -103,7 +103,7 @@ l8.task( function(){
   l8.step( function(){ l8.sleep( 1000) })
   l8.step( function(){ test_it( Logger4) })
   l8.step( function(){ l8.sleep( 1000) })
-  l8.step( function(){ l8.trace( "SUCCESS"); process.exit( 1) })
+  l8.step( function(){ l8.trace( "SUCCESS"); process.exit( 0) })
   l8.failure( function( e ){ l8.trace( "!!! unexpected error", e) })
 })
 
