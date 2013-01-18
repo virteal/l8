@@ -3,8 +3,8 @@
 //
 // 2013/01/07 by JHR
 
-var l8 = require( "../lib/l8.js")
-require( "../src/actor.js" )
+//var l8 = require( "l8/lib/l8.js")
+var l8 = require( "l8/lib/actor.js" )
 var Http    = require( "http")
 var Connect = require( "connect")
 
@@ -103,6 +103,7 @@ l8.task( function(){
   l8.step( function(){ l8.sleep( 1000) })
   l8.step( function(){ test_it( Logger4) })
   l8.step( function(){ l8.sleep( 1000) })
+  l8.step( function(){ l8.trace( "SUCCESS"); process.exit( 1) })
   l8.failure( function( e ){ l8.trace( "!!! unexpected error", e) })
 })
 

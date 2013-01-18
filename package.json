@@ -16,18 +16,19 @@
     "node": ">=0.6.0"
   },
   "dependencies": {
-    "matches": ">=0.5.0",
-    "socket.io": ">=0.9.13",
-    "zeparser": ">=0.0.5",
+    "matches":          ">=0.5.0",
+    "socket.io":        ">=0.9.13",
+    "zeparser":         ">=0.0.5",
     "socket.io-client": ">=0.9.11",
-    "connect": ">=2.7.1",
-    "bugsnag": "latest"
+    "connect":          ">=2.7.1",
+    "bugsnag":          "latest",
+    "requirejs":        "latest",
   },
   "devDependencies": {
     "coffee-script": "~1.4.0"
   },
   "scripts": {
-    "test": "pwd ; ls . ; ls lib ; ls test; node test/suite.js"
+    "test": "pwd ; ls . ; ls lib ; ls test; node test/suite.js ; node test/actor.js"
   },
   "repository": {
     "type": "git",
