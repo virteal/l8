@@ -436,6 +436,7 @@ function Stage( name, address, not_lazy ){
   this.name    = name
   var promise
   this.promise = promise = l8.promise()
+  this.disconnected = l8.promise
   this.address = address
   this.isLocal = typeof address !== 'string'
   this.lazy    = !not_lazy && !this.isLocal
@@ -496,12 +497,13 @@ ProtoStage.connect = function(){
   this.connection = connection
   that.setConnectionHandlers()
   connection.on( 'connect', function(){
-    promise.resolve( connection)
+    that.promise.resolve( connection)
   })
   connection.on( 'connect_failed', function(){
     that.connection = null
     AllStages[that.name] = null
-    promise.reject( 'connect_failed')
+    that.promise.reject( 'connect_failed')
+    that.disconnected.resolve()
   })
   return this
 }
@@ -550,12 +552,18 @@ ProtoStage.setConnectionHandlers = function(){
     that.promise.reject()
     that.promise = l8.promise()
     that.promise.reject()
+    that.disconnected.resolve()
     delete AllStages[that.name]
   })
 }
 
 ProtoStage.then = function( ok, ko ){
   return this.connect().promise.then( ok, ko)
+}
+
+ProtoStage.defer = function( cb ){
+  var that = this
+  this.disconnected.then( function(){ cb.call( l8, that) })
 }
 
 function MakeStage( name, address, not_lazy ){

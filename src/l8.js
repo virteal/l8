@@ -7,12 +7,12 @@
 // (c) Jean Hugues Robert
 // Licensed under the MIT license.
 
-// Boilerplate for module loaders
+// Boilerplate for module loaders. Basically: avoid polluting global space
 (function( define ){ 'use strict';
 define( function(){
 
 /* ----------------------------------------------------------------------------
- *  Debug
+ *  Debug. The one painfull thing that we want to cure.
  */
 
  // DEBUG mode defaults to "on" when nodejs. Please use l8.debug() to change it
@@ -21,7 +21,8 @@ define( function(){
 var NoOp = function(){}
 
 var TraceStartTask = !DEBUG ? 0 : 0
-// When debugging test cases, this tells when to start outputting traces
+// When debugging test cases, this tells when to start outputting traces.
+// Ugly but usefull.
 
 // In node.js, "util" module defines puts(), among others
 var Util = null
@@ -31,26 +32,38 @@ try{
 }catch( e ){}
 
 var trace = function(){
-// Print trace. Offer an easy breakpoint when output contains "DEBUG"
+// Print trace. Offer an easy breakpoint when output contains "DEBUG".
+// Note: when using native console.log(), it's better to output objects
+// instead of strings because modern debuggers understand objects and can
+// display them intelligently.
   var buf          = []
+  // Output message will have a "l8" prefix so that you know who did it
   var args         = ["l8"]
   var only_strings = true
+  // If single array argument, just add "l8" prefix
   if( arguments.length === 1 && arguments[0] instanceof Array){
     args = args.concat( arguments[0])
+  // Or else make array using arguments, still with "l8" prefix
   }else{
     args = args.concat( Array.prototype.slice.call( arguments, 0))
   }
+  // For each item to display
   var item
   for( var ii = 0 ; ii < args.length ; ii++ ){
-    item = args[ii] 
+    item = args[ii]
+    // Unless empty, skipped
     if( item ){
+      // When item is object with a nice .toLabel() method, keep it short
       if( item.toLabel ){
         item = item.toLabel()
+      // When item is a string or something we cannot handle client side
       }else if( typeof item === 'string' || !Util ){
         item = item
+      // When item is complex and Util.inspect() can help
       }else{
         item = Util.inspect( item)
       }
+      // When we have only string, better concat them
       if( only_strings && typeof item !== "string" ){
         only_strings = false
       }
@@ -2707,6 +2720,8 @@ ProtoAggregator.then = function( callback, errback ){
  */
 
 l8.countdown = function( n ){
+// Exit process with error status 1 after a while.
+// Display a stressfull message every second until that.
   var count_down = n
   setInterval(
     function(){
@@ -2723,6 +2738,7 @@ l8.countdown = function( n ){
 /*
  *  End boilerplate for module loaders
  *  Copied from when.js, see https://github.com/cujojs/when/blob/master/when.js
+ *  Go figure what it means...
  */
  
 return l8
