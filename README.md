@@ -1,9 +1,10 @@
-l8 0.1.34
+l8 0.1.42
 =========
 
 [![Build Status](https://travis-ci.org/JeanHuguesRobert/l8.png)](https://travis-ci.org/JeanHuguesRobert/l8)
 
-l8 is a task scheduler for javascript.
+l8 is a modern multi-tasker for javascript. It schedule javascript task using
+promises and distributed actors.
 
 A task is any activity that a "normal" non-blocking javascript function cannot
 do because... javascript functions cannot block! Where functions provide

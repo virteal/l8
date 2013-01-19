@@ -396,14 +396,14 @@ var test // current test id
       l8duration = (-1 + (l8.timeNow - now)) * factor
       t( n * p, "times l8recur()", l8duration, "estimated millisecs")
       t( l8duration / duration, "times slower than if native")
-      t( (n * p) / duration   * 1000, "native call/sec")
-      t( (n * p) / l8duration * 1000, "l8 call/sec")
-      t( (last_tid - tid) / l8duration * 1000 * factor, "l8 task/sec")
+      t( (n * p) / duration   * 1000, "native calls/sec")
+      t( (n * p) / l8duration * 1000, "l8 calls/sec")
+      t( (last_tid - tid) / l8duration * 1000 * factor, "l8 tasks/sec")
     })
     .failure( function( e ){ t( "!!! unexpected error", e) })
     .final( function(){
       check(
-        "l8 call/sec"
+        "l8 calls/sec"
       )
       test_12()
     })

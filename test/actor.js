@@ -95,11 +95,11 @@ function test_it( logger ){
 
 l8.task( function(){
   l8.trace( "Scheduling test")
-  l8.step( function(){ test_it() })
+/*  l8.step( function(){ test_it() })
   l8.step( function(){ l8.sleep( 1000) })
   l8.step( function(){ Logger = LoggerBis; test_it() })
   l8.step( function(){ l8.sleep( 1000) })
-  l8.step( function(){ test_it( LoggerTer) })
+*/  l8.step( function(){ test_it( LoggerTer) })
   l8.step( function(){ l8.sleep( 1000) })
   l8.step( function(){ test_it( Logger4) })
   l8.step( function(){ l8.sleep( 1000) })
