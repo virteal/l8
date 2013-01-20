@@ -1,10 +1,13 @@
-l8 0.1.42
+l8 0.1.43
 =========
 
 [![Build Status](https://travis-ci.org/JeanHuguesRobert/l8.png)](https://travis-ci.org/JeanHuguesRobert/l8)
 
 l8 is a modern multi-tasker for javascript. It schedule javascript task using
 promises and distributed actors.
+
+This is a work in progress that is not ready for production.
+See [![Build Status](https://c9.io/site/wp-content/themes/cloud9/img/logo_cloud9_small.png)](https://c9.io/jhr/l8)
 
 A task is any activity that a "normal" non-blocking javascript function cannot
 do because... javascript functions cannot block! Where functions provide

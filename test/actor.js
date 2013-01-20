@@ -17,7 +17,7 @@ var mand = l8.mand
  *  test http server
  */
 
-var app    = Connect()
+var app = Connect()
 app
 .use( Connect.static( 'public'))
 .use( function( req, res ){
@@ -34,7 +34,7 @@ l8.stage( "local", server)
  
 var Logger = l8.Actor( "l8_logger", {
   '"error", x': function( x ){ return l8.trace( "Error: " + x) },
-  'x':          function( x ){ return l8.trace( x) },
+  'x':          function( x ){ return l8.trace( "catch " + x) },
   '"throw", e': function( e ){ l8.trace( "throw...", e); throw e }
   //'...': function(){ l8.trace( "unsupported) }
 })
@@ -44,28 +44,59 @@ var Logger = l8.Actor( "l8_logger", {
  *  Note: another example could create a subclass of l8.Role instead of using
  *  the generic Role class with a delegate.
  */
- 
+
+var LoggerCount = 0
+
 var LoggerBis = l8.Actor( "l8_logger", l8.role( {
-  delegate:{
-    "Hello": function(){
-      l8.trace( "Hello")
-    },
-    trace: function(){
-      l8.trace.apply( l8, arguments)
-    },
-    error: function(){
-      var msg = Array.prototype.slice.call( arguments, 0)
-      msg[0] = "Error: " + msg[0]
-      l8.trace.apply( l8, msg)
-    },
-    catch: function(){
-      var msg = Array.prototype.slice.call( arguments, 0)
-      msg[0] = "Catch: " + msg[0]
-      l8.trace.apply( l8, msg)
-    },
-    throw: function( e ){
-      l8.trace( "throw...", e); throw e
-    }
+  
+  "options" : function(){ return {} },
+  
+  "Hello": function(){
+    l8.trace( "Hello")
+  },
+  
+  trace: function(){
+    l8.trace.apply( l8, arguments)
+  },
+  
+  error: function(){
+    var msg = Array.prototype.slice.call( arguments, 0)
+    msg[0] = "Error: " + msg[0]
+    l8.trace.apply( l8, msg)
+  },
+  
+  add: function(){ LoggerCount++ },
+  
+  getSync: function(){
+    return LoggerCount
+  },
+  
+  getAsync: function(){
+    var actor = this.actor
+    var callback = actor.callback
+    if( callback ){ callback( 0, LoggerCount) }
+  },
+  
+  getPromise: function(){
+    var promise = l8.promise()
+    promise.resolve( LoggerCount)
+    return promise
+  },
+  
+  getAsyncPromise: function(){ 
+    var promise = l8.promise()
+    promise.resolve( LoggerCount)
+    this.callback( 0, promise) 
+  },
+  
+  catch: function(){
+    var msg = Array.prototype.slice.call( arguments, 0)
+    msg[0] = "Catch: " + msg[0]
+    return l8.trace.apply( l8, msg)
+  },
+  
+  throw: function( e ){
+    l8.trace( "throw...", e); throw e
   }
 }))
 
@@ -90,21 +121,111 @@ function test_it( logger ){
   mylog.send([ "Hello"])
   mylog.send([ "error", "is ok"])
   mylog.send([ "does not understand", "this"])
-  mylog.send([ "throw", "something that kills"])
+  mylog.send([ "add"])
+  l8.step( function(   ){
+    return mylog.call([ "getSync"])
+  })
+  l8.step( function( r ){
+    l8.trace( "Count is " + LoggerCount + ". getSync->" + r)
+    de&&mand( !LoggerCount || r === LoggerCount )
+  })
+  l8.step( function(   ){
+    return mylog.call([ "getPromise"])
+  })
+  l8.step( function( r ){
+    l8.trace( "getPromise->" + r)
+    de&&mand( !LoggerCount || r === LoggerCount )
+  })
+  l8.step( function(   ){
+    return mylog.call([ "getAsync"])
+  })
+  l8.step( function( r ){
+    l8.trace( "getAsync->" + r)
+    de&&mand( !LoggerCount || r === LoggerCount )
+  })
+  l8.step( function(   ){
+    return mylog.call([ "getAsyncPromise"])
+  })
+  l8.step( function( r ){
+    l8.trace( "getAsyncPromise->" + r)
+    de&&mand( !LoggerCount || r === LoggerCount )
+  })
+  l8.step( function(   ){ mylog.send([ "throw", "something that kills"]) })
 }
 
 l8.task( function(){
+  var t
+  var t0
+  var t1
+  var nloops = 1000
+  var nn
+  function delta( op ){
+    t1 = l8.timeNow
+    var duration = (t1 - t0) / 1000
+    var ops_per_sec = nloops / duration
+    l8.trace( "" + LoggerCount + "/" + op + ". " + nloops + " in " + duration + " seconds")
+    l8.trace( "" + ops_per_sec + " operations per second")
+  }
   l8.trace( "Scheduling test")
-/*  l8.step( function(){ test_it() })
+  l8.step( function(){ test_it() })
   l8.step( function(){ l8.sleep( 1000) })
   l8.step( function(){ Logger = LoggerBis; test_it() })
   l8.step( function(){ l8.sleep( 1000) })
-*/  l8.step( function(){ test_it( LoggerTer) })
+  l8.step( function(){ test_it( LoggerTer) })
   l8.step( function(){ l8.sleep( 1000) })
   l8.step( function(){ test_it( Logger4) })
   l8.step( function(){ l8.sleep( 1000) })
-  l8.step( function(){ l8.trace( "SUCCESS"); process.exit( 0) })
-  l8.failure( function( e ){ l8.trace( "!!! unexpected error", e) })
+  l8.step( function(){
+    l8.trace( "Count is " + LoggerCount)
+    de&&mand( LoggerCount === 3 )
+  })
+  l8.step( function(){ l8.debug( false) })
+  l8.step( function(){
+    t = t0 = l8.timeNow
+    nn = 0
+  })
+  l8.repeat( function(){
+    if( nn++ >= nloops ) l8.break;
+    return Logger4.call([ "getSync"])
+  })
+  l8.step( function(){ delta( "getSync") })
+  l8.step( function(){
+    t0 = l8.timeNow
+    nn = 0
+  })
+  l8.repeat( function(){
+    if( nn++ >= nloops ) l8.break;
+    return Logger4.call([ "getAsync"])
+  })
+  l8.step( function(){ delta( "getAsync") })
+  l8.step( function(){
+    t0 = l8.timeNow
+    nn = 0
+  })
+  l8.repeat( function(){
+    if( nn++ >= nloops ) l8.break;
+    return Logger4.call([ "getPromise"])
+  })
+  l8.step( function(){ delta( "getPromise") })
+  l8.step( function(){
+    t0 = l8.timeNow
+    nn = 0
+  })
+  l8.repeat( function(){
+    if( nn++ >= nloops ) l8.break;
+    return Logger4.call([ "getAsyncPromise"])
+  })
+  l8.step( function(){ delta( "getAsyncPromise") })
+  l8.step( function(){
+    nloops = nloops * 4
+    t0 = t
+    delta( "remote get, overall")
+  })
+  l8.step( function(){ l8.debug( true) })
+  l8.step( function(){
+    l8.trace( "SUCCESS"); process.exit( 0)
+  })
+  l8.failure( function( e ){ l8.trace( "!!! unexpected error", e, e.stack) })
 })
 
-l8.countdown( 10)
+l8.countdown( 100)
