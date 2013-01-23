@@ -107,10 +107,10 @@ var LoggerBis = l8.Actor( "l8_logger", l8.role( {
 
 var LoggerTer = l8.proxy( "l8_logger")
 
-var url = "http://localhost"
-if( process.env.PORT ){
-  url += ":" + process.env.PORT
-}
+var url  = "http://localhost"
+var port = l8.http_port || parseInt( process.env.PORT) || 80
+if( port ){ url += ":" + port }
+l8.trace( "url for local server: " + url)
 
 var Logger4 = l8.proxy( "l8_logger", url)
 
