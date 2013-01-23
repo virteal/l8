@@ -24,6 +24,7 @@ app
   res.end( 'hello world\n')
 })
 var server = Http.createServer( app)
+l8.http_port = parseInt( process.env.PORT) || 8080 // Travis-CI
 server.listen( l8.http_port || parseInt( process.env.PORT) || 80)
 
 l8.stage( "local", server)
