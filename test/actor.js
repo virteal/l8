@@ -107,10 +107,15 @@ var LoggerBis = l8.Actor( "l8_logger", l8.role( {
 
 var LoggerTer = l8.proxy( "l8_logger")
 
-var Logger4 = l8.proxy( "l8_logger", "http://localhost:" + process.env.PORT)
+var url = "http://localhost"
+if( process.env.PORT ){
+  url += ":" + process.env.PORT
+}
+
+var Logger4 = l8.proxy( "l8_logger", url)
 
 function test_it( logger ){
-  l8.trace( "Start Logger")
+  l8.trace( "Start Logger. " + LoggerCount)
   Logger()
   var mylog = logger || l8.Actor.lookup( "l8_logger")
   de&&mand( mylog)
