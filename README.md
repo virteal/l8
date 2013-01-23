@@ -3,7 +3,7 @@ l8 0.1.43
 
 [![Build Status](https://travis-ci.org/JeanHuguesRobert/l8.png)](https://travis-ci.org/JeanHuguesRobert/l8)
 
-l8 is a modern multi-tasker for javascript. It schedule javascript task using
+l8 is a modern multi-tasker for javascript. It schedules javascript tasks using
 promises and distributed actors.
 
 This is a work in progress that is not ready for production.

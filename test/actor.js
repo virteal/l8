@@ -4,7 +4,7 @@
 // 2013/01/07 by JHR
 
 //var l8 = require( "l8/lib/l8.js")
-var l8 = require( "l8/lib/actor.js" )
+var l8      = require( "l8/lib/actor.js" )
 var Http    = require( "http")
 var Connect = require( "connect")
 
@@ -18,19 +18,16 @@ var mand = l8.mand
  */
 
 var app = Connect()
-app
-.use( Connect.static( 'public'))
-.use( function( req, res ){
-  res.end( 'hello world\n')
-})
+app.use( Connect.static( 'public'))
+app.use( function( req, res ){ res.end( 'hello world\n') })
 var server = Http.createServer( app)
-l8.http_port = parseInt( process.env.PORT) || 8080 // Travis-CI
-server.listen( l8.http_port || parseInt( process.env.PORT) || 80)
+l8.http_port = parseInt( process.env.PORT) || 8080 // default 80 requires sudo
+server.listen( l8.http_port)
 
 l8.stage( "local", server)
 
 /*
- *  Example. A "logging" actor
+ *  Example. An half baked "logging" actor
  */
  
 var Logger = l8.Actor( "l8_logger", {
@@ -62,7 +59,7 @@ var LoggerBis = l8.Actor( "l8_logger", l8.role( {
   
   error: function(){
     var msg = Array.prototype.slice.call( arguments, 0)
-    msg[0] = "Error: " + msg[0]
+    msg[0] = "l8_logger actor, error: " + msg[0]
     l8.trace.apply( l8, msg)
   },
   
