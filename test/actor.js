@@ -24,7 +24,7 @@ app
   res.end( 'hello world\n')
 })
 var server = Http.createServer( app)
-server.listen( process.env.PORT)
+server.listen( l8.http_port || parseInt( process.env.PORT) || 80)
 
 l8.stage( "local", server)
 
