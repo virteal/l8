@@ -12,6 +12,10 @@ var trace = l8.trace
 var bug   = trace
 var de    = true
 l8.debug( true)
+l8.logger( function(){ return function(){} } )
+l8.trace( "SILENT TRACE" )
+l8.logger( null )
+l8.trace( "L8 TEST SUITE" )
 
 var test // current test id
 
