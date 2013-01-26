@@ -1,4 +1,4 @@
-l8 0.1.43
+l8 0.1.50
 =========
 
 [![Build Status](https://travis-ci.org/JeanHuguesRobert/l8.png)](https://travis-ci.org/JeanHuguesRobert/l8)
@@ -8,6 +8,12 @@ promises and distributed actors.
 
 This is a work in progress that is not ready for production.
 See [![Build Status](https://c9.io/site/wp-content/themes/cloud9/img/logo_cloud9_small.png)](https://c9.io/jhr/l8)
+
+[npm](https://npmjs.org/package/l8)
+```
+npm install l8
+cd node_modules/l8; node test/suite.js
+```
 
 A task is any activity that a "normal" non-blocking javascript function cannot
 do because... javascript functions cannot block! Where functions provide
