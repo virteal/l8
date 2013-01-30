@@ -640,7 +640,7 @@ Multiple steps, run sequentially:
   fetch_all_seq = l8.Task (urls) ->
     results = []
     for url in urls then do (url) ->
-      @step -> scrap url, @proceed -> result.push {url, err, content}
+      @step -> scrap url, @proceed (err, content) -> result.push {url, err, content}
     @success -> results
 ```
 

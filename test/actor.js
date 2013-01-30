@@ -2,6 +2,7 @@
 //  tests for l8 actors
 //
 // 2013/01/07 by JHR
+"use strict";
 
 //var l8 = require( "l8/lib/l8.js")
 var l8      = require( "l8/lib/actor.js" )
@@ -21,7 +22,7 @@ var app = Connect()
 app.use( Connect.static( 'public'))
 app.use( function( req, res ){ res.end( 'hello world\n') })
 var server = Http.createServer( app)
-l8.http_port = parseInt( process.env.PORT) || 8080 // default 80 requires sudo
+l8.http_port = parseInt( process.env.PORT, 10) || 8080 // 80 requires sudo
 server.listen( l8.http_port)
 
 l8.stage( "local", server)
