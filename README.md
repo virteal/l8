@@ -1,4 +1,4 @@
-l8 0.1.50
+l8 0.1.52
 =========
 
 [![Build Status](https://travis-ci.org/JeanHuguesRobert/l8.png)](https://travis-ci.org/JeanHuguesRobert/l8)
@@ -6,13 +6,13 @@ l8 0.1.50
 l8 is a modern multi-tasker for javascript. It schedules javascript tasks using
 promises and distributed actors.
 
-This is a work in progress that is not ready for production.
+This is a work in progress that is not ready for production yet.
 See [![Build Status](https://c9.io/site/wp-content/themes/cloud9/img/logo_cloud9_small.png)](https://c9.io/jhr/l8)
 
 [npm](https://npmjs.org/package/l8)
 ```
 npm install l8
-cd node_modules/l8; node test/suite.js
+cd node_modules/l8; npm test
 ```
 
 A task is any activity that a "normal" non-blocking javascript function cannot
@@ -21,6 +21,7 @@ results, tasks provide promises instead. To become tasks that can block,
 functions are broken into steps that the l8 scheduler executes.
 
 ```
+// Simpliest multi-user html game ever, best solution in log2 N guesses
 l8.task ->
   @repeat ->
     round = random = 0
@@ -124,35 +125,35 @@ previous activity is completed.
     ajax_check_credential( user, function credential_checked( is_ok ){
       if( is_ok ){
         ajax_do_action( user, "delete", function delete_result( err ){
-          if( err ) signal( err)
+          if( err ) signal( err );
         }
       }
     }
   }
 ```
 This code is not very readable because of the "nesting" of the different parts
-that obscures it.
+that obscures it. That is the so called "Callback Hell" issue.
 
 ```
-  ajax_get_user( name, user_found);
+  ajax_get_user( name, user_found );
   function user_found( user ){
-    ajax_check_credential( user, credential_checked);
+    ajax_check_credential( user, credential_checked );
   }
   function credential_checked( is_ok ){
-    if( !is_ok )return
-    ajax_do_action( user, "delete", delete_result)
+    if( !is_ok )return;
+    ajax_do_action( user, "delete", delete_result );
   }
   function delete_result( err ){
-    if( err ) signal( err)
+    if( err ) signal( err );
   }
 ```
 This slightly different style is barely more readable. What would be readable
 is something like this:
 
 ```
-  var user = ajax_get_user( name);
-  if( !ajax_check_credential( user) ) return;
-  if( err = ajax_do_action( user, "delete") ) signal( err);
+  var user = ajax_get_user( name );
+  if( !ajax_check_credential( user ) ) return;
+  if( err = ajax_do_action( user, "delete" ) ) signal( err );
 ```
 
 However, this cannot exist in javascript because no function can "block". The
@@ -168,15 +169,19 @@ they do.
 
 ```
   var user;
-  l8
-  .step( function(        ){ ajax_get_user( name)                  })
-  .step( function( result ){ ajax_check_credential( user = result) })
-  .step( function( result ){ if( !result ) l8.return();
-                             ajax_do_action( user, "delete")       })
-  .step( function( result ){ if( result ) signal( result)          })
+  l8.step(function(){
+    ajax_get_user( name );
+  }).step(function( result ){
+    ajax_check_credential( user = result );
+  }).step(function( result ){
+    if( !result ) l8.return();
+    ajax_do_action( user, "delete" )
+  }).step(function( result ){
+    if( result ) signal( result )
+  })
 ```
 
-This is less verbose with CoffeeScript:
+This can be less verbose with CoffeeScript:
 
 ```
   user = null
@@ -197,7 +202,7 @@ and various styles of collaboration between these actions.
 
 Please note that the ajax_xxx() functions of the example are not regular
 functions, they are "task constructors". When you invoke such a function, a new
-task is created. See below.
+task is created.
 
 If they were usual ajax_xxx( p1, p2, cb) style of functions, one would need to
 use .walk or .proceed() as the callback in order to ask l8 to move to the next
@@ -205,11 +210,16 @@ step:
 
 ```
   var user = null, err
-  this.step( function(   ){ ajax_get_user( name,               this.walk ) }
-  this.step( function( r ){ ajax_check_credential( (user = r), this.walk ) }
-  this.step( function( r ){ if( !r ) this->return()
-                            ajax_do_action( user, "delete",    this.walk ) }
-  this.step( function( r ){ if( err = r ) signal( err)
+  l8.step(function(){
+    ajax_get_user( name, this.walk );
+  }).step(function( r ){
+    ajax_check_credential( (user = r), this.walk );
+  }).step(function( r ){
+    if( !r ) this->return();
+    ajax_do_action( user, "delete", this.walk );
+  }).step(function( r ){
+    if( err = r ) signal( err );
+  })
 ```
 
 Tasks
@@ -227,8 +237,8 @@ schedule the new task and return a Task object. Such an object is also a
 completion, either it's success or it's failure.
 
 ```
-  var new_task = do_something_task()
-  new_task.then( on_success, on_failure)
+  var new_task = do_something_task();
+  new_task.then( on_success, on_failure );
   function on_success( result ){ ... }
   function on_failure( reason ){ ... }
 ```
@@ -239,16 +249,20 @@ both define (statically) what happens when they are invoked (dynamically).
 Tasks queue steps that the l8 scheduler will execute much like functions queue
 statements that the Javascript interpretor executes. With functions, statements
 queueing is implicit. With tasks, it becomes explicit. As a result, defining
-what a task does is of course sligthly less syntaxically easy.
+what a task does is of course less syntaxically easy at first.
 
 ```
   do_something_task = l8.Task( do_something_as_task );
   function do_something_as_task(){
-    this
-    .step( function(){ this.sleep( 1000) })
-    .fork( function(){ do_some_other_task() })
-    .fork( function(){ do_another_task() })
-    .step( function(){ ... })
+    l8.step(function(){
+      this.sleep( 1000);
+    }).fork(function(){
+      do_some_other_task();
+    }).fork(function(){
+      do_another_task();
+    }).step( function(){
+      ... 
+    })
   }
 ```
 
@@ -274,7 +288,7 @@ what is usually a function can be a list of steps:
   )
 ```
 
-There is also a trans-compiler option that takes a funny looking function and
+There is also a transpiler option that takes a funny looking function and
 turns it into a task constructor. It's compact but you lose the ability to set
 break-points in a debugger.
 
@@ -313,7 +327,7 @@ is still the "normal", steps that run in parallel paths can also exist. Such
 steps can be the result of "forks". When all forks are done, the forks "join"
 and execution continues with the next normal step. When using a generator, the
 steps of the producer and those of the consumer are executed alternatively when
-.yield() and .next() are called to handle a new generated results.
+.yield() and .next() are called to handle a new generated result.
 
 Promises
 --------
@@ -532,14 +546,16 @@ API
   will replace the initial promise.
 
   Additional librairies provides other usefull services. See Q.js, When.js,
-  Promise.io, etc
+  Promise.io, etc.
   
-  .
-
   Misc:
     .debug( [on])       -- get/set debug mode
     .trace( p1, ... )   -- output trace
-    .de                 -- my de&&bug darling
+    .logger( f() )      -- command how function used to output traces is found
+    .assert( cndtion )  -- bomb when condition is not met
+    .de                 -- my de&&bug() darling
+    .bug( ... )         -- alias for .trace()
+    .mand( condition )  -- my de&&mand() darling, alias for .assert()
 
 ```
 
@@ -619,7 +635,7 @@ Back to Javascript:
   })
 ```
 
-Using the "trans-compiler":
+Using the "transpiler":
 
 ```
   fetch = l8.compile( function( a ){
@@ -743,7 +759,7 @@ show_news = l8.Task ->
     @step -> throw "sorry, no news. timeout"
   @success( news ) -> show news
 
-// l8 trans-compiler
+// l8 transpiler
 var show_new = l8.compile( function(){
   var news = this
   fork; begin
@@ -1051,7 +1067,7 @@ xx = l8.compile( function(){
 
 .final( block) provides a solution that mimics the finally clause of the "try"
 javascript construct. The final block typically performs "clean up" work
-associated with the task it is attached too.
+associated with the task or subtask it is attached too.
 
 ```
   var file
@@ -1086,7 +1102,7 @@ the current task (this may change in a future version).
 a variation around the C++ notion of "destructors". There can be multiple
 deferred blocks for a task. Because deferred steps are executed just before the
 task reach its end, they can register additional steps to handle async
-activities. As a result, the task is not fully done until all the defered work
+activities. As a result, the task is not fully done until all the deferred work
 is done too. Deferred blocks are executed in a LIFO order, ie the last deferred
 step is run first.
 
@@ -1204,7 +1220,7 @@ makes sense.
 Each actor has a unique name, provided by the actor creator. All actors are
 remembered in a global registry where one can lookup for them. Names are
 in the form xx.xx.xx where the last xx is generated by the actor itself
-when only xx.xx. is provided at creation time.
+when only xx.xx. is provided at creation time (ie when name ends with a dot).
 
 Actors can be usefull to build distributed systems. In these configurations,
 each javascript process hosts actors and communicate with actors hosted in some
@@ -1388,4 +1404,9 @@ Enjoy.
 
 PS: all this stuff is to relieve me from my "node anxiety".
 See http://news.ycombinator.com/item?id=2371152
+
+PS: if you feel like threads are a low level tool, you may want to have look
+at a much higher level tool where data in sets flow thru much higher level
+tasks called datalet in a reactive functional style: Excess.
+See https://github.com/ConnectedSets/ConnectedSets
 
