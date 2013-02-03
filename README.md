@@ -15,10 +15,7 @@ npm install l8
 cd node_modules/l8; npm test
 ```
 
-A task is any activity that a "normal" non-blocking javascript function cannot
-do because... javascript functions cannot block! Where functions provide
-results, tasks provide promises instead. To become tasks that can block,
-functions are broken into steps that the l8 scheduler executes.
+A task is any activity that a "normal" javascript function cannot do because... javascript functions cannot block! Where functions provide results, tasks provide promises instead. To become tasks that can block, functions are broken into steps that the l8 scheduler executes.
 
 ```
 // Simpliest multi-user html game ever, best solution in log2 N guesses
@@ -26,15 +23,15 @@ l8.task ->
   @repeat ->
     round = random = 0
     @step -> input "Enter a decent number to start a new game"
-    @step (r) ->
-      @continue if (r = parseInt( r)) < 10
+    @step ( r ) ->
+      @continue if ( r = parseInt( r, 10 ) ) < 10
       random = Math.floor Math.random() * r
       round  = 0
     @repeat ->
       @step -> input "Guess a number"
-      @step (r) ->
+      @step ( r ) ->
         round++
-        r = parseInt( r)
+        r = parseInt( r, 10 )
         if r > random then printnl "#{r} is too big"
         if r < random then printnl "#{r} is too small"
         if r is random
@@ -78,6 +75,27 @@ specified by the callback itself. The overhead is small (see test_11 in the
 test suite) considering the extra features provided (ie. nesting, cancelation,
 tasks hierarchie, etc). When that overhead is useless, one can revert to the
 classic callback style, ie. blocking and callback modes intermix well.
+
+Roadmap
+=======
+
+Tasks  - this is mostly done. Some more tests may help. See lib/l8.js
+
+Actors - local & proxied. This is mostly done, but recent. Needs more tests.
+See lib/actor.js
+
+Node.js adaptor - this is just started. It's about transforming all node.js API
+functions that use callbacks into l8 tasks. When available, this solution will
+make it easier to use the node.js API in a blocking manner. See lib/node.js
+
+Browser adaptor - this is not started. It's about running code on the browser
+using the exact same API as the one when running on a server, including the
+full node.js API. Some APIs will be emulated locally when possible, the others
+will be submitted to the server via proxies.
+
+The goal is to have a tool to build code that runs in browsers and servers,
+distributed using the actor model for inter process communications, ie with no
+shared values.
 
 Steps vs Statements
 ===================
