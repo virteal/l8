@@ -1,0 +1,42 @@
+<html>
+<head>
+<script src="l8_browser_test_suite.min.js"></script>
+</head>
+</html>
+<body>
+Hello! This is l8. Please look for the results of the test suite in the console.
+<br>
+If the script l8_browser_test_suite.min.js fails to load, check if it exists.
+<br>
+If not run <code>browserify test/suite.js -o l8_browser_test_suite.js</code> in node_modules/l8
+<b></b>Then copy the result into your usual javascript directory.
+<br>
+To build the minimized version, run <code>uglifyjs l8_browser_test_suite.js -o l8_browser_test_suite.min.js --source-map l8_browser_test_suite.min.js.map -c</code>
+<br>
+If you need a compressed version, run <code>gzip l8_browser_test_suite.min.js</code>
+<br>
+Using browserify, uglifyjs & gzip, I got:
+<br>
+<pre>
+<code>
+With debug info: 17ko
+
+date                                                                                                                                               
+Sun Feb  3 03:09:36 EST 2013
+
+wc lib/l8.js test/suite.js                                                                                                                         
+ 2848 10126 78650 lib/l8.js                                                                                                                                                   
+  463  1755 13936 test/suite.js                                                                                                                                               
+ 3311 11881 92586 total        
+
+wc l8_browser_test_suite.js                                                                                                                        
+  4287  15118 120054 l8_browser_test_suite.js
+
+wc l8_browser_test_suite.min.js                                                                                                                    
+    3  1186 67064 l8_browser_test_suite.min.js
+
+wc l8_browser_test_suite.min.js.gz                                                                                                                 
+   68   377 17133 l8_browser_test_suite.min.js.gz
+</code>
+</pre>
+</body>

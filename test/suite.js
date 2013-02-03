@@ -346,22 +346,26 @@ var test // current test id
 
   var test_11 = l8.Task( function(){
     test = 11
+    // Let's compare the speed, first "classical" style, using callbacks
     function recur( n, next ){
       if( --n > 0 ){
+        // Note: nextTick is about 20 times slower in chrome than in nodejs...
         l8.nextTick( function(){ recur( n, next) })
       }else{
         next()
       }
     }
+    // And then l8 style, using steps
     var l8recur = l8.Task( function l8recur_task( n ){
+      // No nextTick involved, l8 scheduler instead
       if( --n > 0 ){ l8recur( n) }
     })
     var now
     var n = 3
-    var p = 100000
-    var factor = 50 // 50 by december 2012
-    var ii          // 15 is average in nodejs. Best ever is 3, in Chrome
-    var duration
+    var p = 100000;
+    var factor = 2  // 50 by december 2012, 2 by feb 2013
+    var ii          // 15 was average in nodejs initially.
+    var duration    // 2013/02/03, 0,23 in Chrome, with browserify, 5 in cloud9
     var l8duration
     var tid
     var last_tid
@@ -398,7 +402,7 @@ var test // current test id
     .step( function(){ this.sleep( 1) })
     .fork( function(){ last_tid = this.current.id } )
     .step( function(){
-      l8.debug( was_debug)
+      l8.debug( was_debug )
       l8duration = (-1 + (l8.timeNow - now)) * factor
       t( n * p, "times l8recur()", l8duration, "estimated millisecs")
       t( l8duration / duration, "times slower than if native")

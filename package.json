@@ -1,6 +1,6 @@
 {
   "name": "l8",
-  "version": "0.1.52",
+  "version": "0.1.53",
   "description": "l8 is a task manager for javascript. A task is a function broken in steps. l8 comes with synchronisation and distribution tools including semaphores, mutexes, message queues, generators, actors and socket.io proxied actors, among others. The roadmap includes a solution to run the same code in the brower and in the server, using the full node.js API in both cases.",
   "main": "lib/l8.js",
   "files": [ 
@@ -26,10 +26,12 @@
     "requirejs":        "latest"
   },
   "devDependencies": {
-    "coffee-script": "~1.4.0"
+    "coffee-script": "~1.4.0",
+    "browserify":    "latest",
+    "uglify-js" :    "latest"
   },
   "scripts": {
-    "test": "echo \"pwd\" ; pwd ; echo \"ls .\" ; ls . ; echo \"ls lib\" ; ls lib ; echo \"ls test\" ; ls test; ln -s ../. node_modules/l8 ; echo \"ls node_modules\" ; ls node_modules ; echo \"ls node_modules/l8\" ;  ls node_modules/l8 ; echo \"run tests...\" ; node test/suite.js && node test/actor.js"
+    "test": "node test/suite.js && node test/actor.js"
   },
   "repository": {
     "type": "git",
@@ -44,6 +46,7 @@
     "promise",
     "actor",
     "actors",
+    "remote",
     "erlang",
     "semaphore",
     "mutex",
@@ -53,9 +56,16 @@
     "rpc",
     "message passing",
     "message queue",
-    "nodejs"
+    "nodejs",
+    "browserify",
+    "websockets",
+    "socket.io"
   ],
-  "author": "Jean Hugues Robert",
+  "author": {
+    "name"  : "Jean Hugues Robert",
+    "email" : "jean_hugues_robert@yahoo.com",
+    "url"   : "http://virteal.com"
+  },
   "license": "MIT"
 }
 
