@@ -362,7 +362,7 @@ var test // current test id
     })
     var now
     var n = 3
-    var p = 100000;
+    var p = 10000 // 100000; sometimes, it si very very slow, browser issue?
     var factor = 2  // 50 by december 2012, 2 by feb 2013
     var ii          // 15 was average in nodejs initially.
     var duration    // 2013/02/03, 0,23 in Chrome, with browserify, 5 in cloud9

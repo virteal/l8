@@ -1,4 +1,4 @@
-l8 0.1.52
+l8 0.1.54
 =========
 
 [![Build Status](https://travis-ci.org/JeanHuguesRobert/l8.png)](https://travis-ci.org/JeanHuguesRobert/l8)
@@ -503,7 +503,7 @@ API
   .queue( [bound] )     -- message queue, ...
   .port()               -- like a message queue but without any buffering
   .signal()             -- signal, ..., like a promise that fires many times
-  .timeout( delay )     -- a promise fulfilled after a delay
+  .timeout( delay )     -- a promise fulfilled within a delay
   .generator()          -- a next()/yield() consumer/producer resource
   .Generator( block )   -- build a Generator Constructor.
 
@@ -511,6 +511,7 @@ API
 
     .promise            -- provide a promise fullfilled when rsrc is acquired
     .release()          -- make resource available
+    .signal()           -- alias for release()
     .close()            -- reject pending promises
     .task               -- resource owner task, when applicable (mutex & lock)
 
@@ -522,16 +523,36 @@ API
     .tryGet()           -- get msg when one is available, don't block
     .put( msg )         -- pause current task until queue is not full, put msg
     .tryPut( msg )      -- put msg in queue unless queue is full
+    .signal( msg )      -- alais for tryPut()
     .capacity           -- total capacity (bound)
     .length             -- used capacity
     .full               -- when capacity is totally used
     .empty              -- when length is 0
+  
+  Timeouts are convenient to measure time and detect excessive delays.
+  
+    .promise            -- provide a promise fullfilled withing the delay
+    .signal()           -- fire the timeout now
+    .started            -- time when the timeout was started
+    .signaled           -- time when the timeout was signaled, or null
+    .duration           -- how long it took (took so far if unsignaled timeout)
 
   Signals are usefull to send a signal to multiple tasks when some condition is
   met:
 
     .promise            -- a promise fullfilled when signal is next signaled
     .signal( value )    -- signal signal, resolve all pending promises
+  
+  "Calls" are functions that will be called when signaled. They are similar to
+  regular callbacks. The main difference is that in addition to .apply() and
+  .call(), Calls also provide a .signal() method, like all the other l8 objects
+  that are usefull for synchronisation purposes. Another difference is the fact
+  that Calls are asynchronous, their result is a promise.
+  
+    .promise            -- provide the promise of the call.
+    .call( ... )        -- invoke the call with parameters
+    .apply( a )         -- idem but parameters are specified using an array
+    .signal( ... )      -- alias for .apply()
 
   Generators let a producer and a consumer collaborate in a next()/yield() way:
 
@@ -541,6 +562,7 @@ API
     .yield( msg )       -- pause task until consumer calls .next(), get/send
     .tryNext( [msg] )   -- if .get promise is ready, get yield's msg
     .tryYield( msg )    -- if .put promise is ready, get next's msg
+    .signal( msg )      -- alias for tryYield()
     .close()            -- break paused tasks (using .break())
     .closed             -- true once generator is closed
 
@@ -912,172 +934,6 @@ Producer/consumer:
 
 ```
   TBD
-```
-
-
-Mixing statements and steps
----------------------------
-
-Because "steps" and "statements" are not on the same level (steps for tasks,
-statements for functions), the classical javascript control structures have
-equivalent structures at the step level.
-
-```
-function xx(){
-  ..1..
-  try{
-    ..2..
-  catch( e ){
-    ..3..
-  finally {
-    ..4..
-  }
-  ..5..
-}
-```
-becomes:
-
-```
-xx_task = l8.Task( function(){
-  this.step( function(){
-    ..1..
-  }).step( function(){
-    this.begin.step( function(){
-      ..2..
-    }).failure( function(e){
-      ..3..
-    }).final( function(){
-      ..4..
-    }).end
-  }).step( function(){
-    ..5..
-  })
-})
-
-or
-
-xx_task = l8.compile( function(){
-  step; ..1..
-  step; begin
-    ..2...
-    failure;
-    ..3..
-    final;
-    ..4..
-  end
-  step; ..5..
-})
-```
-
-```
-while( condition ){
-  ...
-  if( extra )break
-  ...
-  if( other_extra )continue
-  ...
-}
-```
-becomes:
-
-```
-l8.repeat( function(){
-  ...
-  if( condition ) this.break
-  ...
-  if( extra ) this.break
-  ...
-  if( other_extra ) this.continue
-  ...
-}
-
-or
-
-xx = l8.compile( function(){
-  repeat; begin
-    ...
-    if( condition ) this.break
-    ...
-    if( extra ) this.break
-    ...
-    if( other_extra ) this.continue
-    ...
-  end
-})
-```
-
-```
-for( init ; condition ; next ){
-  ...
-}
-```
-
-becomes:
-
-```
-  init
-  this.repeat( function(){
-    if( condition ) this.break
-    ...
-    next
-  })
-```
-
-```
-for( init ; condition ; next ){
-  ...
-  if( extra ) continue
-  ...
-})
-```
-becomes:
-
-```
-  init
-  this.repeat( function(){
-    if( condition ) this.break
-    this.task( function(){
-      ...
-      this.step( function(){ if( extra ) this.return })
-      ...
-      this.step( function(){ next })
-    })
-  })
-
-or
-
-xx = l8.compile( function(){
-  init; repeat; begin ; if( condition ) this.break ; begin
-    ...
-    if( extra ) this.return
-    ...
-  end; next; end
-})
-```
-
-```
-for( var key in object ){
-  ...
-}
-```
-becomes:
-
-```
-  var keys = object.keys(), key
-  this.repeat( function(){
-    if( !(key = keys.shift()) ) this.break
-    ...
-  })
-
-or
-
-xx = l8.compile( function(){
-  var keys = object.keys(), key
-  repeat; begin;
-    if( !(key = keys.shift()) ) this.break
-    ...
-  end
-})
 ```
 
 .defer() versus .final()
