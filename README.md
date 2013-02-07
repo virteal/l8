@@ -1,10 +1,11 @@
-l8 0.1.54
+l8 0.1.55
 =========
 
 [![Build Status](https://travis-ci.org/JeanHuguesRobert/l8.png)](https://travis-ci.org/JeanHuguesRobert/l8)
 
 l8 is a modern multi-tasker for javascript. It schedules javascript tasks using
-promises and distributed actors.
+promises and distributed actors. Such task can run browser side or server side,
+the code is the same, the full node.js API is available is both cases.
 
 This is a work in progress that is not ready for production yet.
 See [![Build Status](https://c9.io/site/wp-content/themes/cloud9/img/logo_cloud9_small.png)](https://c9.io/jhr/l8)

@@ -4,8 +4,7 @@
 // 2013/01/07 by JHR
 "use strict";
 
-//var l8 = require( "l8/lib/l8.js")
-var l8      = require( "l8/lib/actor.js" )
+var l8 = require( "l8/lib/actor.js")
 var Http    = require( "http")
 var Connect = require( "connect")
 
@@ -13,19 +12,18 @@ var de   = l8.de
 var bug  = l8.bug
 var mand = l8.mand
 
-
 /*
- *  test http server
+ *  Setup the stage, with an http server
  */
 
 var app = Connect()
-app.use( Connect.static( 'public'))
-app.use( function( req, res ){ res.end( 'hello world\n') })
-var server = Http.createServer( app)
+app.use( Connect.static( 'public' ) )
+app.use( function( req, res ){ res.end( 'hello world\n' ) })
+var server = Http.createServer( app )
 l8.http_port = parseInt( process.env.PORT, 10) || 8080 // 80 requires sudo
-server.listen( l8.http_port)
+server.listen( l8.http_port )
 
-l8.stage( "local", server)
+l8.stage( "local", server )
 
 /*
  *  Example. An half baked "logging" actor
