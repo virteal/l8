@@ -31,6 +31,7 @@
     "uglify-js" :    "latest"
   },
   "scripts": {
+    "postinstall": "ln -s ../. node_modules/l8 || true",
     "test": "node test/suite.js && node test/actor.js"
   },
   "repository": {
