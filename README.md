@@ -1,4 +1,4 @@
-l8 0.1.55
+l8 0.1.56
 =========
 
 [![Build Status](https://travis-ci.org/JeanHuguesRobert/l8.png)](https://travis-ci.org/JeanHuguesRobert/l8)
@@ -85,14 +85,14 @@ Tasks  - this is mostly done. Some more tests may help. See lib/l8.js
 Actors - local & proxied. This is mostly done, but recent. Needs more tests.
 See lib/actor.js
 
-Node.js adaptor - this is just started. It's about transforming all node.js API
-functions that use callbacks into l8 tasks. When available, this solution will
-make it easier to use the node.js API in a blocking manner. See lib/node.js
+Node.js adaptor - it's about transforming all node.js API functions that use
+callbacks into l8 tasks to make it easier to use the node.js API in a blocking
+manner. See test/node.js example.
 
-Browser adaptor - this is not started. It's about running code on the browser
-using the exact same API as the one when running on a server, including the
-full node.js API. Some APIs will be emulated locally when possible, the others
-will be submitted to the server via proxies.
+Browser adaptor - this is starting to work. It's about running code on the
+browser using the exact same API as the one when running on a server, including
+the full node.js API. Some APIs will be emulated locally when possible, the
+others are submitted to the server via proxies.
 
 The goal is to have a tool to build code that runs in browsers and servers,
 distributed using the actor model for inter process communications, ie with no
