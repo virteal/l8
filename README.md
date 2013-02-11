@@ -1,4 +1,4 @@
-l8 0.1.56
+l8 0.1.57
 =========
 
 [![Build Status](https://travis-ci.org/JeanHuguesRobert/l8.png)](https://travis-ci.org/JeanHuguesRobert/l8)
@@ -1103,17 +1103,18 @@ other processes, via proxies.
 
 API:
 ```
-  .Actor( name, pattern ) -- make an Actor task constructor
-    .send( ... )          -- send a message to the actor
+  .actor( name, pattern ) -- start an actor or return an actor generator
+    .tell( ... )          -- send a message to the actor
+    .ask( ... )           -- send a message and expect an answer
     .receive( pattern )   -- redefine reaction to received messages
-  .Actor.lookup( name )   -- look for an existing actor
-  .Actor.all              -- an object with one propertie per existing actor
-  .actor                  -- actor the current task is running
-  .actor.stage            -- stage the actor received current message from
-  .Role                   -- base class for Role objects, can be extented
-  .role( delegate )       -- alternative mechanism to define actor's patterns
+  .actor.lookup( name )   -- look for an existing actor
+  .actor.all              -- an object with one propertie per existing actor
+  .ego                    -- actor the current task is running
+  .ego.stage              -- stage the actor received current message from
   .stage( name, [url] )   -- a place with actors in it
-  .proxy( stage, name )   -- access to remote actors
+  .proxy( name, stage )   -- access to remote actors
+    .tell( ... )
+    .ask( ... )
 ```
 
 L8 Design

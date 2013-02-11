@@ -26,25 +26,23 @@ server.listen( l8.http_port )
 l8.stage( "local", server )
 
 /*
- *  Example. An half baked "logging" actor
+ *  Example. An half baked "logging" actor, using pattern matching
  */
  
-var Logger = l8.Actor( "l8_logger", {
+var Logger = function(){ return l8.actor( "l8_logger", {
   '"error", x': function( x ){ return l8.trace( "Error: " + x) },
   'x':          function( x ){ return l8.trace( "catch " + x) },
   '"throw", e': function( e ){ l8.trace( "throw...", e); throw e }
   //'...': function(){ l8.trace( "unsupported) }
-})
+})}
 
 /*
- *  Example. A "logging" actor using a delegate playing a role.
- *  Note: another example could create a subclass of l8.Role instead of using
- *  the generic Role class with a delegate.
+ *  Example. A "logging" actor using method based dispatching
  */
 
 var LoggerCount = 0
 
-var LoggerBis = l8.Actor( "l8_logger", l8.role( {
+var LoggerBis = function(){ return l8.actor( "l8_logger", {
   
   "options" : function(){ return {} },
   
@@ -95,7 +93,7 @@ var LoggerBis = l8.Actor( "l8_logger", l8.role( {
   throw: function( e ){
     l8.trace( "throw...", e); throw e
   }
-}))
+})}
 
 /*
  *  Example, access to actor via a proxy. In this case, it's a mock because
@@ -114,45 +112,45 @@ var Logger4 = l8.proxy( "l8_logger", url)
 function test_it( logger ){
   l8.trace( "Start Logger. " + LoggerCount)
   Logger()
-  var mylog = logger || l8.Actor.lookup( "l8_logger")
+  var mylog = logger || l8.actor.lookup( "l8_logger")
   de&&mand( mylog)
   mylog.task && mylog.task.then(
     function(){ l8.trace( "actor done")},
     function(){ l8.trace( "actor dead")}
   )
-  mylog.send([ "Hello"])
-  mylog.send([ "error", "is ok"])
-  mylog.send([ "does not understand", "this"])
-  mylog.send([ "add"])
+  mylog.tell( "Hello" )
+  mylog.tell( "error", "is ok" )
+  mylog.tell( "does not understand", "this" )
+  mylog.tell( "add" )
   l8.step( function(   ){
-    return mylog.call([ "getSync"])
+    return mylog.ask( "getSync" )
   })
   l8.step( function( r ){
     l8.trace( "Count is " + LoggerCount + ". getSync->" + r)
     de&&mand( !LoggerCount || r === LoggerCount )
   })
   l8.step( function(   ){
-    return mylog.call([ "getPromise"])
+    return mylog.ask( "getPromise" )
   })
   l8.step( function( r ){
     l8.trace( "getPromise->" + r)
     de&&mand( !LoggerCount || r === LoggerCount )
   })
   l8.step( function(   ){
-    return mylog.call([ "getAsync"])
+    return mylog.ask( "getAsync" )
   })
   l8.step( function( r ){
     l8.trace( "getAsync->" + r)
     de&&mand( !LoggerCount || r === LoggerCount )
   })
   l8.step( function(   ){
-    return mylog.call([ "getAsyncPromise"])
+    return mylog.ask( "getAsyncPromise" )
   })
   l8.step( function( r ){
     l8.trace( "getAsyncPromise->" + r)
     de&&mand( !LoggerCount || r === LoggerCount )
   })
-  l8.step( function(   ){ mylog.send([ "throw", "something that kills"]) })
+  l8.step( function(   ){ mylog.tell([ "throw", "something that kills"]) })
 }
 
 l8.task( function(){
@@ -171,7 +169,8 @@ l8.task( function(){
   l8.trace( "Scheduling test")
   l8.step( function(){ test_it() })
   l8.step( function(){ l8.sleep( 1000) })
-  l8.step( function(){ Logger = LoggerBis; test_it() })
+  l8.step( function(){ Logger = LoggerBis })
+  l8.step( function(){ test_it() })
   l8.step( function(){ l8.sleep( 1000) })
   l8.step( function(){ test_it( LoggerTer) })
   l8.step( function(){ l8.sleep( 1000) })
@@ -188,7 +187,7 @@ l8.task( function(){
   })
   l8.repeat( function(){
     if( nn++ >= nloops ) l8.break;
-    return Logger4.call([ "getSync"])
+    return Logger4.ask( "getSync" )
   })
   l8.step( function(){ delta( "getSync") })
   l8.step( function(){
@@ -197,7 +196,7 @@ l8.task( function(){
   })
   l8.repeat( function(){
     if( nn++ >= nloops ) l8.break;
-    return Logger4.call([ "getAsync"])
+    return Logger4.ask( "getAsync" )
   })
   l8.step( function(){ delta( "getAsync") })
   l8.step( function(){
@@ -206,7 +205,7 @@ l8.task( function(){
   })
   l8.repeat( function(){
     if( nn++ >= nloops ) l8.break;
-    return Logger4.call([ "getPromise"])
+    return Logger4.ask( "getPromise" )
   })
   l8.step( function(){ delta( "getPromise") })
   l8.step( function(){
@@ -215,7 +214,7 @@ l8.task( function(){
   })
   l8.repeat( function(){
     if( nn++ >= nloops ) l8.break;
-    return Logger4.call([ "getAsyncPromise"])
+    return Logger4.ask( "getAsyncPromise" )
   })
   l8.step( function(){ delta( "getAsyncPromise") })
   l8.step( function(){
