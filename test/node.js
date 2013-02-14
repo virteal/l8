@@ -1,15 +1,18 @@
 // test/node.js
 //   This is a test for the remote access to node.js API from a node_client.js
-//   powered client to a node_server.js powererd server.
+//   powered client to a node_server.js powered server.
 //
 // 2013/02/08 by JHR
 //
 
 // Embbed server
-require( "l8/lib/node_server.js" )
+var l8 = require( "l8/lib/node_server.js" )
+l8.http_port = parseInt( process.env.PORT, 10) || 8080 // 80 requires sudo
+l8.node_api_server( l8.http_port, "no credentials" )
 
 // But behave as a client
-var l8 = require( "l8/lib/node_client.js" )
+require( "l8/lib/node_client.js" )
+l8.node_api_client( "http://localhost:" + l8.http_port, "no credentials" )
 
 // Let's create a task, blocking activities need a task.
 l8.task( function(){
@@ -19,7 +22,6 @@ l8.task( function(){
   var fs
   var Buffer
   var fd
-  var msg_buffer
 
   l8.step( function ( ) {    l8.require( "fs" );
   }).step( function (m) {    fs = m;
@@ -28,8 +30,7 @@ l8.task( function(){
                              fs.open( "node.js.test_file.txt", "w" );
   }).step( function (f) {    fd = f;
                              new Buffer( "Hello, world!", "utf8" );
-  }).step( function (b) {    msg_buffer = b;
-                             fs.write( fd, msg_buffer, 0, msg_buffer.length, null );
+  }).step( function (b) {    fs.write( fd, b, 0, b.length, null );
   }).step( function ( ) {    fs.close( fd );
   }).step( function ( ) {    fs.readFile( "node.js.test_file.txt", "utf8" );
   }).step( function (r) {    l8.assert( r === "Hello, world!" );

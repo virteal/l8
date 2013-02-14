@@ -1,4 +1,4 @@
-l8 0.1.57
+l8 0.1.58
 =========
 
 [![Build Status](https://travis-ci.org/JeanHuguesRobert/l8.png)](https://travis-ci.org/JeanHuguesRobert/l8)
@@ -155,13 +155,16 @@ that obscures it. That is the so called "Callback Hell" issue.
 
 ```
   ajax_get_user( name, user_found );
+  
   function user_found( user ){
     ajax_check_credential( user, credential_checked );
   }
+  
   function credential_checked( is_ok ){
     if( !is_ok )return;
     ajax_do_action( user, "delete", delete_result );
   }
+  
   function delete_result( err ){
     if( err ) signal( err );
   }
@@ -188,14 +191,18 @@ they do.
 
 ```
   var user;
-  l8.step(function(){
+  
+  l8.step( function(){
     ajax_get_user( name );
-  }).step(function( result ){
+    
+  }).step( function( result ){
     ajax_check_credential( user = result );
-  }).step(function( result ){
+    
+  }).step( function( result ){
     if( !result ) l8.return();
     ajax_do_action( user, "delete" )
-  }).step(function( result ){
+    
+  }).step( function( result ){
     if( result ) signal( result )
   })
 ```
@@ -229,14 +236,18 @@ step:
 
 ```
   var user = null, err
-  l8.step(function(){
+  
+  l8.step( function(){
     ajax_get_user( name, this.walk );
-  }).step(function( r ){
+    
+  }).step( function( r ){
     ajax_check_credential( (user = r), this.walk );
-  }).step(function( r ){
+    
+  }).step( function( r ){
     if( !r ) this->return();
     ajax_do_action( user, "delete", this.walk );
-  }).step(function( r ){
+    
+  }).step( function( r ){
     if( err = r ) signal( err );
   })
 ```
@@ -272,13 +283,18 @@ what a task does is of course less syntaxically easy at first.
 
 ```
   do_something_task = l8.Task( do_something_as_task );
+  
   function do_something_as_task(){
-    l8.step(function(){
+  
+    l8.step(  function(){
       this.sleep( 1000);
-    }).fork(function(){
+      
+    }).fork( function(){
       do_some_other_task();
-    }).fork(function(){
+      
+    }).fork( function(){
       do_another_task();
+      
     }).step( function(){
       ... 
     })
@@ -396,10 +412,10 @@ task uses .next([opt]) to get that result and optionaly provide a hint about
 future results.
 
 ```
-  var fibonacci = L4.Generator( function(){
+  var fibonacci = l8.Generator( function(){
     var i = 0, j = 1;
-    this.repeat( function(){
-      this.yield( i);
+    l8.repeat( function(){
+      l8.yield( i);
       var tmp = i;
       i  = j;
       j += tmp;
@@ -408,9 +424,9 @@ future results.
 
   var gen = fibonacci()
   var count_down = 10
-  this.repeat( function(){
-    this.step( function(){
-      if( !count_down-- ) this.break
+  l8.repeat( function(){
+    l8.step( function(){
+      if( !count_down-- ) l8.break
       gen.next()
     }).step( function( r ){
       trace( count_down, "fibo", r)
@@ -671,8 +687,8 @@ Back to Javascript:
 
 ```
   fetch = l8.Task( function( a ){
-    this.step( function(){ meth1( a) })
-    this.step( function(){ meth2( a) })
+    l8.step( function(){ meth1( a) })
+    l8.step( function(){ meth2( a) })
   })
 ```
 
@@ -768,19 +784,26 @@ The equivalent code with l8 is:
 
 // JavaScript
 var show_news = l8.Task( function(){
-  var news = this
-  .fork( function(){ http.get( "http://news.bbc.co.uk",
-    this.proceed( function( item ){ news.return( item) }) )
-  })
-  .fork( function(){
-    this.step( function(){ this.sleep( 1000) });
-    this.step( function(){ http.get( "http://news.cnn.com",
-      this.proceed( function( item ){ news.return( item) }) )
+  var news = 
+  l8.fork( function(){
+    http.get( "http://news.bbc.co.uk",
+    l8.proceed( function( item ){ news.return( item) }) )
+    
+  }).fork( function(){
+  
+    l8.step( function(){
+      this.sleep( 1000)
+      
+    }).step( function(){
+      http.get( "http://news.cnn.com",
+      l8.proceed( function( item ){ news.return( item) }) )
     })
-  })
-  .fork( function(){
-    this.step( function(){ this.sleep( 1000 * 60) });
-    this.step( function(){ throw "sorry, no news. timeout" })
+    
+  }).fork( function(){
+  
+    l8.step( function(){ this.sleep( 1000 * 60)
+    
+    }).step( function(){ throw "sorry, no news. timeout" })
   })
   .success( function( news ){ show( news) });
 })
@@ -836,12 +859,12 @@ function pipe( inStream, outStream, callback ){
   loop();
 }
 
-pipe = l8.Task( function ( inStream, outStream ){ this
-  .repeat( function(){ this
-    .step( function(){
-      inStream.read() })
-    .step( function( data ){
-      if( !data) this.break;
+pipe = l8.Task( function ( inStream, outStream ){
+  l8.repeat( function(){
+    l8.step( function(){
+      inStream.read()
+    }).step( function( data ){
+      if( !data) l8.break;
       outStream.write( data);
     })
   })
@@ -864,7 +887,7 @@ pipe = l8.compile( function( in, out ){
 ```
 
 Note: for this example to work, node.js streams need to be "taskified". This
-is left as an exercize.
+is currently left as an exercize (however, work is in progres about that).
 
 The "recursive dir walk" nodejs challenge:
 
@@ -888,11 +911,11 @@ recurseDir(process.argv[2]);
 
 // Async version:
 var recurseDir = l8.Task( function( dir ){
-  l8.step( function(   ){ fs.readdir( dir, this.flow) })
+  l8.step( function(   ){ fs.readdir( dir, l8.flow) })
   l8.step( function( l ){ l.forEach( function( child ){
     if( child[0] != "." ){
       var childPath = path.join( dir, child);
-      l8.step( function(   ){ fs.stat( childPath, this.flow) })
+      l8.step( function(   ){ fs.stat( childPath, l8.flow) })
       l8.step( function( r ){
         if( r.isDirectory() ){
           recurseDir( childPath)
@@ -1104,15 +1127,16 @@ other processes, via proxies.
 API:
 ```
   .actor( name, pattern ) -- start an actor or return an actor generator
+  .actor( name )          -- look for an existing actor
     .tell( ... )          -- send a message to the actor
     .ask( ... )           -- send a message and expect an answer
-    .receive( pattern )   -- redefine reaction to received messages
-  .actor.lookup( name )   -- look for an existing actor
-  .actor.all              -- an object with one propertie per existing actor
+    .receive( pattern )   -- actor redefines reaction to received messages
   .ego                    -- actor the current task is running
   .ego.stage              -- stage the actor received current message from
   .stage( name, [url] )   -- a place with actors in it
-  .proxy( name, stage )   -- access to remote actors
+  .stage( "local", srv )  -- define http server for local stage
+  .proxy( name, url )     -- access to remote actors
+  .proxy( name, stage )   -- access to browser side remote actors
     .tell( ... )
     .ask( ... )
 ```
