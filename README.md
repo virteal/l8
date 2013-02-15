@@ -275,5 +275,5 @@ API
     .mand( condition )  -- my de&&mand() darling, alias for .assert()
 
 ```
-The document is in [the wiki](wiki/FrontPage)
+The document is in [the wiki](../../wiki/FrontPage)
 
