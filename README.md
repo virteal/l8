@@ -137,8 +137,7 @@ API
     .sleep(   milli )   -- block on step for a while, then move to next step
     .wait( promise )    -- block task until some lock opens, promise agnostic
 
-    -- misc, hierarchy
-    .l8                 -- return global L8 object, also root task
+    -- misc, task hierarchy
     .current            -- return current task
     .parent             -- return parent task
     .tasks              -- return immediate pending sub tasks
@@ -151,10 +150,13 @@ API
 
   All these methods, if invoked against the global l8 object, will usually get
   forwarded to the "current task", the task that is currently executing. That
-  task is often the returned value of such methods, when it makes sense.
+  task is often the returned value of such methods, when it makes sense. When
+  the body of a task is executing, "this" references the current task.
+  
+  -- synchronization
 
   To synchronize the access to resources, l8 provide a few well known basic
-  solutions implemented using promises and invoked using task.wait( resource):
+  solutions implemented using promises and invoked using task.wait( resource ).
 
   .semaphore( [n] )     -- create a new semaphore, also a promise provider
   .mutex( [entered] )   -- ... a new mutex, also a ...
@@ -163,10 +165,11 @@ API
   .port()               -- like a message queue but without any buffering
   .signal()             -- signal, ..., like a promise that fires many times
   .timeout( delay )     -- a promise fulfilled within a delay
+  .call( fn )           -- like callback but returns a promise when signaled
   .generator()          -- a next()/yield() consumer/producer resource
   .Generator( block )   -- build a Generator Constructor.
 
-  Semaphores, mutexes and locks provide:
+  Semaphores, Mutexes and Locks provide:
 
     .promise            -- provide a promise fullfilled when rsrc is acquired
     .release()          -- make resource available
@@ -176,7 +179,8 @@ API
 
   Message queues are useful to synchronize a consumer and a producer:
 
-    .in                 -- a "can get()" promise, alias for .promise
+    .in                 -- a "can get()" promise,
+    .promise            -- alias for .in
     .out                -- a "can put()" promise
     .get()              -- pause current task until queue is not empty, get msg
     .tryGet()           -- get msg when one is available, don't block
@@ -202,7 +206,7 @@ API
     .promise            -- a promise fullfilled when signal is next signaled
     .signal( value )    -- signal signal, resolve all pending promises
   
-  "Calls" are functions that will be called when signaled. They are similar to
+  Calls are functions that will be called when signaled. They are similar to
   regular callbacks. The main difference is that in addition to .apply() and
   .call(), Calls also provide a .signal() method, like all the other l8 objects
   that are usefull for synchronisation purposes. Another difference is the fact
@@ -248,24 +252,26 @@ API
   Additional librairies provides other usefull services. See Q.js, When.js,
   Promise.io, etc.
   
-  -- Actors runs in places called "stages" --
+  -- Actors runs in places called "stages"
   They are remotely accessible using proxies.
   
-  .actor( name, pattern ) -- start an actor or return an actor generator
-  .actor( name )          -- look for an existing actor
-    .tell( ... )          -- send a message to the actor
-    .ask( ... )           -- send a message and expect an answer
-    .receive( pattern )   -- actor redefines reaction to received messages
-  .ego                    -- actor the current task is running
-  .ego.stage              -- stage the actor received current message from
-  .stage( name, [url] )   -- a place with actors in it
-  .stage( "local", srv )  -- define http server for local stage
-  .proxy( name, url )     -- access to remote actors
-  .proxy( name, stage )   -- access to browser side remote actors
-    .tell( ... )
-    .ask( ... )
+  User:
+    .actor( name, pattern ) -- start an actor or return an actor generator
+    .actor( name )          -- look for an existing actor, local or remote
+    .actor( name, http )    -- access to a remote actor
+    .actor( name, stage )   -- access to browser side remote actors
+      .tell( ... )          -- send a message to the actor
+      .ask( ... )           -- send a message and expect an answer
   
-  Misc:
+  Implementer:
+    .receive( pattern )     -- define actor reaction to received messages
+    .ego                    -- actor the current task is running
+    .ego.stage              -- stage the actor received current message from
+    .stage( name, [url] )   -- a place with actors in it
+    .stage( "local", srv )  -- define http server for local stage
+  
+  -- Misc
+  
     .debug( [on])       -- get/set debug mode
     .trace( p1, ... )   -- output trace
     .logger( f() )      -- command how function used to output traces is found
@@ -275,5 +281,5 @@ API
     .mand( condition )  -- my de&&mand() darling, alias for .assert()
 
 ```
-The document is in [the wiki](../../wiki/FrontPage)
+Please find more documentation is in [the wiki](../../wiki/FrontPage)
 
