@@ -1,0 +1,1511 @@
+* [[ApiReference#wiki-Actor|Actor]]
+
+* [[ApiReference#wiki-Aggregator|Aggregator]]
+
+* [[ApiReference#wiki-Call|Call]]
+
+* [[ApiReference#wiki-Campaign|Campaign]]
+
+* [[ApiReference#wiki-Generator|Generator]]
+
+* [[ApiReference#wiki-Lock|Lock]]
+
+* [[ApiReference#wiki-MessageQueue|MessageQueue]]
+
+* [[ApiReference#wiki-Mutex|Mutex]]
+
+* [[ApiReference#wiki-Port|Port]]
+
+* [[ApiReference#wiki-Promise|Promise]]
+
+* [[ApiReference#wiki-ProxyActor|ProxyActor]]
+
+* [[ApiReference#wiki-Selector|Selector]]
+
+* [[ApiReference#wiki-Semaphore|Semaphore]]
+
+* [[ApiReference#wiki-Signal|Signal]]
+
+* [[ApiReference#wiki-Stage|Stage]]
+
+* [[ApiReference#wiki-Task|Task]]
+
+* [[ApiReference#wiki-Timeout|Timeout]]
+
+* [[ApiReference#wiki-l8|l8]]
+
+
+== Actor ==
+* [[ApiReference#wiki-actorask|ask()]] - Ask something to an actor, ie also expect a response.
+* [[ApiReference#wiki-actorbecome|become()]] - Change the way the actor handle the messages.
+* [[ApiReference#wiki-actorreceive|receive()]] - Define the new behavior of actor for the next message.
+* [[ApiReference#wiki-actorreply|reply]] - Async response to some "ask type" message.
+* [[ApiReference#wiki-actortell|tell()]] - Send a message to this actor.
+
+== Aggregator ==
+* [[ApiReference#wiki-aggregatorpromise|promise]] - 
+* [[ApiReference#wiki-aggregatorthen|then()]] - 
+
+== Call ==
+* [[ApiReference#wiki-callapply|apply()]] - 
+* [[ApiReference#wiki-callcall|call()]] - 
+* [[ApiReference#wiki-callpromise|promise]] - 
+* [[ApiReference#wiki-callsignal|signal]] - 
+* [[ApiReference#wiki-callthen|then()]] - 
+
+== Campaign ==
+* [[ApiReference#wiki-campaignderegister|deregister()]] - 
+* [[ApiReference#wiki-campaignlookup|lookup()]] - 
+* [[ApiReference#wiki-campaignregister|register()]] - 
+
+== Generator ==
+* [[ApiReference#wiki-generatorclose|close()]] - 
+* [[ApiReference#wiki-generatorget|get]] - 
+* [[ApiReference#wiki-generatornext|next()]] - 
+* [[ApiReference#wiki-generatorpromise|promise]] - 
+* [[ApiReference#wiki-generatorput|put]] - 
+* [[ApiReference#wiki-generatorsignal|signal]] - 
+* [[ApiReference#wiki-generatorthen|then()]] - 
+* [[ApiReference#wiki-generatortry_next|try_next()]] - Like .generate() but never blocks
+* [[ApiReference#wiki-generatortry_yield|try_yield()]] - Like .yield() but never blocks
+* [[ApiReference#wiki-generatoryield|yield()]] - 
+
+== Lock ==
+* [[ApiReference#wiki-lockclose|close()]] - 
+* [[ApiReference#wiki-lockpromise|promise]] - 
+* [[ApiReference#wiki-lockrelease|release()]] - 
+* [[ApiReference#wiki-locksignal|signal]] - 
+* [[ApiReference#wiki-locktask|task]] - 
+* [[ApiReference#wiki-lockthen|then()]] - 
+
+== MessageQueue ==
+* [[ApiReference#wiki-messagequeueclose|close()]] - 
+* [[ApiReference#wiki-messagequeueempty|empty]] - 
+* [[ApiReference#wiki-messagequeuefull|full]] - 
+* [[ApiReference#wiki-messagequeueget|get()]] - 
+* [[ApiReference#wiki-messagequeuein|in]] - 
+* [[ApiReference#wiki-messagequeueout|out]] - 
+* [[ApiReference#wiki-messagequeuepromise|promise]] - 
+* [[ApiReference#wiki-messagequeueput|put()]] - 
+* [[ApiReference#wiki-messagequeuesignal|signal]] - 
+* [[ApiReference#wiki-messagequeuethen|then()]] - 
+* [[ApiReference#wiki-messagequeuetry_get|try_get()]] - 
+* [[ApiReference#wiki-messagequeuetry_put|try_put()]] - 
+
+== Mutex ==
+* [[ApiReference#wiki-mutexclose|close()]] - 
+* [[ApiReference#wiki-mutexpromise|promise]] - 
+* [[ApiReference#wiki-mutexrelease|release()]] - 
+* [[ApiReference#wiki-mutexsignal|signal]] - 
+* [[ApiReference#wiki-mutexthen|then()]] - Duck typing so that Task.wait() works
+
+== Port ==
+* [[ApiReference#wiki-portget|get()]] - 
+* [[ApiReference#wiki-portin|in]] - 
+* [[ApiReference#wiki-portout|out]] - 
+* [[ApiReference#wiki-portpromise|promise]] - 
+* [[ApiReference#wiki-portput|put()]] - 
+* [[ApiReference#wiki-portsignal|signal]] - 
+* [[ApiReference#wiki-portthen|then()]] - 
+* [[ApiReference#wiki-porttry_get|try_get()]] - Like .get() but non blocking
+* [[ApiReference#wiki-porttry_put|try_put()]] - Like .put() but non blocking
+
+== Promise ==
+* [[ApiReference#wiki-promisecallback|callback]] - Return a new function f such that a f( err, rslt) call will resolve or
+* [[ApiReference#wiki-promisehandleResult|handleResult]] - 
+* [[ApiReference#wiki-promiseprogress|progress()]] - 
+* [[ApiReference#wiki-promisereject|reject()]] - 
+* [[ApiReference#wiki-promiseresolve|resolve()]] - 
+* [[ApiReference#wiki-promisesignal|signal]] - 
+* [[ApiReference#wiki-promisethen|then()]] - 
+
+== ProxyActor ==
+* [[ApiReference#wiki-proxyactorask|ask()]] - Send a message to a remote actor, also expect a response
+* [[ApiReference#wiki-proxyactordefer|defer()]] - Register callback to call when connection get lost
+* [[ApiReference#wiki-proxyactortell|tell()]] - Send a message to a remote actor.
+* [[ApiReference#wiki-proxyactorthen|then()]] - Register callbacks to call when connection succeeds xor fails
+
+== Selector ==
+* [[ApiReference#wiki-selectorpromise|promise]] - 
+* [[ApiReference#wiki-selectorthen|then()]] - 
+
+== Semaphore ==
+* [[ApiReference#wiki-semaphoreclose|close()]] - 
+* [[ApiReference#wiki-semaphorepromise|promise]] - 
+* [[ApiReference#wiki-semaphorerelease|release()]] - 
+* [[ApiReference#wiki-semaphoresignal|signal]] - 
+* [[ApiReference#wiki-semaphorethen|then()]] - 
+
+== Signal ==
+* [[ApiReference#wiki-signalclose|close()]] - 
+* [[ApiReference#wiki-signalpromise|promise]] - Returns an unresolved promise that .signal() will resolve and .close() will
+* [[ApiReference#wiki-signalsignal|signal()]] - Resolve an unresolved promise that .promise will provide. Signals are not
+
+== Stage ==
+* [[ApiReference#wiki-stagedefer|defer()]] - Monitor loss of contact with a remote stage.
+* [[ApiReference#wiki-stageget|get()]] - Get stage local variable.
+* [[ApiReference#wiki-stageset|set()]] - Set stage local variable.
+
+== Task ==
+* [[ApiReference#wiki-taskaggregator = ProtoTask.all|aggregator = ProtoTask.all()]] - 
+* [[ApiReference#wiki-taskand|and()]] - 
+* [[ApiReference#wiki-taskbegin|begin]] - l8.begin creates a sub task. The task is not scheduled until .end is
+* [[ApiReference#wiki-taskbinding|binding()]] - Return the "binding" where a variable is stored.
+* [[ApiReference#wiki-taskcall|call()]] - 
+* [[ApiReference#wiki-taskcallback |callback ]] - 
+* [[ApiReference#wiki-taskcanceled|canceled]] - task.canceled is true if task.cancel() was called.
+* [[ApiReference#wiki-taskcurrent|current]] -  return this
+* [[ApiReference#wiki-taskdone|done]] - l8.done
+* [[ApiReference#wiki-taskend|end]] - .end schedule a sub task defined using .begin.
+* [[ApiReference#wiki-taskerror|error]] - l8.error
+* [[ApiReference#wiki-taskfail|fail]] - l8.fail
+* [[ApiReference#wiki-taskflow|flow]] - l8.flow is similar to l8.walk but it detects errors. ie it is a node.js
+* [[ApiReference#wiki-taskgenerate|generate()]] - 
+* [[ApiReference#wiki-taskid|id]] - 
+* [[ApiReference#wiki-taskjoin|join()]] - 
+* [[ApiReference#wiki-taskl8|l8]] - this.l8 is the root task in all code where "this" is bound to the current
+* [[ApiReference#wiki-tasklabel|label]] - l8.label return the value of the "label" task local variable. That value
+* [[ApiReference#wiki-tasklock|lock()]] - 
+* [[ApiReference#wiki-taskmutex|mutex()]] - 
+* [[ApiReference#wiki-taskname|name]] - 
+* [[ApiReference#wiki-tasknext|next()]] - 
+* [[ApiReference#wiki-taskor|or()]] - 
+* [[ApiReference#wiki-taskparent|parent]] - l8.parent
+* [[ApiReference#wiki-taskparents|parents]] - l8.parents
+* [[ApiReference#wiki-taskpause|pause()]] - Pause execution of task at current step. Task will resume and execute next
+* [[ApiReference#wiki-taskport|port()]] - 
+* [[ApiReference#wiki-taskpromise|promise]] - 
+* [[ApiReference#wiki-taskqueue|queue()]] - 
+* [[ApiReference#wiki-taskraise|raise()]] - Note: val parameter is needed when err is l8.returnEvent
+* [[ApiReference#wiki-taskresult|result]] - l8.result
+* [[ApiReference#wiki-taskresume|resume()]] - Resume execution of paused task. Execution restarts at step next to the
+* [[ApiReference#wiki-taskroot|root]] - l8.root
+* [[ApiReference#wiki-taskselect|select()]] - 
+* [[ApiReference#wiki-taskselector = ProtoTask.any|selector = ProtoTask.any()]] - 
+* [[ApiReference#wiki-tasksemaphore|semaphore()]] - 
+* [[ApiReference#wiki-tasksignal|signal()]] - 
+* [[ApiReference#wiki-tasksleep|sleep()]] - 
+* [[ApiReference#wiki-taskstopped|stopped]] - l8.stopped
+* [[ApiReference#wiki-taskstopping|stopping]] - l8.stopping
+* [[ApiReference#wiki-tasksucceed|succeed]] - l8.succeed
+* [[ApiReference#wiki-tasktasks|tasks]] - l8.tasks
+* [[ApiReference#wiki-taskthen|then()]] - 
+* [[ApiReference#wiki-tasktimeout|timeout()]] - 
+* [[ApiReference#wiki-tasktoString = ProtoTask.toLabel|toString = ProtoTask.toLabel()]] - Task object have a .toString() and .toLabel() methods that provide a
+* [[ApiReference#wiki-tasktrace|trace]] - 
+* [[ApiReference#wiki-taskwait|wait()]] - 
+* [[ApiReference#wiki-taskwalk|walk]] - l8.walk is used to pause/resume the current task when an async call is done.
+* [[ApiReference#wiki-taskyield|yield()]] - 
+
+== Timeout ==
+* [[ApiReference#wiki-timeoutduration|duration]] - 
+* [[ApiReference#wiki-timeoutpromise|promise]] - 
+* [[ApiReference#wiki-timeoutsignal|signal()]] - 
+* [[ApiReference#wiki-timeoutsignaled|signaled]] - 
+* [[ApiReference#wiki-timeoutstarted|started]] - 
+* [[ApiReference#wiki-timeoutthen|then()]] - 
+
+== l8 ==
+* [[ApiReference#wiki-l8Role|Role]] - 
+* [[ApiReference#wiki-l8Task|Task()]] - Build a "task constructor". 
+* [[ApiReference#wiki-l8__defineGetter__|__defineGetter__()]] - As a convention, methods applied on the global root task l8 are forwared to
+* [[ApiReference#wiki-l8actor|actor()]] - l8.actor()
+* [[ApiReference#wiki-l8assert|assert()]] - l8.assert( cond ) raises an error when cond is satisfied.
+* [[ApiReference#wiki-l8break|break()]] - ToDo: l8.break( [val] )
+* [[ApiReference#wiki-l8bug|bug()]] - l8.bug() is an alias for l8.trace() that enables the de&&bug() pattern.
+* [[ApiReference#wiki-l8callback|callback]] - Register a node style callback to handle a promise completion.
+* [[ApiReference#wiki-l8client|client]] - True when running inside a browser. Opposite to l8.server
+* [[ApiReference#wiki-l8clientize|clientize]] - Override l8.client/l8.server auto-detection. Act as if client.
+* [[ApiReference#wiki-l8compile|compile()]] - l8.compile() may need to be provided a well scoped "eval()" or else it's
+* [[ApiReference#wiki-l8compileGenerator|compileGenerator()]] - l8.compileGenerator( fn )
+* [[ApiReference#wiki-l8compiler|compiler()]] - l8.compiler( fn )
+* [[ApiReference#wiki-l8continue|continue()]] - ToDo: l8.continue( [val] )
+* [[ApiReference#wiki-l8countdown|countdown]] - Exit process with error status 1 after a while.
+* [[ApiReference#wiki-l8dateNow|dateNow]] - l8.dateNow is the Date object sampled when l8.now was last sampled.
+* [[ApiReference#wiki-l8debug|debug()]] - DEBUG mode currently defaults to "on". Please use l8.debug() to change it
+* [[ApiReference#wiki-l8defer|defer()]] - l8.defer( fn ) pushes a function to execute when the current task is about
+* [[ApiReference#wiki-l8failure|failure()]] - Some special errors are used to build control structures.
+* [[ApiReference#wiki-l8final|final()]] - l8.final( fn )
+* [[ApiReference#wiki-l8fork|fork()]] - Queue a step that starts a forked task. forks "join".
+* [[ApiReference#wiki-l8global|global()]] - Create a "task local" variable.
+* [[ApiReference#wiki-l8http_port|http_port]] - To expose the local actors to the outside world, an http server is required.
+* [[ApiReference#wiki-l8inspect|inspect()]] - l8.inspect( obj ) returns a string representation for the specified object
+* [[ApiReference#wiki-l8label|label]] - l8.label = "xxx" sets the "label" thread local variable. That variable can
+* [[ApiReference#wiki-l8logger|logger()]] - l8.logger( null ) restores the default logger for traces.
+* [[ApiReference#wiki-l8mand|mand()]] - l8.mand( cond ) is an alias for l8.trace() that enable the de&&mand()
+* [[ApiReference#wiki-l8now|now]] - l8.now provides a fast access to the time in millisec. That value is
+* [[ApiReference#wiki-l8parentTask|parentTask]] - Bootstrap root task, id 0
+* [[ApiReference#wiki-l8pause|pause()]] - l8.paused
+* [[ApiReference#wiki-l8proceed|proceed()]] - l8.proceed( fn ) is used to pause/resume a task when dealing with async
+* [[ApiReference#wiki-l8promise|promise]] - 
+* [[ApiReference#wiki-l8proto|proto]] - l8.proto makes it easy for module to export a new mmm method by adding it
+* [[ApiReference#wiki-l8proxy|proxy]] - 
+* [[ApiReference#wiki-l8repeat|repeat()]] - l8.repeat( fn )
+* [[ApiReference#wiki-l8result|result]] - l8.result = val assigns a new result to the task. If some step remains to
+* [[ApiReference#wiki-l8return|return()]] - l8.return( [val] )
+* [[ApiReference#wiki-l8server|server]] - True when running inside node.js. Opposite to l8.client
+* [[ApiReference#wiki-l8serverize|serverize]] - Override l8.client/l8.server auto-detection. Act as if server.
+* [[ApiReference#wiki-l8set|set()]] - Get the value of a task's variable. If the current task does not define
+* [[ApiReference#wiki-l8setPromiseFactory|setPromiseFactory]] - 
+* [[ApiReference#wiki-l8stage|stage]] - 
+* [[ApiReference#wiki-l8stage|stage()]] - Monitor contact with a remote stage.
+* [[ApiReference#wiki-l8stop|stop()]] - l8.stop() set a flag for the task, asking it to stop gently.
+* [[ApiReference#wiki-l8success|success()]] - l8.success( fn )
+* [[ApiReference#wiki-l8task|task()]] - Queue a step in the task's step queue.
+* [[ApiReference#wiki-l8tick|tick()]] - l8.tick( fn ) is a low level function that schedules the execution of a
+* [[ApiReference#wiki-l8trace|trace()]] - User can redefine what logger l8.trace() uses, see l8.logger().
+* [[ApiReference#wiki-l8var|var()]] - Create a global "task local variable" that all tasks share.
+
+----
+
+
+== Actor ==
+
+
+=== actor.ask() ===
+ '''Ask something to an actor, ie also expect a response.'''
+
+
+Usage:
+```javascript
+
+  an_actor.ask( "Do", "something" )
+  an_actor.ask( ["Do","something"], function( err, rslt ){...} )
+```
+
+Send an 'ask type' message to the actor. The actor should reply.
+Optional function( err, rslt ) is called with the outcome. If not provided,
+a promise is returned instead.
+
+To reply, the actor can:
+  1/ provide an immediate result, by returning it.
+  2/ return a promise that it will fulfill later.
+  3/ return nothing immediately and produce a result later. To do that,
+  the actor is provided a reply callback that it must call with the outcome,
+  ie either an error or a null error and a result. The callback that the actor
+  must call is accessible using an_actor.reply. The actor for which the
+  current task is running is accessible using this.ego. When the actor uses
+  this method, ie when it accesses this.ego.reply, it means that the actor
+  is ok to process another message. As a result, many requests can be
+  processed in parallel instead of in sequence as it is the case when the
+  actor returns a promise. Note: the actor can store the reply callback, it
+  then can call it later, to provide an answer, maybe after it has processed
+  some other messages.
+
+=== actor.become() ===
+ '''Change the way the actor handle the messages.'''
+
+Usage:
+```javascript
+
+  this.ego.become( function )
+  this.ego.become( behavior )
+```
+
+The way an actor processes the messages is initialy defined when the actor
+is first created. However, the actor can change this at any time.
+
+This can be usefull for actors that accept or queue different messages
+depending on their internal state. When the state change, the actor can
+change behavior.
+
+See also [[ApiReference#wiki-Actorreceive|Actor#receive]]() when an actor needs to change the way it handles
+just one message.
+
+=== actor.receive() ===
+ '''Define the new behavior of actor for the next message.'''
+
+Usage:
+```javascript
+
+  this.ego.receive( function )
+  this.ego.receive( behavior, options )
+```
+
+When an unexpected message is received, it gets queued. Whenever the actor
+attempts to receive a new message, these queued messages are proposed first.
+Such queued messages are a backlog and it is the programmer's responsability
+to make sure that the backlog does not grow much or else performances will
+suffer.
+
+The actor is normally idle, unless a timeout was specified (option).
+If some revious message was left unprocessed, the actor will process
+them if it wants. Or else, the actor waits for a new message to come in.
+When the special timeout value 0 is specified, only old messages are
+processed.
+
+option { timeout: xx, after: function() } specifies what function to call if
+no message is received within the specified delay.
+
+When the actor behavior depends on the reception of a single specific
+message, once that message is received, the actor gets back to its previous
+behavior. To change the behavior for more than one message, see Actor#become.
+
+=== actor.reply ===
+ '''Async response to some "ask type" message.'''
+
+
+Usage:
+```javascript
+
+  var reply = this.ego.reply
+  ...
+  reply( err, rslt )
+```
+
+By default, actors process messages in sequence. However, if an actor
+wants to process messages in parallel, it can store a reply callback
+and reply later. When the actor gets the reply callback, l8 detects that and
+unlock the mailbox of the actor.
+
+=== actor.tell() ===
+ '''Send a message to this actor.'''
+
+Usage:
+```javascript
+
+  an_actor.tell( "Seen", "something" )
+  an_actor.tell( ["Seen", "something"], function( err ){...} )
+```
+
+Optional function( err ) is a callback. If it is not provided, a promise 
+is returned instead. The only possible error is when an attempt is
+made to send a message to a dead/done actor or to a remote actor when the
+contact is lost.
+
+
+== Aggregator ==
+
+
+=== aggregator.promise ===
+ ''''''
+
+
+=== aggregator.then() ===
+ ''''''
+
+
+
+== Call ==
+
+
+=== call.apply() ===
+ ''''''
+
+
+=== call.call() ===
+ ''''''
+
+
+=== call.promise ===
+ ''''''
+
+
+=== call.signal ===
+ ''''''
+
+
+=== call.then() ===
+ ''''''
+
+
+
+== Campaign ==
+
+
+=== campaign.deregister() ===
+ ''''''
+
+
+=== campaign.lookup() ===
+ ''''''
+
+
+=== campaign.register() ===
+ ''''''
+
+
+
+== Generator ==
+
+
+=== generator.close() ===
+ ''''''
+
+
+=== generator.get ===
+ ''''''
+
+
+=== generator.next() ===
+ ''''''
+
+
+=== generator.promise ===
+ ''''''
+
+
+=== generator.put ===
+ ''''''
+
+
+=== generator.signal ===
+ ''''''
+
+
+=== generator.then() ===
+ ''''''
+
+
+=== generator.try_next() ===
+ '''Like .generate() but never blocks'''
+
+
+=== generator.try_yield() ===
+ '''Like .yield() but never blocks'''
+
+
+=== generator.yield() ===
+ ''''''
+
+
+
+== Lock ==
+
+
+=== lock.close() ===
+ ''''''
+
+
+=== lock.promise ===
+ ''''''
+
+
+=== lock.release() ===
+ ''''''
+
+
+=== lock.signal ===
+ ''''''
+
+
+=== lock.task ===
+ ''''''
+
+
+=== lock.then() ===
+ ''''''
+
+
+
+== MessageQueue ==
+
+
+=== messagequeue.close() ===
+ ''''''
+
+
+=== messagequeue.empty ===
+ ''''''
+
+
+=== messagequeue.full ===
+ ''''''
+
+
+=== messagequeue.get() ===
+ ''''''
+
+
+=== messagequeue.in ===
+ ''''''
+
+
+=== messagequeue.out ===
+ ''''''
+
+
+=== messagequeue.promise ===
+ ''''''
+
+
+=== messagequeue.put() ===
+ ''''''
+
+
+=== messagequeue.signal ===
+ ''''''
+
+
+=== messagequeue.then() ===
+ ''''''
+
+
+=== messagequeue.try_get() ===
+ ''''''
+
+
+=== messagequeue.try_put() ===
+ ''''''
+
+
+
+== Mutex ==
+
+
+=== mutex.close() ===
+ ''''''
+
+
+=== mutex.promise ===
+ ''''''
+
+
+=== mutex.release() ===
+ ''''''
+
+
+=== mutex.signal ===
+ ''''''
+
+
+=== mutex.then() ===
+ '''Duck typing so that Task.wait() works'''
+
+
+
+== Port ==
+
+
+=== port.get() ===
+ ''''''
+
+
+=== port.in ===
+ ''''''
+
+
+=== port.out ===
+ ''''''
+
+
+=== port.promise ===
+ ''''''
+
+
+=== port.put() ===
+ ''''''
+
+
+=== port.signal ===
+ ''''''
+
+
+=== port.then() ===
+ ''''''
+
+
+=== port.try_get() ===
+ '''Like .get() but non blocking'''
+
+
+=== port.try_put() ===
+ '''Like .put() but non blocking'''
+
+
+
+== Promise ==
+
+
+=== promise.callback ===
+ '''Return a new function f such that a f( err, rslt) call will resolve or'''
+
+reject the promise.
+
+=== promise.handleResult ===
+ ''''''
+
+
+=== promise.progress() ===
+ ''''''
+
+
+=== promise.reject() ===
+ ''''''
+
+
+=== promise.resolve() ===
+ ''''''
+
+
+=== promise.signal ===
+ ''''''
+
+
+=== promise.then() ===
+ ''''''
+
+
+
+== ProxyActor ==
+
+
+=== proxyactor.ask() ===
+ '''Send a message to a remote actor, also expect a response'''
+
+
+Usage:
+```javascript
+
+  actor.ask( "Some", "question" ).then( function( r ){ console.log( r ) } )
+```
+
+If the contact is lost or if the remote actor replied with an error, the
+promise is rejected.
+
+=== proxyactor.defer() ===
+ '''Register callback to call when connection get lost'''
+
+
+=== proxyactor.tell() ===
+ '''Send a message to a remote actor.'''
+
+
+Usage:
+```javascript
+
+  var promise = remote_actor.tell( "See", "you" )
+  promise.then( null, function( ko ){ console.log( "Contact was lost" ) } )
+```
+
+
+=== proxyactor.then() ===
+ '''Register callbacks to call when connection succeeds xor fails'''
+
+
+
+== Selector ==
+
+
+=== selector.promise ===
+ ''''''
+
+
+=== selector.then() ===
+ ''''''
+
+
+
+== Semaphore ==
+
+
+=== semaphore.close() ===
+ ''''''
+
+
+=== semaphore.promise ===
+ ''''''
+
+
+=== semaphore.release() ===
+ ''''''
+
+
+=== semaphore.signal ===
+ ''''''
+
+
+=== semaphore.then() ===
+ ''''''
+
+
+
+== Signal ==
+
+
+=== signal.close() ===
+ ''''''
+
+
+=== signal.promise ===
+ '''Returns an unresolved promise that .signal() will resolve and .close() will'''
+
+reject.  Returns an already rejected promise if signal was closed.
+
+=== signal.signal() ===
+ '''Resolve an unresolved promise that .promise will provide. Signals are not'''
+
+buffered, only the last one is kept.
+
+
+== Stage ==
+
+
+=== stage.defer() ===
+ '''Monitor loss of contact with a remote stage.'''
+
+
+Usage:
+```javascript
+
+  this.ego.stage.defer( function(){ "client disconnected" } )
+```
+
+Note: multiple calls to .defer() will result in multiple functions being
+called when the contact with that stage gets lost.
+
+=== stage.get() ===
+ '''Get stage local variable.'''
+
+
+=== stage.set() ===
+ '''Set stage local variable.'''
+
+
+
+== Task ==
+
+
+=== task.aggregator = ProtoTask.all() ===
+ ''''''
+
+
+=== task.and() ===
+ ''''''
+
+
+=== task.begin ===
+ '''l8.begin creates a sub task. The task is not scheduled until .end is'''
+
+mentionned. Nested tasks are possible. .begin is useful to handle errors
+like javascript does with try/catch.
+Usage: l8.begin.step(...).step(...).end
+
+=== task.binding() ===
+ '''Return the "binding" where a variable is stored.'''
+
+That binding is an object with a "task" property (the binding owner) and
+a property for each variable ever accessed by that task or it's sub tasks.
+That property has a "value" property when that variable is stored directly
+inside that binding. Or else it has a "task" property that tells which task
+actually stores the variable's value.
+
+=== task.call() ===
+ ''''''
+
+
+=== task.callback  ===
+ ''''''
+
+
+=== task.canceled ===
+ '''task.canceled is true if task.cancel() was called.'''
+
+
+=== task.current ===
+ ''' return this'''
+
+
+=== task.done ===
+ '''l8.done'''
+
+task.done is true when the task is done, ie terminated.
+
+=== task.end ===
+ '''.end schedule a sub task defined using .begin.'''
+
+Returns parent to make chaining possible: t.begin.step().step().end.step()
+
+=== task.error ===
+ '''l8.error'''
+
+task.error is the last error for the task. Null if none.
+
+=== task.fail ===
+ '''l8.fail'''
+
+task.fail is true when a task is done but failed, due to some error.
+
+=== task.flow ===
+ '''l8.flow is similar to l8.walk but it detects errors. ie it is a node.js'''
+
+friendly "walk" that checks first result to detect errors and throw
+error when present, or else filters out first result to set result of step
+using rest.
+
+=== task.generate() ===
+ ''''''
+
+
+=== task.id ===
+ ''''''
+
+
+=== task.join() ===
+ ''''''
+
+
+=== task.l8 ===
+ '''this.l8 is the root task in all code where "this" is bound to the current'''
+
+task.
+
+=== task.label ===
+ '''l8.label return the value of the "label" task local variable. That value'''
+
+can be useful to output traces.
+
+=== task.lock() ===
+ ''''''
+
+
+=== task.mutex() ===
+ ''''''
+
+
+=== task.name ===
+ ''''''
+
+
+=== task.next() ===
+ ''''''
+
+
+=== task.or() ===
+ ''''''
+
+
+=== task.parent ===
+ '''l8.parent'''
+
+task.parent is the parent task to the specified task.
+
+=== task.parents ===
+ '''l8.parents'''
+
+task.parents is an array of tasks starting from the specified task and
+ending with the top root task, with all the intermediary tasks in between.
+
+=== task.pause() ===
+ '''Pause execution of task at current step. Task will resume and execute next'''
+
+step when resume() is called.
+
+=== task.port() ===
+ ''''''
+
+
+=== task.promise ===
+ ''''''
+
+
+=== task.queue() ===
+ ''''''
+
+
+=== task.raise() ===
+ '''Note: val parameter is needed when err is l8.returnEvent'''
+
+
+=== task.result ===
+ '''l8.result'''
+
+task.result is the result of a task. If the task is not finished, it is
+the last result produced by a step in that task.
+
+=== task.resume() ===
+ '''Resume execution of paused task. Execution restarts at step next to the'''
+
+one where the task was paused.
+
+=== task.root ===
+ '''l8.root'''
+
+task.root is, among task.parents, the task just below the topmost l8 task.
+
+=== task.select() ===
+ ''''''
+
+
+=== task.selector = ProtoTask.any() ===
+ ''''''
+
+
+=== task.semaphore() ===
+ ''''''
+
+
+=== task.signal() ===
+ ''''''
+
+
+=== task.sleep() ===
+ ''''''
+
+
+=== task.stopped ===
+ '''l8.stopped'''
+
+task.stopped is true if a task is done and was asked to terminate using
+task.stop
+
+=== task.stopping ===
+ '''l8.stopping'''
+
+task.stopping is true if task is not terminated but was asked to terminate
+because task.stop() was called.
+
+=== task.succeed ===
+ '''l8.succeed'''
+
+task.succeed is true when the task is done and did not fail.
+
+=== task.tasks ===
+ '''l8.tasks'''
+
+task.tasks returns an array with one item for each direct sub task of the
+specified task.
+
+=== task.then() ===
+ ''''''
+
+
+=== task.timeout() ===
+ ''''''
+
+
+=== task.toString = ProtoTask.toLabel() ===
+ '''Task object have a .toString() and .toLabel() methods that provide a'''
+
+value that can be useful to output trace messages when debugging.
+See also [[ApiReference#wiki-l8label|l8.label]] to get/set the user label associated to a task.
+
+=== task.trace ===
+ ''''''
+
+
+=== task.wait() ===
+ ''''''
+
+
+=== task.walk ===
+ '''l8.walk is used to pause/resume the current task when an async call is done.'''
+
+It provides a callback that will use its parameter to set the output of
+the step, an output that will become the input of the next step.
+
+=== task.yield() ===
+ ''''''
+
+
+
+== Timeout ==
+
+
+=== timeout.duration ===
+ ''''''
+
+
+=== timeout.promise ===
+ ''''''
+
+
+=== timeout.signal() ===
+ ''''''
+
+
+=== timeout.signaled ===
+ ''''''
+
+
+=== timeout.started ===
+ ''''''
+
+
+=== timeout.then() ===
+ ''''''
+
+
+
+== l8 ==
+
+
+=== l8.Role ===
+ ''''''
+
+
+=== l8.Task() ===
+ '''Build a "task constructor". '''
+
+
+Usage:
+```javascript
+
+  var do_it = l8.Task( function( p1, p2, ... ){...} }
+  do_it( "Just", "the maximum" )
+```
+
+A task constructor is, at the step level, the equivalent of a "function" at
+the javascript statement level. I.e. calling a task constructor and calling
+a function are similar actions.
+
+When a task constructor is called, it creates a task with the supplied 
+parameters and returns a promise that will be resolved or rejected depending
+on the task outcome. The task that calls the task constructor waits for that
+promise to be fulfilled.
+
+Return a "Generator Constructor", much like l8.Task() does but the returned
+value is a Generator Task, not just a regular Task. I.e. it can "yield".
+
+=== l8.__defineGetter__() ===
+ '''As a convention, methods applied on the global root task l8 are forwared to'''
+
+the "current task". For normal task, .current is simply an attribute whose
+value never changes and is a reference to the object itself, ie obj.current
+== obj
+
+=== l8.actor() ===
+ '''l8.actor()'''
+
+Look up for an actor or create one (or create an actor generator).
+Usage:
+```javascript
+
+  l8.actor( name )      -- look for a local actor or a known remote actor
+  l8.actor( name, url ) -- return a proxy to access a remote actor
+  l8.actor( name, function ) -- create an actor, managed by a function
+  l8.actor( name, behavior ) -- idem with an initial behavior
+```
+
+When the name ends with a dot, it is an actor generator that is returned.
+When that generator is called, a new actor is created, whose name is the
+actor generator name plus a sequential number.
+
+Actors behaviors are described in Actor#receive()
+
+l8#actor
+
+Usage:
+```javascript
+
+  var remote_actor = l8.actor( "service", "http://some.server.com" )
+```
+
+Remote actors and local actors both provide a .tell() and .ask() methods so
+that for most usage, they are identical.
+See also [[ApiReference#wiki-ProxyActorthen|ProxyActor#then]]() and [[ApiReference#wiki-ProxyActordefer|ProxyActor#defer]]() about contact monitoring
+because things are sligthly different when the actor is remote.
+
+l8.actor()
+Look up for an existing proxied actor.
+
+Usage:
+```javascript
+
+  var actor = l8.actor( "service" )
+```
+
+If an actor with the specified name was referenced before, it is that object
+which is returned. Or else, null is returned.
+
+=== l8.assert() ===
+ '''l8.assert( cond ) raises an error when cond is satisfied.'''
+
+
+=== l8.break() ===
+ '''ToDo: l8.break( [val] )'''
+
+l8.break
+task.break raises a l8.breakEvent in the specified task. That exception is
+propagated to the parent tasks, up to a task where l8.repeat() is active.
+That loop is then terminated.
+
+=== l8.bug() ===
+ '''l8.bug() is an alias for l8.trace() that enables the de&&bug() pattern.'''
+
+
+=== l8.callback ===
+ '''Register a node style callback to handle a promise completion.'''
+
+Promise defaults to current thead when not specified.
+
+=== l8.client ===
+ '''True when running inside a browser. Opposite to l8.server'''
+
+
+=== l8.clientize ===
+ '''Override l8.client/l8.server auto-detection. Act as if client.'''
+
+
+=== l8.compile() ===
+ '''l8.compile() may need to be provided a well scoped "eval()" or else it's'''
+
+result function may lack access to the global variables referenced by the
+code to (re)compile. This should be necessary on nodejs only, not in browsers
+
+
+=== l8.compileGenerator() ===
+ '''l8.compileGenerator( fn )'''
+
+This method compiles a generator constructor using the source of the
+specified "fn" function
+
+=== l8.compiler() ===
+ '''l8.compiler( fn )'''
+
+Expand some macros to make a "task constructor" or a "generator constructor".
+
+=== l8.continue() ===
+ '''ToDo: l8.continue( [val] )'''
+
+l8.continue
+task.continue raises a l8.continueEvent in the task. That exception is
+propagated to the parent tasks, up to a task where l8.repeat() is active.
+That loop is then reentered.  
+
+=== l8.countdown ===
+ '''Exit process with error status 1 after a while.'''
+
+Display a stressfull message every second until that.
+
+=== l8.dateNow ===
+ '''l8.dateNow is the Date object sampled when l8.now was last sampled.'''
+
+
+=== l8.debug() ===
+ '''DEBUG mode currently defaults to "on". Please use l8.debug() to change it'''
+
+
+l8.debug() returns true of false depending on the debug flag setting.
+l8.debug( v ) sets that flag to true or false.
+
+l8.de&&bug( ... ), where "de" changes according to l8.debug()
+
+=== l8.defer() ===
+ '''l8.defer( fn ) pushes a function to execute when the current task is about'''
+
+to terminate. These functions are executed in LIFO order. See documentation
+about the difference between .defer() and .final()
+
+=== l8.failure() ===
+ '''Some special errors are used to build control structures.'''
+
+l8.cancelEvent is the value of the parameter for the l8.failure() specified
+function when the failure is due to a cancellation.
+
+task.cancel() terminates the specified task and its sub tasks. When a task
+get canceled, a l8.cancelEvent exception is raised. That error can be
+captured with l8.failure() and l8.final().
+After a task.cancel(), task.canceled is true.
+
+l8.failure( fn )
+task.failure() specifies a function to be called when the task terminates.
+The function receives a paremeter, l8.error, the last error.
+The function is called only if the task is failing. It is called before
+the function specified using l8.final()
+
+=== l8.final() ===
+ '''l8.final( fn )'''
+
+task.final() specifies a function to be called when the task terminates. The
+function receives two paremeters. The first one is l8.error, the last error,
+the second one is l8.result, the last result.
+
+=== l8.fork() ===
+ '''Queue a step that starts a forked task. forks "join".'''
+
+
+l8.fork() is similar to l8.task() but makes it possible to run multiple
+sub tasks in parallel. The result of each forked task is accumulated into an
+array, respecting the forked tasks creation order. That array becomes the
+input of the next step.
+
+Usage:
+```javascript
+
+  l8.fork( function(      ){  return "a";
+  }).fork( function(      ){  return "b";
+  }).step( function( a, b ){  return a + b;
+  }).then( function( ab   ){  console.log( ab ); })
+```
+
+See also [[ApiReference#wiki-l8spawn|l8.spawn]]().
+
+=== l8.global() ===
+ '''Create a "task local" variable.'''
+
+Note: please use l8.global() to create variables in the root binding because
+l8.var() will actually create a variable in the current task when applied
+on the root l8 task.
+Note: when a task is done, it's bindings are erased. As a consequence, any
+pending spawn task gets inherited by the done task's parent task and cannot
+access the erased bindings they previously accessed, resulting in access
+attemtps returning typically "undefined" instead of the expected value. To
+avoid such a situation, when spawn tasks accessed shared variable from their
+parent, please make sure that the parent task does not terminate until all
+spawn task are done too. Use parent_task.join() for that purpose.
+
+See also [[ApiReference#wiki-l8get|l8.get]]() and [[ApiReference#wiki-l8set|l8.set]]()
+
+=== l8.http_port ===
+ '''To expose the local actors to the outside world, an http server is required.'''
+
+If none is provided, one will be created, using the specified port or a
+reasonnable default one that depends on the running platform.
+
+=== l8.inspect() ===
+ '''l8.inspect( obj ) returns a string representation for the specified object'''
+
+that can be useful to output traces.
+
+=== l8.label ===
+ '''l8.label = "xxx" sets the "label" thread local variable. That variable can'''
+
+be useful in trace messages.
+
+=== l8.logger() ===
+ '''l8.logger( null ) restores the default logger for traces.'''
+
+This is the function that returns the default log() function that l8.trace()
+uses. That returned function must have the signature of console.log()
+
+=== l8.mand() ===
+ '''l8.mand( cond ) is an alias for l8.trace() that enable the de&&mand()'''
+
+pattern for asserts that can be disabled with very little overhead left.
+
+=== l8.now ===
+ '''l8.now provides a fast access to the time in millisec. That value is'''
+
+sample whenever the l8 scheduler wakes up. As a result, it can be
+usefull to correlate sub events that pertain to the same evant that
+woke up the scheduler.
+
+=== l8.parentTask ===
+ '''Bootstrap root task, id 0'''
+
+
+=== l8.pause() ===
+ '''l8.paused'''
+
+task.paused is true if the specified task is paused. See l8.pause() &
+l8.resume()
+
+=== l8.proceed() ===
+ '''l8.proceed( fn ) is used to pause/resume a task when dealing with async'''
+
+functions. The fn function is called with the parameters provided by the
+async function. The returned value of that fn function, unless undefined,
+provide the output for the step, an output that will be input for the next
+step. See also [[ApiReference#wiki-l8walk|l8.walk]] and [[ApiReference#wiki-l8flow|l8.flow]] that are simpler to use in most cases.
+Usage:
+ l8.step( function(){ fs.readFile( "xx", "utf8",
+   l8.proceed( function( err, content ){ return [err,content]; })
+Pauses current task and returns a callback to be called to resume execution.
+
+=== l8.promise ===
+ ''''''
+
+
+=== l8.proto ===
+ '''l8.proto makes it easy for module to export a new mmm method by adding it'''
+
+to the prototype of all the task objects. As a result this.mmm() will be
+directly accessible in the code body of all tasks, ie where "this" is bound
+to the current task.
+
+=== l8.proxy ===
+ ''''''
+
+
+=== l8.repeat() ===
+ '''l8.repeat( fn )'''
+
+Add a step that will repeately execute the specified function. Please use
+l8.break to exit that loop.
+
+=== l8.result ===
+ '''l8.result = val assigns a new result to the task. If some step remains to'''
+
+be executed, that result will be the input for the step.
+
+=== l8.return() ===
+ '''l8.return( [val] )'''
+
+task.return() terminates the specified task. Sub tasks are left untouched.
+In the task, execution jumps to the deferred clause and .final() clause.
+
+=== l8.server ===
+ '''True when running inside node.js. Opposite to l8.client'''
+
+
+=== l8.serverize ===
+ '''Override l8.client/l8.server auto-detection. Act as if server.'''
+
+
+=== l8.set() ===
+ '''Get the value of a task's variable. If the current task does not define'''
+
+that variable in it's own binding, follow binding chain in parent task.
+See also [[ApiReference#wiki-l8set|l8.set]]()
+
+=== l8.setPromiseFactory ===
+ ''''''
+
+
+=== l8.stage ===
+ ''''''
+
+
+=== l8.stage() ===
+ '''Monitor contact with a remote stage.'''
+
+Usage:
+ var stage = l8.stage( "http//some.server.com" ).then(
+   function( ok ){ remote_actor = l8.actor( "service", stage ),
+   function( ko ){ console.log( "Cannot contact server", ko ) }
+ )
+A stage is a promise that is resolved when the contact is established or
+is rejected if the contact cannot be established.
+To handle the loss of an established contact, see Stage#defer()
+
+l8.stage()
+Set up contact with a remote stage.
+
+Usage:
+```javascript
+
+  var stage = l8.stage( "http://some.server.com" )
+  var actor = l8.actor( "service", stage )
+```
+
+
+=== l8.stop() ===
+ '''l8.stop() set a flag for the task, asking it to stop gently.'''
+
+See also [[ApiReference#wiki-l8cancel|l8.cancel]]() for a more brutal way to stop a task.
+
+=== l8.success() ===
+ '''l8.success( fn )'''
+
+task.success() specifies a function to be called when the task terminates.
+The function receives a paremeter, l8.result, the last result.
+The function is called only if the task is a success. It is called before
+the function specified using l8.final()
+
+=== l8.task() ===
+ '''Queue a step in the task's step queue.'''
+
+
+Usage:
+```javascript
+
+  l8.task( function(){
+    l8.step( function(){
+      console.log( "first step" );
+      return ["hello", "world"];
+    }).step( function( h, w ){
+      console.log( h, w )
+    })
+  })
+```
+
+The output, ie result, of a step is the input, ie parameters, of the next
+one. Steps can block, using l8.pause() && l8.resume().
+
+When the output of a step is a promise, the step is blocked until the
+promise is resolved. The promise's value becomes the new value for the
+output of the step.
+
+l8.task(), l8.fork() and l8.repeat() queue "special" steps in the current
+task.
+
+The new step is inserted in the task step queue. It is inserted after the
+current step for that task. If multiple steps are inserted, they are
+inserted in FIFO order, ie the last inserted step will be executed last.
+
+Note: l8.step(...) inserts a step in the "current" task, not the l8 task.
+The l8 task is the root task, it is the ultimate "parent" task of all tasks.
+The returned value of the .step() function is the actual task whose queue
+was augmented.
+
+Queue a step that calls a task.
+
+Usage:
+```javascript
+
+  l8.task( function(){
+    fs.readFile( "xx.txt", "utf8", l8.flow );
+    this.step( function( c ){ return c.toLowerCase() }
+  }).then( function( r ){ console.log( "lower cased xx.txt: ", r ) })
+```
+
+a_task.task() adds a step that will start a new task with some initial step
+to execute. The step is blocked until the sub task is done.
+
+If there is no current task, ie if the current task is the l8 root task,
+the new task is created immediatly and it is the return value of the
+function. If there is a current task, the returned value is that task 
+object. The new task object is created just before the task starts executing
+it's first step.
+
+Usage:
+```javascript
+  var new_task = null
+  l8.task( function(){
+    task = this;
+    ...
+  })
+```
+
+See also [[ApiReference#wiki-l8fork|l8.fork]]() and [[ApiReference#wiki-l8spawn|l8.spawn]]().
+
+l8#spawn()
+Add a step that will start a "detached" task.
+Contrary to tasks created using l8.task() and l8.fork() (or using a task
+constructor), "detached" tasks don't block their parent task.
+
+See also [[ApiReference#wiki-l8task|l8.task]]()
+
+=== l8.tick() ===
+ '''l8.tick( fn ) is a low level function that schedules the execution of a'''
+
+function by the javascript event loop. It is the equivalent to setTimeout()
+with a 0 delay.
+
+=== l8.trace() ===
+ '''User can redefine what logger l8.trace() uses, see l8.logger().'''
+
+
+Change the way l8.trace() outputs messages.
+
+Usage:
+```javascript
+
+  var save = l8.logger()
+   l8.logger( function(){ return function(){
+     console.log.apply( console, arguments )
+   })
+```
+
+Parameter "get_logger" is a function returning a logger, ie a
+function called to log messages, like console.log(). l8.trace() will use it.
+To restore it to its default value, use l8.logger( null ).
+To read the current value, use l8.logger()
+Usage: l8.logger( function(){ return console.log } }
+Note: because "get_logger" is a function that returns the logger function,
+ie because of this added level of indirection, user can fine tune logging
+using information available in the context of the application when the
+logger function is necessary, versus the information available when the
+logger is installed.
+
+=== l8.var() ===
+ '''Create a global "task local variable" that all tasks share.'''
+
+See also [[ApiReference#wiki-l8var|l8.var]]()
+
+Assign new value to a task local variable.
+Change the value of an existing task local variable or create a new
+variable as l8.var() would do.
+See also [[ApiReference#wiki-l8get|l8.get]]()
+

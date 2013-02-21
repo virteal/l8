@@ -67,9 +67,9 @@ var LoggerBis = function(){ return l8.actor( "l8_logger", {
   },
   
   getAsync: function(){
-    var actor = this.actor
-    var callback = actor.callback
-    if( callback ){ callback( 0, LoggerCount) }
+    var actor = this.ego
+    var reply = actor.reply
+    if( reply ){ reply( 0, LoggerCount) }
   },
   
   getPromise: function(){
@@ -81,7 +81,7 @@ var LoggerBis = function(){ return l8.actor( "l8_logger", {
   getAsyncPromise: function(){ 
     var promise = l8.promise()
     promise.resolve( LoggerCount)
-    this.callback( 0, promise) 
+    this.ego.reply( 0, promise) 
   },
   
   catch: function(){
@@ -160,7 +160,7 @@ l8.task( function(){
   var nloops = 1000
   var nn
   function delta( op ){
-    t1 = l8.timeNow
+    t1 = l8.now
     var duration = (t1 - t0) / 1000
     var ops_per_sec = nloops / duration
     l8.trace( "" + LoggerCount + "/" + op + ". " + nloops + " in " + duration + " seconds")
@@ -182,7 +182,7 @@ l8.task( function(){
   })
   l8.step( function(){ l8.debug( false) })
   l8.step( function(){
-    t = t0 = l8.timeNow
+    t = t0 = l8.now
     nn = 0
   })
   l8.repeat( function(){
@@ -191,7 +191,7 @@ l8.task( function(){
   })
   l8.step( function(){ delta( "getSync") })
   l8.step( function(){
-    t0 = l8.timeNow
+    t0 = l8.now
     nn = 0
   })
   l8.repeat( function(){
@@ -200,7 +200,7 @@ l8.task( function(){
   })
   l8.step( function(){ delta( "getAsync") })
   l8.step( function(){
-    t0 = l8.timeNow
+    t0 = l8.now
     nn = 0
   })
   l8.repeat( function(){
@@ -209,7 +209,7 @@ l8.task( function(){
   })
   l8.step( function(){ delta( "getPromise") })
   l8.step( function(){
-    t0 = l8.timeNow
+    t0 = l8.now
     nn = 0
   })
   l8.repeat( function(){

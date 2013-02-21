@@ -1,4 +1,4 @@
-l8 0.1.59
+l8 0.1.60
 =========
 
 [![Build Status](https://travis-ci.org/JeanHuguesRobert/l8.png)](https://travis-ci.org/JeanHuguesRobert/l8)
@@ -57,8 +57,8 @@ The main flow control structures are the sequential execution of steps, the exec
 
 The "thread" model of computation is not without shortcomings however. Race conditions and deadlocks are difficult to avoid when using the shared state paradigm. What is sometimes a necessary evil to gain maximal performance out of multiple cores cpus is not an option within a javascript process that is by design single threaded. This is why l8 favors a different approach based on message passing and distributed actors.
 
-Roadmap
-=======
+Roadmap (feb 2013)
+==================
 
 Tasks - this is mostly done. Some more tests are needed.
 
@@ -74,8 +74,7 @@ the full node.js API. Some APIs will be emulated locally when possible, the
 others are submitted to a server via proxies.
 
 The goal is to have a tool to build code that runs in browsers and servers,
-distributed using the actor model for inter process communications, ie with no
-shared values.
+distributed using the actor model for inter process communications.
 
 API
 ===
@@ -83,12 +82,12 @@ API
 ```
   l8
      -- step/task creation. "body" can create additional steps/subtasks
-    .step(   body )     -- queue a step on the path to task's completion
-    .task(   body )     -- queue a step that waits on a blocking subtask
-    .fork(   body )     -- queue a step that starts a forked task, forks "join"
-    .repeat( body )     -- queue a step that repeats a blocking subtask
-    .spawn(  body )     -- like fork() but next step does not wait for subtask
-    .generator( body )  -- queue a step that spwans a task that yields results
+    .step(     body )   -- queue a step on the path to task's completion
+    .task(     body )   -- queue a step that waits on a blocking subtask
+    .fork(     body )   -- queue a step that starts a forked task, forks "join"
+    .repeat(   body )   -- queue a step that repeats a blocking subtask
+    .spawn(    body )   -- like fork() but next step does not wait for subtask
+    .generate( body )   -- queue a step that spawn a task that yields results
 
     -- step walking
     .proceed( block )   -- walk a step on its path, at most once per step
@@ -166,7 +165,7 @@ API
   .signal()             -- signal, ..., like a promise that fires many times
   .timeout( delay )     -- a promise fulfilled within a delay
   .call( fn )           -- like callback but returns a promise when signaled
-  .generator()          -- a next()/yield() consumer/producer resource
+  .generate( block )    -- starts a next()/yield() consumer/producer generator
   .Generator( block )   -- build a Generator Constructor.
 
   Semaphores, Mutexes and Locks provide:
@@ -183,10 +182,10 @@ API
     .promise            -- alias for .in
     .out                -- a "can put()" promise
     .get()              -- pause current task until queue is not empty, get msg
-    .tryGet()           -- get msg when one is available, don't block
+    .try_get()          -- get msg when one is available, don't block
     .put( msg )         -- pause current task until queue is not full, put msg
-    .tryPut( msg )      -- put msg in queue unless queue is full
-    .signal( msg )      -- alais for tryPut()
+    .try_put( msg )     -- put msg in queue unless queue is full
+    .signal( msg )      -- alias for try_put()
     .capacity           -- total capacity (bound)
     .length             -- used capacity
     .full               -- when capacity is totally used
@@ -223,9 +222,9 @@ API
     .put                -- a "can yield()" promise
     .next( [msg] )      -- pause task until producer yields, get/send a msg
     .yield( msg )       -- pause task until consumer calls .next(), get/send
-    .tryNext( [msg] )   -- if .get promise is ready, get yield's msg
-    .tryYield( msg )    -- if .put promise is ready, get next's msg
-    .signal( msg )      -- alias for tryYield()
+    .try_next( [msg] )  -- if .get promise is ready, get yield's msg
+    .try_yield( msg )   -- if .put promise is ready, get next's msg
+    .signal( msg )      -- alias for try_yield()
     .close()            -- break paused tasks (using .break())
     .closed             -- true once generator is closed
 
@@ -281,5 +280,5 @@ API
     .mand( condition )  -- my de&&mand() darling, alias for .assert()
 
 ```
-Please find more documentation is in [the wiki](../../wiki/FrontPage)
+Please find more documentation in [the wiki](../../wiki/FrontPage)
 

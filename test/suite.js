@@ -349,15 +349,15 @@ var test // current test id
     // Let's compare the speed, first "classical" style, using callbacks
     function recur( n, next ){
       if( --n > 0 ){
-        // Note: nextTick is about 20 times slower in chrome than in nodejs...
-        l8.nextTick( function(){ recur( n, next) })
+        // Note: l8.tick() is about 20 times slower in chrome than in nodejs...
+        l8.tick( function(){ recur( n, next) })
       }else{
         next()
       }
     }
     // And then l8 style, using steps
     var l8recur = l8.Task( function l8recur_task( n ){
-      // No nextTick involved, l8 scheduler instead
+      // No l8.tick() involved, l8 scheduler instead
       if( --n > 0 ){ l8recur( n) }
     })
     var now
@@ -372,12 +372,12 @@ var test // current test id
     var was_debug = l8.debug()
     this
     .step( function(){ this.sleep( 1) })
-    .step( function(){ now = l8.timeNow; l8.debug( false) })
+    .step( function(){ now = l8.now; l8.debug( false) })
     .step( function(){
       var done = 0
       var task = this
       for( var ii = 0 ; ii < p ; ii++ ){
-        l8.nextTick( function(){
+        l8.tick( function(){
           recur( n, function(){ if( ++done === p ) task.resume() })
         })
       }
@@ -385,12 +385,12 @@ var test // current test id
     })
     .step( function(){ this.sleep( 1) })
     .step( function(){
-      duration = -1 + l8.timeNow - now
+      duration = -1 + l8.now - now
       t( n * p, "times async recur()", duration, "millisecs")
     })
     .step( function(){ this.sleep( 1) })
     .step( function(){
-      now = l8.timeNow
+      now = l8.now
       ii  = 0
       tid = l8.current.id
     })
@@ -403,7 +403,7 @@ var test // current test id
     .fork( function(){ last_tid = this.current.id } )
     .step( function(){
       l8.debug( was_debug )
-      l8duration = (-1 + (l8.timeNow - now)) * factor
+      l8duration = (-1 + (l8.now - now)) * factor
       t( n * p, "times l8recur()", l8duration, "estimated millisecs")
       t( l8duration / duration, "times slower than if native")
       t( (n * p) / duration   * 1000, "native calls/sec")

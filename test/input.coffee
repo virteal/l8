@@ -46,7 +46,7 @@ input = l8.Task (question) ->
     data = url.parse( req.url, true).query.input
     return data if data
     input question
-http.createServer( HttpQueue.put.bind HttpQueue).listen process.env.PORT
+http.createServer( HttpQueue.put.bind HttpQueue ).listen process.env.PORT
 
 # Main
 
