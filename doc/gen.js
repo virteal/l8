@@ -114,7 +114,7 @@ function do_it(){
     if( !that.name ){
       src.replace( /l8\.([a-zA-Z_.]+) = /, function( m, p1 ){
         that.klass = "l8"
-        that.name  = p1
+        that.name  = p1 + "()"
       })
     }
     if( !that.name ){
@@ -256,7 +256,7 @@ function do_it(){
     klass.items.forEach( function( item ){
       //puts( '<a id="' + item.klass +"." + item.name.replace( "()", "" ) + '"></a>' )
       puts( "=== " + item.klass.toLowerCase() + "." + item.name + " ==="
-        + "\n '''" + item.line + "'''\n" )
+        + "\n'" + item.line + "'\n" )
       puts( item.src )
     })
   })

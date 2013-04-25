@@ -4,7 +4,19 @@
 
 "use strict";
 
-var l8 = require( "l8/lib/l8.js")
+var l8 = require( "l8/lib/l8.js" )
+require( "l8/lib/transpiler.js"  )
+require( "l8/lib/call.js"        )
+require( "l8/lib/selector.js"    )
+require( "l8/lib/aggregator.js"  )
+require( "l8/lib/timeout.js"     )
+require( "l8/lib/generator.js"   )
+require( "l8/lib/semaphore.js"   )
+require( "l8/lib/signal.js"      )
+require( "l8/lib/queue.js"       )
+require( "l8/lib/mutex.js"       )
+require( "l8/lib/lock.js"        )
+require( "l8/lib/parole.js"      )
 
 /* ----------------------------------------------------------------------------
  *  Tests
@@ -229,7 +241,7 @@ var test // current test id
   // function would lack access to the global variables referenced by the code to
   // (re)compile.
   l8.eval = function( expr ){ return eval( expr) }
-  
+
   var test_8 = l8.compile( function xx(){
     test = 8
     var f1 = l8.Task( function( p1, p2 ){
@@ -418,12 +430,12 @@ var test // current test id
       test_12()
     })
   })
-  
+
   var test_12 = l8.Task( function(){
   try{
     test = 12
     var trace = function(){
-      t( "Current task " + l8.current 
+      t( "Current task " + l8.current
       + " gets message '" + l8.get( "message")
       + "' from " + l8.binding( "message").task)
     }
@@ -438,7 +450,7 @@ var test // current test id
       l8.label = "main"
       l8.var( "message", "top")
       l8.spawn( subtask )
-      l8.step( function(){ trace()                       }) 
+      l8.step( function(){ trace()                       })
       l8.step( function(){ l8.join()                     })
     })
     l8.failure( function( e ){ t( "!!! unexpected error", e) })
