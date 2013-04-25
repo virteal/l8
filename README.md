@@ -59,7 +59,7 @@ var cf = Parole( function(){
 cf.then( function( content ){ console.log( "config: " + content; } );
 ```
 
-Please find more documentation in [the wiki](../../wiki/ParoleObjects)
+Please find more documentation in [the wiki](../../wiki/AboutParole)
 
 
 L8 Tasks
