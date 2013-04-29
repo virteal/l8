@@ -17,7 +17,7 @@ cd node_modules/l8; npm test
 L8 Paroles
 ==========
 
-Parole (lib/whisper.js) is a small (250 LOC) independant subset of l8 tailored to provide some of the most convenient features of l8 using the node.js callback convention.
+Parole (lib/whisper.js) is a small (300 LOC, 2 Kb) independant subset of l8 tailored to provide some of the most convenient features of l8 using the node.js callback convention.
 
 ```
 var Parole = require( "l8/lib/whisper.js" ).parole;
