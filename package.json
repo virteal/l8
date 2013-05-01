@@ -1,7 +1,7 @@
 {
   "name": "l8",
-  "version": "0.1.62",
-  "description": "l8 is a task manager for javascript. A task is a function broken in steps. l8 comes with synchronisation and distribution tools including semaphores, mutexes, message queues, generators, actors and socket.io proxied actors, among others. The roadmap includes a solution to run the same code in the brower and in the server, using the full node.js API in both cases.",
+  "version": "0.1.63",
+  "description": "l8 is a task manager for javascript. Simple tasks becomes 'paroles', complex tasks become function broken in steps. l8 comes with synchronisation and distribution tools including semaphores, mutexes, message queues, generators, actors and socket.io proxied actors, among others. The roadmap includes a solution to run the same code in the brower and in the server, using the full node.js API in both cases.",
   "main": "lib/l8.js",
   "files": [
     "lib/l8.js",
@@ -47,6 +47,7 @@
     "async",
     "promise",
     "parole",
+    "step",
     "actor",
     "actors",
     "remote",

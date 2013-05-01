@@ -4,19 +4,19 @@
 
 "use strict";
 
-var l8 = require( "l8/lib/l8.js" )
-require( "l8/lib/transpiler.js"  )
-require( "l8/lib/call.js"        )
-require( "l8/lib/selector.js"    )
-require( "l8/lib/aggregator.js"  )
-require( "l8/lib/timeout.js"     )
-require( "l8/lib/generator.js"   )
-require( "l8/lib/semaphore.js"   )
-require( "l8/lib/signal.js"      )
-require( "l8/lib/queue.js"       )
-require( "l8/lib/mutex.js"       )
-require( "l8/lib/lock.js"        )
-require( "l8/lib/parole.js"      )
+var l8 = require( "l8/lib/l8" )
+require( "l8/lib/transpiler"  )
+require( "l8/lib/call"        )
+require( "l8/lib/selector"    )
+require( "l8/lib/aggregator"  )
+require( "l8/lib/timeout"     )
+require( "l8/lib/generator"   )
+require( "l8/lib/semaphore"   )
+require( "l8/lib/signal"      )
+require( "l8/lib/queue"       )
+require( "l8/lib/mutex"       )
+require( "l8/lib/lock"        )
+require( "l8/lib/parole"      )
 
 /* ----------------------------------------------------------------------------
  *  Tests
