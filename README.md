@@ -1,4 +1,4 @@
-l8 0.1.61
+l8 0.1.67
 =========
 
 [![Build Status](https://travis-ci.org/JeanHuguesRobert/l8.png)](https://travis-ci.org/JeanHuguesRobert/l8)
@@ -17,18 +17,17 @@ cd node_modules/l8; npm test
 L8 Paroles
 ==========
 
-Parole (lib/whisper.js) is a small (300 LOC, 2 Kb) independant subset of l8 tailored to provide some of the most convenient features of l8 using the node.js callback convention.
+Parole (lib/whisper.js) is a small (2 Kb) independant subset of l8 tailored to provide some of the most convenient features of l8 using the node.js callback convention.
 
 ```
-var Parole = require( "l8/lib/whisper.js" ).parole;
+var Parole = require( "l8/lib/whisper" );
 ```
 
 "Paroles as callbacks" use case
 -------------------------------
 
 ```
-var timeout = Parole();
-setTimeout( timeout, 1000 );
+var timeout = Parole(); setTimeout( timeout, 1000 );
 timeout.on( function(){ console.log( "timeout !" ); }
 ```
 
@@ -36,8 +35,7 @@ timeout.on( function(){ console.log( "timeout !" ); }
 -------------------------------------------------
 
 ```
-var read = Parole();
-fs.readFile( "test.txt", "utf8", read );
+var read = Parole(); fs.readFile( "test.txt", "utf8", read );
 read.then(
   function( content ){ console.log( "content: " + content; },
   function( error   ){ console.log( "error: "   + error;   }
@@ -59,7 +57,7 @@ var cf = Parole( function(){
 cf.then( function( content ){ console.log( "config: " + content; } );
 ```
 
-Please find more documentation in [the wiki](../../wiki/AboutParole)
+Please find more documentation in [the wiki](../../wiki/AboutParoles)
 
 
 L8 Tasks

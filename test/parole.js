@@ -52,10 +52,15 @@ var p = P().will( function(){
   console.assert( !err );
   console.assert( hello === "hello" );
   console.assert( world === "world!" );
-  console.log( "5th next" );
+  this.curry( null, "hello" )( "world!" );
+}).will( function( err, hello, world ){
+  console.log( "5th next: ", err, hello, world );
+  console.assert( !err );
+  console.assert( hello === "hello" );
+  console.assert( world === "world!" );
   this.conclude( null, "DONE" );
 }).will( function skipped_step( err ){
-  console.log( "!!! skipped step !!! ", err );
+  console.log( "!!! unexpected skipped step !!! ", err );
   throw "Parole error";
 }).then( function done( ok ){
   console.log( "done: " + ok );
