@@ -1,6 +1,6 @@
 {
   "name": "l8",
-  "version": "0.1.64",
+  "version": "0.1.65",
   "description": "l8 is a task manager for javascript. Simple tasks becomes 'paroles', complex tasks become functions broken in steps. l8 comes with synchronisation and distribution tools including semaphores, mutexes, message queues, generators, actors and socket.io proxied actors, among others. The roadmap includes a solution to run the same code in the brower and in the server, using the full node.js API in both cases.",
   "main": "lib/l8.js",
   "files": [
@@ -28,7 +28,7 @@
   "devDependencies": {
     "coffee-script": "~1.4.0",
     "browserify":    "latest",
-    "uglify-js@1" :  "latest",
+    "uglify-js" :    "1",
     "promises-aplus-tests": "*"
   },
   "scripts": {
