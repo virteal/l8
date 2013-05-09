@@ -3,6 +3,23 @@
 
 var P = require( "l8/lib/whisper" );
 
+function assert( x ){
+  try{ console.assert( x ); }
+  catch( err ){
+    console.log( "TEST FAILED: ", err, err.stack );
+    process.exit( 1 );
+  }
+}
+
+var syncsched = function( f ){
+  try{ f(); }catch( er ){}
+};
+
+P.scheduler( syncsched );
+P.Parole.tick = null;
+P.scheduler();
+
+
 console.log( "Starting Parole test" );
 
 var timeout; setTimeout( timeout = P() );
@@ -12,7 +29,7 @@ var loop_done = false;
 var p;
 var label1;
 var label2;
-p = P().will( function(){
+var p_loop = p = P().will( function(){
   console.log( "Entering outer loop" );
   label1 = this( 3 );
 }).will( function( n_out ){
@@ -24,47 +41,53 @@ p = P().will( function(){
   this( n_out );
 }).will( function( n_out ){
   if( --n_out ) return this.jump( label1, n_out );
-  this.resolve( "done" );
+  this.resolve( "p_loop done" );
 });
-p.then( function( r ){ console.log( "Loop " + ( loop_done = r ) ); } );
+
+p.then( function( r ){
+  console.log( "Loop " + ( loop_done = r ) );
+  assert( r = "p_loop done" );
+} );
 
 
-var p = P().will( function(){
-  console.log( "start" );
+var p_start = P();
+p = p_start.from().will( function( start ){
+  console.log( "start: " + start );
   setTimeout( this, 1000 );
 }).will( function(){
   console.log( "first next " );
-  setTimeout( this, 1000 );
-}).will( function(){
-  console.log( "second next " );
+  this.timeout( 1000 );
+}).will( function( err ){
+  console.log( "second next: " + err );
+  assert( err && err.name === "ParoleTimeout" );
   this( null, "hello", "world!" );
 }).will( function( err, hello, world ){
   console.log( "third next: ", err, hello, world );
   this.each( [ "hello", "world!" ] );
 }).will( function( err, hello_world ){
   console.log( "4th next: ", err, hello_world[ 0 ], hello_world[ 1 ] );
-  console.assert( !err );
-  console.assert( hello_world[ 0 ] === "hello" );
-  console.assert( hello_world[ 1 ] === "world!" );
+  assert( !err );
+  assert( hello_world[ 0 ] === "hello" );
+  assert( hello_world[ 1 ] === "world!" );
   this.collect( "hello", "world!" );
 }).wills( function( err, hello, world ){
   console.log( "42th next: ", err, hello, world );
-  console.assert( !err );
-  console.assert( hello === "hello" );
-  console.assert( world === "world!" );
+  assert( !err );
+  assert( hello === "hello" );
+  assert( world === "world!" );
   this.curry( null, "hello" )( "world!" );
 }).will( function( err, hello, world ){
   console.log( "5th next: ", err, hello, world );
-  console.assert( !err );
-  console.assert( hello === "hello" );
-  console.assert( world === "world!" );
+  assert( !err );
+  assert( hello === "hello" );
+  assert( world === "world!" );
   this.conclude( null, "DONE" );
 }).will( function skipped_step( err ){
   console.log( "!!! unexpected skipped step !!! ", err );
   throw "Parole error";
 }).then( function done( ok ){
   console.log( "done: " + ok );
-  console.assert( ok === "DONE" );
+  assert( ok === "DONE" );
   var p = P();
   setTimeout( p, 1000 );
   return p;
@@ -81,27 +104,58 @@ p.then( function(){
   throw "ERR1";
 }).then().then( null, function( err ){
   console.log( "Expected error: ", err );
-  console.assert( err === "ERR1" );
+  assert( err === "ERR1" );
   return "OK";
 }).then( function( ok ){
   console.log( "ok: ", ok );
-  console.assert( ok === "OK" );
+  assert( ok === "OK" );
   throw "ERR2";
 }).then( null, function( err ){
   console.log( "Expected error 2: ", err );
-  console.assert( err === "ERR2" );
-  console.assert( loop_done === "done" );
-  console.log( "TEST SUCCESS" );
-  process.exit( 0 );
+  assert( err === "ERR2" );
+  assert( loop_done === "p_loop done" );
 });
+
+var log = P.from().will( function( msg ){
+  console.log( msg );
+  this( msg );
+}).pipe();
 
 p.then(  function(){
   console.log( "Branch" );
 }).then( function(){ console.log( "Branch done" ); } );
 
-p.then(  function(){
+var p_log = p.then(  function(){
   console.log( "Another Branch" );
-}).then( function(){ console.log( "Another Branch done" ); } );
+  log( "Direct call" );
+  return log.from( "From() call" ).upgrade( "Done" );
+}).then(
+  function( done ){
+    console.log( "Another Branch: " + done );
+    assert( done === "Done" );
+    return "p_log done";
+  },
+  function( err ){
+    console.log( "Another Branch, unexpected err: " + err );
+    assert( false );
+  }
+);
+
+p_start.from( "start" );
+
+var all = [ p_loop, p_start, p_log ];
+P.each( P.collect, all ).then(
+  function( results ){
+    P.schedule( function(){
+      console.log( "TEST SUCCESS", results );
+      process.exit( 0 );
+    });
+  },
+  function( err ){
+    console.log( "Unexpected promise failure: " + err, err.stack );
+  }
+);
+
 
 var l8 = require( "l8/lib/l8.js" );
 l8.countdown( 10 )

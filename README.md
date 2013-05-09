@@ -1,4 +1,4 @@
-l8 0.1.67
+l8 0.1.69
 =========
 
 [![Build Status](https://travis-ci.org/JeanHuguesRobert/l8.png)](https://travis-ci.org/JeanHuguesRobert/l8)
@@ -17,11 +17,16 @@ cd node_modules/l8; npm test
 L8 Paroles
 ==========
 
-Parole (lib/whisper.js) is a small (2 Kb) independant subset of l8 tailored to provide some of the most convenient features of l8 using the node.js callback convention.
+Parole (lib/whisper.js) is an independant subset of l8 tailored to provide some of the most convenient features of l8 using the node.js callback convention.
+
+Paroles, among other things, are a solution to the promises vs callbacks tension. If you want a node.js callback style function to fulfill a promise, use a parole where the function requires a callback, ie paroles are callbacks in promise disguise.
 
 ```
 var Parole = require( "l8/lib/whisper" );
+var read = Promise(); fs.readFile( "test.txt", utf8, read );
+read.then( ..ok.., ..error... );
 ```
+
 
 "Paroles as callbacks" use case
 -------------------------------
@@ -42,19 +47,40 @@ read.then(
 );
 ```
 
-"Multiple steps promise" use case
----------------------------------
+"Multiple steps promises" use case
+----------------------------------
 
 ```
 var cf = Parole( function(){
   fs.readFile( "config.txt", "utf8", this );
 }).will( function( err, content ){
-  if( err ) return this( err );
-  fs.readFile( content, "utf8", this );
-}).will( function( err, content ){
-  this( null, err ? "default", content );
+  if( err ) return this( null, err );
+  fs.readFile( content, "utf8", this.curry( content ) );
+}).will( function( content1, err, content2 ){
+  this.resolve( err ? "default" : content1 + content2 );
 });
 cf.then( function( content ){ console.log( "config: " + content; } );
+```
+
+"Paroles as pipes" use case
+---------------------------
+
+```
+function transform1( input, callback ){ callback( "*" + input + "*" ); }
+function transform2( input, callback ){ callback( "!" + input + "!" ); }
+
+var pipe1 = Parole().from().will( function( input ){
+  transform1( input, this );
+}).pipe();
+
+var pipe2 = Parole.from().will( function( input ){
+  transform2( input, this );
+}).pipe();
+
+pipe1.pipe( pipe2 ).pipe( function( output ){
+  console.log( output );
+});
+p1( "Hello" )( "World" );
 ```
 
 Please find more documentation in [the wiki](../../wiki/AboutParoles)
