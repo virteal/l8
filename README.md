@@ -1,4 +1,4 @@
-l8 0.1.69
+l8 0.1.70
 =========
 
 [![Build Status](https://travis-ci.org/JeanHuguesRobert/l8.png)](https://travis-ci.org/JeanHuguesRobert/l8)
@@ -19,7 +19,7 @@ L8 Paroles
 
 Parole (lib/whisper.js) is an independant subset of l8 tailored to provide some of the most convenient features of l8 using the node.js callback convention.
 
-Paroles, among other things, are a solution to the promises vs callbacks tension. If you want a node.js callback style function to fulfill a promise, use a parole where the function requires a callback, ie paroles are callbacks in promise disguise.
+Paroles, among other things, are a solution to the promises vs callbacks tension. If you want a node.js callback style function to fulfill a promise, simply use a parole where the function requires a callback, ie paroles are callbacks in promise disguise.
 
 ```
 var Parole = require( "l8/lib/whisper" );
@@ -34,6 +34,16 @@ read.then( ..ok.., ..error... );
 ```
 var timeout = Parole(); setTimeout( timeout, 1000 );
 timeout.on( function(){ console.log( "timeout !" ); }
+```
+
+"Paroles as pub/sub" use case
+-----------------------------
+
+```
+var publish = Parole();
+publish.subscribe( function( msg ){ console.log( "sub1 receives " + msg ); }
+publish.subscribe( function( msg ){ console.log( "sub2 receives " + msg ); }
+publish( "Hello world!" );
 ```
 
 "Paroles as promise fulfiller callbacks" use case
@@ -69,7 +79,7 @@ cf.then( function( content ){ console.log( "config: " + content; } );
 function transform1( input, callback ){ callback( "*" + input + "*" ); }
 function transform2( input, callback ){ callback( "!" + input + "!" ); }
 
-var pipe1 = Parole().from().will( function( input ){
+var pipe1 = Parole.from().will( function( input ){
   transform1( input, this );
 }).pipe();
 
@@ -128,14 +138,16 @@ The main flow control structures are the sequential execution of steps, the exec
 Beware that the "thread" model of computation is not without shortcomings. Race conditions and deadlocks are difficult to avoid when using the shared state paradigm. What is sometimes a necessary evil to gain maximal performance out of multiple cores cpus is not an option within a javascript process that is by design single threaded. This is why l8 favors a different approach based on message passing and distributed actors.
 
 
-Roadmap (feb 2013)
+Roadmap (may 2013)
 ==================
 
-Tasks - this is mostly done. Some more tests are needed.
+Tasks - mostly done, needs more tests.
+
+Paroles - mostly done, needs more tests.
 
 Node.js adaptor - it's about transforming all node.js API functions that use callbacks into l8 tasks to make it easier to use the node.js API in a blocking manner. See the test/node.js working example.
 
-Actors - local & proxied. This is mostly done, but recent. Needs more tests.
+Actors - local & proxied. Tmostly done, needs more tests.
 
 Browser adaptor - this is starting to work. It's about running code on the browser using the exact same API as the one when running on a server, including the full node.js API. Some APIs will be emulated locally when possible, the others are submitted to a server via proxies.
 
