@@ -2,7 +2,7 @@
 //   adapter for promises-aplus/promises-tests
 // See https://github.com/promises-aplus/promises-tests
 
-var Parole = require( "l8/lib/whisper.js" ).parole;
+var Parole = require( "l8/lib/whisper" );
 
 module.exports.pending = function(){
   var p = Parole();
