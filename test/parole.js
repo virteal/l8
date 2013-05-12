@@ -19,7 +19,6 @@ P.scheduler( syncsched );
 P.Parole.tick = null;
 P.scheduler();
 
-
 console.log( "Starting Parole test" );
 
 var timeout; setTimeout( timeout = P() );
