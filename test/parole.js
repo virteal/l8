@@ -15,9 +15,8 @@ var syncsched = function( f ){
   try{ f(); }catch( er ){}
 };
 
-P.scheduler( syncsched );
-P.Parole.tick = null;
-P.scheduler();
+//P.scheduler( syncsched );
+//P.scheduler( "sync" );
 
 console.log( "Starting Parole test" );
 
@@ -120,9 +119,40 @@ var log = P.from().will( function( msg ){
   this( msg );
 }).pipe();
 
-p.then(  function(){
+var fib = P.generator( function(){
+  var i = 0, j = 1;
+  this.will( function(){
+    var tmp = i;
+    i  = j;
+    j += tmp;
+    this.yield( 0, i );
+  }).will( function( hint ){
+    console.log( "fib next, hint: " + hint );
+    this.jump();
+  });
+});
+var fib_loop;
+var fibo = fib();
+var p_fib = p.then(  function(){
   console.log( "Branch" );
-}).then( function(){ console.log( "Branch done" ); } );
+}).will( function(){
+  fib_loop = this;
+  this( 10 );
+}).will( function( n ){
+  if( !n )return this.conclude();
+  fibo( "some hint " + n, this.curry( n - 1 ) );
+}).will( function( n, err, r ){
+  console.log( "nth: " + n + " fib: " + r );
+  this.jump( fib_loop, n );
+}).then(
+  function(){
+    console.log( "Branch done" );
+    return "p_fib done";
+  },
+  function( err ){
+    console.log( "Unexpected error in fib: " + err, err.stack );
+  }
+);
 
 var p_log = p.then(  function(){
   console.log( "Another Branch" );
@@ -140,9 +170,10 @@ var p_log = p.then(  function(){
   }
 );
 
+
 p_start.from( "start" );
 
-var all = [ p_loop, p_start, p_log ];
+var all = [ p_loop, p_start, p_log, p_fib ];
 P.each( P.collect, all ).then(
   function( results ){
     P.schedule( function(){
