@@ -23,6 +23,8 @@ console.log( "Starting Parole test" );
 var timeout; setTimeout( timeout = P() );
 timeout.on( function(){ console.log( "Queued start" ); } );
 
+// Test loops
+
 var loop_done = false;
 var p;
 var label1;
@@ -47,6 +49,7 @@ p.then( function( r ){
   assert( r = "p_loop done" );
 } );
 
+// Test chains
 
 var p_start = P();
 p = p_start.from().will( function( start ){
@@ -114,10 +117,38 @@ p.then( function(){
   assert( loop_done === "p_loop done" );
 });
 
-var log = P.from().will( function( msg ){
-  console.log( msg );
-  this( msg );
-}).pipe();
+// Test generators
+
+var succ = P.generator( function( seed, increment ){
+  this.will(
+    function( new_inc ){
+      if( new_inc ){
+        console.log( "Succ increment changed to " + new_inc )
+        increment = new_inc;
+      }
+      var current = seed;
+      seed += increment;
+      this.yield( current );
+    }
+  ).will( function( new_inc ){ this.jump( new_inc ); });
+});
+
+var logged_succ;
+var log_succ = P.define( function(){
+  this.will( function( msg ){
+    logged_succ = msg;
+    this( msg )
+  }).will( function( msg ){
+    console.log( "Succ: " + msg );
+    this();
+  })
+});
+
+var succ_exp = succ( 5, 10 );
+succ_exp( 10,   log_succ ); // outputs 5, change increment
+succ_exp( 100,  log_succ ); // outputs 15, change increment
+succ_exp( log_succ );       // outputs 115, don't change increment
+succ_exp( log_succ );       // outputs 215
 
 var fib = P.generator( function(){
   var i = 0, j = 1;
@@ -154,10 +185,17 @@ var p_fib = p.then(  function(){
   }
 );
 
+// Test pipes
+
+var log_pipe = P.from().will( function( msg ){
+  console.log( msg );
+  this( msg );
+}).pipe();
+
 var p_log = p.then(  function(){
   console.log( "Another Branch" );
-  log( "Direct call" );
-  return log.from( "From() call" ).upgrade( "Done" );
+  log_pipe( "Direct call" );
+  return log_pipe.from( "From() call" ).upgrade( "Done" );
 }).then(
   function( done ){
     console.log( "Another Branch: " + done );
@@ -170,13 +208,13 @@ var p_log = p.then(  function(){
   }
 );
 
-
-p_start.from( "start" );
+// Test collect
 
 var all = [ p_loop, p_start, p_log, p_fib ];
 P.each( P.collect, all ).then(
   function( results ){
     P.schedule( function(){
+      assert( logged_succ === 215 );
       console.log( "TEST SUCCESS", results );
       process.exit( 0 );
     });
@@ -185,6 +223,9 @@ P.each( P.collect, all ).then(
     console.log( "Unexpected promise failure: " + err, err.stack );
   }
 );
+
+p_start.from( "start" );
+
 
 
 var l8 = require( "l8/lib/l8.js" );
