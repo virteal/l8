@@ -11,6 +11,10 @@ function assert( x ){
   }
 }
 
+function trace(){
+  console.log( Array.prototype.slice.call( arguments ).join( ", ") );
+}
+
 var syncsched = function( f ){
   try{ f(); }catch( er ){}
 };
@@ -18,15 +22,28 @@ var syncsched = function( f ){
 //P.scheduler( syncsched );
 //P.scheduler( "sync" );
 
+
+
 console.log( "Starting Parole test" );
+var p;
+
+// Test callbacks
 
 var timeout; setTimeout( timeout = P() );
 timeout.on( function(){ console.log( "Queued start" ); } );
 
+// Test subscribers
+p = P();
+p.on( trace.bind( null, "Listener 1") );
+p.subscribe( trace.bind( null, "Subscriber 1") );
+p.publish( "Hello" );
+p.subscribe( trace.bind( null, "Subscriber 2") );
+p.publish( "World!" );
+
+
 // Test loops
 
 var loop_done = false;
-var p;
 var label1;
 var label2;
 var p_loop = p = P().will( function(){
