@@ -15,6 +15,7 @@ function trace( msg ){
   console.log( Array.prototype.slice.call( arguments ).join( ", ") );
   return msg;
 }
+var log = trace; // alias
 
 var syncsched = function( f ){
   try{ f(); }catch( er ){}
@@ -30,6 +31,7 @@ var p;
 
 // Test callbacks
 p = P();
+trace( "New Parole" );
 p.on( trace.bind( null, "Listener1") );
 p( "First trace" );
 p.on( trace.bind( null, "Listener2") );
@@ -43,11 +45,18 @@ timeout.on( function(){ console.log( "Queued start" ); } );
 
 // Test subscribers
 p = P();
+trace( "New Parole" );
 p.on( trace.bind( null, "Listener 1") );
 p.subscribe( trace.bind( null, "Subscriber 1") );
 p.publish( "Hello" );
 p.subscribe( trace.bind( null, "Subscriber 2") );
 p.publish( "World!" );
+p = P();
+trace( "New Parole" );
+p.subscribe( trace.bind( null, "Subscriber 1" ) );
+p.publish( "Some published news", "..." );
+p.subscribe( trace.bind( null, "Subscriber 2" ) );
+p.publish( "Some more news", "..." );
 
 
 // Test loops
@@ -176,13 +185,38 @@ succ_exp( 100,  log_succ ); // outputs 15, change increment
 succ_exp( log_succ );       // outputs 115, don't change increment
 succ_exp( log_succ );       // outputs 215
 
+    //P.scheduler("sync"); // Forced sync mode, useful for test, bad for deep stacks
+    var p_fibonacci = P();
+    var fibonacci = P.generator(function () {
+        var i = 0,
+            j = 1;
+        this.will(function () {
+            var tmp = i;
+            i = j;
+            j += tmp;
+            this.yield(tmp);
+        }).will(function () {
+            this.jump();
+        });
+    });
+    var gen = fibonacci();
+    gen( log.bind( null, "1 gen" ) );
+    gen( log.bind( null, "2 gen" ) );
+    gen( log.bind( null, "3 gen" ) );
+    gen( log.bind( null, "4 gen" ) );
+    gen( log.bind( null, "5 gen" ) );
+    gen( log.bind( null, "6 gen" ) );
+    gen( function(){
+      p_fibonacci.resolve();
+    });
+
 var fib = P.generator( function(){
   var i = 0, j = 1;
   this.will( function(){
     var tmp = i;
     i  = j;
     j += tmp;
-    this.yield( 0, i );
+    this.yield( 0, tmp );
   }).will( function( hint ){
     console.log( "fib next, hint: " + hint );
     this.jump();
@@ -236,7 +270,7 @@ var p_log = p.then(  function(){
 
 // Test collect
 
-var all = [ p_loop, p_start, p_log, p_fib ];
+var all = [ p_loop, p_start, p_log, p_fibonacci, p_fib ];
 P.each( P.collect, all ).then(
   function( results ){
     P.schedule( function(){
