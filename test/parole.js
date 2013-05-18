@@ -27,7 +27,22 @@ var syncsched = function( f ){
 
 
 console.log( "Starting Parole test" );
-var p;
+var p, p2, p3;
+
+p = P();
+p2 = P();
+p3 = P();
+p.then(
+  function( v ){
+    trace( "OK", v );
+  },
+  function( v ){
+    trace( "KO", v );
+  }
+);
+p.and( p2, p3 );
+p2.resolve( false );
+//p2.resolve( "p2 last" );
 
 // Test callbacks
 p = P();
