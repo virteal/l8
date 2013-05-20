@@ -25,7 +25,6 @@ var syncsched = function( f ){
 //P.scheduler( "sync" );
 
 
-
 console.log( "Starting Parole test" );
 var p, p2, p3;
 
@@ -40,7 +39,7 @@ p.then(
     trace( "KO", v );
   }
 );
-p.and( p2, p3 );
+p.not( p2 );
 p2.resolve( false );
 //p2.resolve( "p2 last" );
 
