@@ -1,4 +1,4 @@
-l8 0.1.76
+l8 0.1.77
 =========
 
 [![Build Status](https://travis-ci.org/JeanHuguesRobert/l8.png)](https://travis-ci.org/JeanHuguesRobert/l8)
