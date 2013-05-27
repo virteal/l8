@@ -444,6 +444,11 @@ try {
     shows("Success, A,B,C,D");
     // Note: A,B,C,D is an array
 
+    log(h1("Q compatibility"));
+    var q = P.Q();
+    q.promise.then( function(){ log( "Q is OK");});
+    q.resolve();
+
     p_general.resolve("general test done");
 
 } catch (err) {
