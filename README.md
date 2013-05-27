@@ -28,6 +28,17 @@ read.then( ..ok.., ..error... );
 ```
 
 
+"Paroles as promise fulfiller callbacks" use case
+-------------------------------------------------
+
+```
+var read = Parole(); fs.readFile( "test.txt", "utf8", read );
+read.then(
+  function( content ){ console.log( "content: " + content; },
+  function( error   ){ console.log( "error: "   + error;   }
+);
+```
+
 "Paroles as callbacks" use case
 -------------------------------
 
@@ -44,17 +55,6 @@ var publish = Parole();
 publish.subscribe( function( msg ){ console.log( "sub1 receives " + msg ); }
 publish.subscribe( function( msg ){ console.log( "sub2 receives " + msg ); }
 publish( "Hello world!" );
-```
-
-"Paroles as promise fulfiller callbacks" use case
--------------------------------------------------
-
-```
-var read = Parole(); fs.readFile( "test.txt", "utf8", read );
-read.then(
-  function( content ){ console.log( "content: " + content; },
-  function( error   ){ console.log( "error: "   + error;   }
-);
 ```
 
 "Multiple steps promises" use case
