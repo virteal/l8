@@ -104,12 +104,6 @@ try {
     shows("Listener 2, I am yet another callback");
     p.fill("Some filled news", "...");
     shows("Listener 2, Some filled news, ...");
-    p.emit("Some emitted news");
-    // Idem, Q style
-    shows("Listener 2, Some emitted news");
-    p.notify("Some notified news");
-    // Idem, jQuery style
-    shows("Listener 2, Some notified news");
     p.resolve("Some resolved news", "...");
     // eqv p.fill( null, xxx ), please note , , in output, due to "null" first result
     shows("Listener 2, , Some resolved news, ...");
@@ -129,7 +123,7 @@ try {
     shows("Subscriber 1, Ready");
     p.subscribe(log.bind(null, "Subscriber 2"));
     shows("Subscriber 2, Ready");
-    p.publish("Some published news", "...");
+    p("Some published news", "...");
     shows("Listener 2, Some published news, ...",
         "Subscriber 1, Some published news, ...",
         "Subscriber 2, Some published news, ...");
@@ -141,11 +135,11 @@ try {
     p = P();
     log(".");
     p.subscribe(log.bind(null, "Subscriber 1"));
-    p.publish("Some published news", "...");
+    p("Some published news", "...");
     shows("Subscriber 1, Some published news, ...");
     p.subscribe(log.bind(null, "Subscriber 2"));
     shows("Subscriber 2, Some published news, ...");
-    p.publish("Some more news", "...");
+    p("Some more news", "...");
     shows("Subscriber 1, Some more news, ...",
         "Subscriber 2, Some more news, ...");
 
