@@ -271,8 +271,8 @@ try {
     log(".");
     p.then(null,function(e){ throw e;})
     .then( null, log.bind( null, "p() thrown failure"));
-    p(!false)
-    shows("thrown failure, true")
+    p( "error!" )
+    shows("thrown failure, error!")
 
     p = P();
     log(".");
