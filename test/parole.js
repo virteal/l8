@@ -269,6 +269,13 @@ try {
 
     p = P();
     log(".");
+    p.then(null,function(e){ throw e;})
+    .then( null, log.bind( null, "p() thrown failure"));
+    p(!false)
+    shows("thrown failure, true")
+
+    p = P();
+    log(".");
     p.then(log.bind(null, "when() Success"));
     p.when("Now");
     shows("Success, Now");
@@ -516,7 +523,7 @@ p = p_start.from().will(function (start) {
     assert(!err);
     assert(hello === "hello");
     assert(world === "world!");
-    this.curry(null, "hello")("world!");
+    this.partial(null, "hello")("world!");
 }).will(function (err, hello, world) {
     log("5th next: ", err, hello, world);
     assert(!err);
@@ -642,7 +649,7 @@ var p_fib = p.then(function () {
     this(10);
 }).will(function (n) {
     if (!n) return this.conclude();
-    fibo("some hint " + n, this.curry(n - 1));
+    fibo("some hint " + n, this.partial(n - 1));
 }).will(function (n, err, r) {
     log("nth: " + n + " fib: " + r);
     this.jump(fib_loop, n);
