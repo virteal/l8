@@ -1,6 +1,8 @@
 l8 0.1.79
 =========
 
+2014: v 0.1.79 is going to be the last version of alpha 1. Version 0.2.01 is coming soon.
+
 [![Build Status](https://travis-ci.org/JeanHuguesRobert/l8.png)](https://travis-ci.org/JeanHuguesRobert/l8)
 
 l8 is a modern multi-tasker for javascript. It schedules javascript tasks using promises and distributed actors. Such tasks can run browser side and server side.
@@ -14,10 +16,34 @@ npm install l8
 cd node_modules/l8; npm test
 ```
 
+L8 Boxon (v 0.2 only)
+========
+
+Boxon (lib/boxon.js) is a tiny 50loc helper that removes some of the mess with callbacks. It provides an indirect callback object that makes it possible to delay the installation of the actual callback if so desired. That object is also a "thenable" and can be conveniently turned into a Promise by most existing promise librairies including the ECMA 6 one.
+
+"Boxons as callbacks" use case
+------------------------------
+```
+var read = Boxon(); fs.readFile( "read.txt", "utf8", read );
+// ... somewhere else, in some distant future maybe ...
+read.boxon( function( err, data ){ ... } );
+```
+
+"Boxons to build promises" use case
+-----------------------------------
+```
+function delayedPromise( delay ){
+  var timeout = Boxon(); setTimeout( timeout, delay );
+  // ECMA 6 Promises
+  return Promise.cast( timeout );
+}
+```
+
+
 L8 Paroles
 ==========
 
-Parole (lib/whisper.js) is an independant subset of l8 tailored to provide some of the most convenient features of l8 using the node.js callback convention.
+Parole (lib/whisper.js) is another independant subset of l8 tailored to provide some of the most convenient features of l8 using the node.js callback convention.
 
 Paroles, among other things, are a solution to the promises vs callbacks tension. If you want a node.js callback style function to fulfill a promise, simply use a parole where the function requires a callback, ie paroles are callbacks in promise disguise.
 
