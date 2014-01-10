@@ -39,6 +39,8 @@ function delayedPromise( delay ){
 }
 ```
 
+Please find more documentation in [the wiki](../../wiki/AboutBoxons)
+
 
 L8 Paroles
 ==========
