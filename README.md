@@ -1,7 +1,5 @@
-l8 0.1.79
+l8 0.2.01
 =========
-
-2014: v 0.1.79 is going to be the last version of alpha 1. Version 0.2.01 is coming soon.
 
 [![Build Status](https://travis-ci.org/JeanHuguesRobert/l8.png)](https://travis-ci.org/JeanHuguesRobert/l8)
 
@@ -16,7 +14,7 @@ npm install l8
 cd node_modules/l8; npm test
 ```
 
-L8 Boxon (v 0.2 only)
+L8 Boxon
 ========
 
 Boxon (lib/boxon.js) is a tiny 50loc helper that removes some of the mess with callbacks. It provides an indirect callback object that makes it possible to delay the installation of the actual callback if so desired. That object is also a "thenable" and can be conveniently turned into a Promise by most existing promise librairies including the ECMA 6 one.
@@ -159,7 +157,7 @@ The main flow control structures are the sequential execution of steps, the exec
 Beware that the "thread" model of computation is not without shortcomings. Race conditions and deadlocks are difficult to avoid when using the shared state paradigm. What is sometimes a necessary evil to gain maximal performance out of multiple cores cpus is not an option within a javascript process that is by design single threaded. This is why l8 favors a different approach based on message passing and distributed actors.
 
 
-Roadmap (may 2013)
+Roadmap (jan 2014)
 ==================
 
 Tasks - mostly done, needs more tests.
@@ -168,9 +166,11 @@ Paroles - mostly done, needs more tests.
 
 Node.js adaptor - it's about transforming all node.js API functions that use callbacks into l8 tasks to make it easier to use the node.js API in a blocking manner. See the test/node.js working example.
 
-Actors - local & proxied. Tmostly done, needs more tests.
+Actors - local & proxied. Mostly done, needs more tests.
 
 Browser adaptor - this is starting to work. It's about running code on the browser using the exact same API as the one when running on a server, including the full node.js API. Some APIs will be emulated locally when possible, the others are submitted to a server via proxies.
+
+Cluster - run actors in multiple processes to get more speed on multi-core CPUs.
 
 The goal is to have a tool to build code that runs in browsers and servers, distributed using the actor model for inter process communications.
 
