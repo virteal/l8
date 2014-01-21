@@ -23,22 +23,37 @@ l8.task( function(){
   var Buffer
   var fd
 
-  l8.step( function ( ) {    l8.require( "fs" );
-  }).step( function (m) {    fs = m;
-                             l8.require( "buffer" );
-  }).step( function (m) {    Buffer = m.Buffer;
-                             fs.open( "node.js.test_file.txt", "w" );
-  }).step( function (f) {    fd = f;
-                             new Buffer( "Hello, world!", "utf8" );
-  }).step( function (b) {    fs.write( fd, b, 0, b.length, null );
-  }).step( function ( ) {    fs.close( fd );
-  }).step( function ( ) {    fs.readFile( "node.js.test_file.txt", "utf8" );
-  }).step( function (r) {    l8.assert( r === "Hello, world!" );
-                             l8.trace( "TEST SUCCESS");
-                             process.exit( 0 )
-  }).failure( function (e) { l8.trace( "Unexpected error", e, e.stack ); })
+  l8.step( function ( ) {
+    l8.require( "fs" );
+  }).step( function (m) {
+    l8.trace( "got fs" );
+    fs = m;
+    l8.require( "buffer" );
+  }).step( function (m) {    
+    l8.trace( "got buffer" );
+    Buffer = m.Buffer;
+    fs.open( "node.js.test_file.txt", "w" );
+  }).step( function (f) {    
+    l8.trace( "got fd" );
+    fd = f;
+    new Buffer( "Hello, world!", "utf8" );
+  }).step( function (b) {    
+    l8.trace( "got new buffer" );
+    fs.write( fd, b, 0, b.length, null );
+  }).step( function ( ) {
+    l8.trace( "got buffer written" );
+    fs.close( fd );
+  }).step( function ( ) {    
+    fs.readFile( "node.js.test_file.txt", "utf8" );
+  }).step( function (r) {    
+    l8.assert( r === "Hello, world!" );
+    l8.trace( "test/node.js -- TEST SUCCESS");
+    process.exit( 0 )
+  }).failure( function (e) { 
+    l8.trace( "test/node.js -- error", e, e.stack );
+  })
 
 }) // end of task
 
-l8.countdown( 100 )
+l8.countdown( 10 )
 

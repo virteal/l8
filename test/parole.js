@@ -1,11 +1,12 @@
 // test/parole.js
 //   Run it on jsFiddle: http://jsfiddle.net/jhrobert/F52a9/
 // 13/04/24 by JHR
+// 14/01/04 by JHR
 
 // This code can run locally or inside jsfiddle.net
 var html = typeof document !== "undefined";
 
-// In jsfilled, script whisper.js is included by the HTML page
+// In jsfiddle, whisper.js is included by the HTML page & defines Parole
 var P = html ? Parole : require("l8/lib/whisper");
 
 
@@ -20,17 +21,20 @@ var syncsched = function (f) {
 //P.scheduler();            // Restore default async mode.
 
 
-// <h1>..</h1> if html, or else *** ... ***
+// format as <h1>...</h1> if html or else as *** ... ***
 function h1(msg) {
     return html ? "<h1>" + msg + "</h1>" : "*** " + msg + " ***";
 }
 
 // Basic output display buffer
 var log_buffer = [];
-// Displays its parameter with ", " between them
+
+// Displays its parameters with ", " between them
 function log() {
     var msg = Array.prototype.slice.call(arguments).join(", ");
-    log_buffer.push(Array.prototype.slice.call(arguments).join(", "));
+    if( msg !== "OK" ){
+      log_buffer.push(Array.prototype.slice.call(arguments).join(", "));
+    }
     if (!html) {
         console.log(msg);
         return msg;
@@ -40,10 +44,16 @@ function log() {
     id.innerHTML = txt;
     return msg;
 }
+
 log("Starting Parole test");
 log("Hello world! This is about Parole, a new (may 2013) flow control toolkit");
 log("<a href='http://github.com/JeanHuguesRobert/l8/wiki/ParoleReference'>github.com/JeanHuguesRobert/l8</a>");
-log()
+log();
+
+// Make a new curried logger function that is similar to log() but with a msg prefix
+function clog( msg ) {
+  return log.bind( null, msg );
+}
 
 var count_tests = 0;
 var count_fails = 0;
@@ -56,18 +66,19 @@ var count_fails = 0;
 function shows() {
     var args = Array.prototype.slice.call(arguments).reverse();
     var ii = 0;
-    len = args.length;
+    var len = args.length;
     while (ii < len) {
         var output = log_buffer[log_buffer.length - ii - 1];
         var expected = args[ii];
         count_tests++;
         if (output.indexOf(expected) === -1) {
             count_fails++;
-            log("!!! expected not found: '" + expected + "', found: '" + output + "'");
+            log("!!! Not OK, expected: '" + expected + "', found: '" + output + "'");
             return;
         }
         ii++;
     }
+    log( "OK" );
 }
 
 function assert(x) {
@@ -90,15 +101,16 @@ try {
     var p;
     var p2;
     var p3;
+    
 
     log(h1("Callbacks"));
 
-    p = P().on(log.bind(null, "Listener 1"));
+    p = P().on(clog("Listener 1"));
     p("I am a callback");
     shows("Listener 1, I am a callback");
     p("I am another callback");
     shows("Listener 1, I am another callback");
-    p.on(log.bind(null, "Listener 2"));
+    p.on(clog("Listener 2"));
     // => nothing
     p("I am yet another callback");
     shows("Listener 2, I am yet another callback");
@@ -115,13 +127,14 @@ try {
     shows("Listener 2, Some more error news, ...");
     p("Ready");
     shows("Listener 2, Ready");
+    
 
     log(h1("Subscribers"));
 
     //p = P(); not a a new parole, previous listener is still active
-    p.subscribe(log.bind(null, "Subscriber 1"));
+    p.subscribe(clog("Subscriber 1"));
     shows("Subscriber 1, Ready");
-    p.subscribe(log.bind(null, "Subscriber 2"));
+    p.subscribe(clog("Subscriber 2"));
     shows("Subscriber 2, Ready");
     p("Some published news", "...");
     shows("Listener 2, Some published news, ...",
@@ -134,14 +147,15 @@ try {
 
     p = P();
     log(".");
-    p.subscribe(log.bind(null, "Subscriber 1"));
+    p.subscribe(clog("Subscriber 1"));
     p("Some published news", "...");
     shows("Subscriber 1, Some published news, ...");
-    p.subscribe(log.bind(null, "Subscriber 2"));
+    p.subscribe(clog("Subscriber 2"));
     shows("Subscriber 2, Some published news, ...");
     p("Some more news", "...");
     shows("Subscriber 1, Some more news, ...",
         "Subscriber 2, Some more news, ...");
+        
 
     log(h1("Chains of steps"));
 
@@ -152,14 +166,32 @@ try {
         shows();
     }).will(function () {
         this(log("Second will step"), "it is final");
-    }).on(log.bind(null, "Chain results"));
+    }).on(clog("Chain results"));
     shows("First will step",
         "Second will step",
         "Chain results, Second will step, it is final");
 
     P.scheduler("sync"); // Forced sync mode, useful for test, bad for deep stacks
+    
+
+    log(h1("Fork/Join"));
+    
+    p = P();
+    p.fork( function(){
+      this( "fork 1" );
+    }).fork( function(){
+      this( "fork 2" );
+    }).fork( function(){
+      this( "fork 3" );
+    }).will( function( _, results ){
+      log( results );
+      shows( "fork 1,fork 2,fork 3" );
+    });
+    p();
+
 
     log(h1("Generators"));
+
     var fibonacci = P.generator(function () {
         var i = 0,
             j = 1;
@@ -173,20 +205,21 @@ try {
         });
     });
     var gen = fibonacci();
-    gen(log.bind(null, "1 gen"));
+    gen(clog("1 gen"));
     shows("1 gen, 0");
-    gen(log.bind(null, "2 gen"));
+    gen(clog("2 gen"));
     shows("2 gen, 1");
-    gen(log.bind(null, "3 gen"));
+    gen(clog("3 gen"));
     shows("3 gen, 1");
-    gen(log.bind(null, "4 gen"));
+    gen(clog("4 gen"));
     shows("4 gen, 2");
-    gen(log.bind(null, "5 gen"));
+    gen(clog("5 gen"));
     shows("5 gen, 3");
-    gen(log.bind(null, "6 gen"));
+    gen(clog("6 gen"));
     shows("6 gen, 5");
-    gen(log.bind(null, "7 gen"));
+    gen(clog("7 gen"));
     shows("7 gen, 8");
+
 
     log(h1("Async functions"));
 
@@ -245,44 +278,44 @@ try {
 
     p = P();
     log(".");
-    p.then(log.bind(null, "resolve() Success"));
+    p.then(clog("resolve() Success"));
     p.resolve();
     shows("Success,");
 
     p = P();
     log(".");
-    p.then(log.bind(null, "p() Success"));
+    p.then(clog("p() Success"));
     p();
     shows("Success,");
 
     p = P();
     log(".");
-    p.then(null, log.bind(null, "reject() Failure"));
+    p.then(null, clog("reject() Failure"));
     p.reject();
     shows("Failure,");
 
     p = P();
     log(".");
-    p.then(null, log.bind(null, "p() Failure"));
+    p.then(null, clog("p() Failure"));
     p(!false);
     shows("Failure, true");
 
     p = P();
     log(".");
     p.then(null,function(e){ throw e;})
-    .then( null, log.bind( null, "p() thrown failure"));
+    .then( null, clog("p() thrown failure"));
     p( "error!" )
     shows("thrown failure, error!")
 
     p = P();
     log(".");
-    p.then(log.bind(null, "when() Success"));
+    p.then(clog("when() Success"));
     p.when("Now");
     shows("Success, Now");
 
     p = P();
     log(".");
-    p.then(log.bind(null, "when() Success"));
+    p.then(clog("when() Success"));
     p2 = P();
     p.when(p2);
     p2.resolve("Later");
@@ -290,7 +323,7 @@ try {
 
     p = P();
     log(".");
-    p.then(log.bind(null, "when() Success"));
+    p.then(clog("when() Success"));
     p2 = P();
     p3 = P();
     p.when(p2, p3);
@@ -301,7 +334,7 @@ try {
 
     p = P();
     log(".");
-    p.then(null, log.bind(null, "when() Failure"));
+    p.then(null, clog("when() Failure"));
     p2 = P();
     p3 = P();
     p.when(p2, p3);
@@ -311,15 +344,15 @@ try {
 
     p = P();
     log(".");
-    p.then(null, log.bind(null, "reject() Failure"));
+    p.then(null, clog("reject() Failure"));
     p2 = p.upgrade("Upgraded");
-    p2.then(log.bind(null, "upgrade() Success"));
+    p2.then(clog("upgrade() Success"));
     p.reject("Error");
     shows("Failure, Error", "Success, Upgraded");
 
     p = P();
     log(".");
-    p.then(log.bind(null, "and() Success"));
+    p.then(clog("and() Success"));
     p2 = P();
     p3 = P();
     p.and(p2, p3);
@@ -329,7 +362,7 @@ try {
 
     p = P();
     log(".");
-    p.then(log.bind(null, "and() Success"));
+    p.then(clog("and() Success"));
     p2 = P();
     p3 = P();
     p.and(p2, p3);
@@ -338,7 +371,7 @@ try {
 
     p = P();
     log(".");
-    p.then(log.bind(null, "or() Success"));
+    p.then(clog("or() Success"));
     p2 = P();
     p3 = P();
     p.or(p2, p3);
@@ -347,7 +380,7 @@ try {
 
     p = P();
     log(".");
-    p.then(null, log.bind(null, "or() Failure"));
+    p.then(null, clog("or() Failure"));
     p2 = P();
     p3 = P();
     p.or(p2, p3);
@@ -356,7 +389,7 @@ try {
 
     p = P();
     log(".");
-    p.then(log.bind(null, "not(f) Success"));
+    p.then(clog("not(f) Success"));
     p2 = P();
     p.not(p2);
     p2.resolve(false);
@@ -364,7 +397,7 @@ try {
 
     p = P();
     log(".");
-    p.then(log.bind(null, "not(t) Success"));
+    p.then(clog("not(t) Success"));
     p2 = P();
     p.not(p2);
     p2.resolve(true);
@@ -372,7 +405,7 @@ try {
 
     p = P();
     log(".");
-    p.then(log.bind(null, "not(t, t) Success"));
+    p.then(clog("not(t, t) Success"));
     p2 = P();
     p3 = P();
     p.not(p2, p3);
@@ -382,7 +415,7 @@ try {
 
     p = P();
     log(".");
-    p.then(log.bind(null, "not(t, f) Success"));
+    p.then(clog("not(t, f) Success"));
     p2 = P();
     p3 = P();
     p.not(p2, p3);
@@ -392,7 +425,7 @@ try {
 
     p = P();
     log(".");
-    p.then(log.bind(null, "not(f, f) Success"));
+    p.then(clog("not(f, f) Success"));
     p2 = P();
     p3 = P();
     p.not(p2, p3);
@@ -402,7 +435,7 @@ try {
 
     p = P();
     log(".");
-    p.then(log.bind(null, "nand(f) Success"));
+    p.then(clog("nand(f) Success"));
     p2 = P();
     p.nand(p2);
     p2.resolve(false);
@@ -410,7 +443,7 @@ try {
 
     p = P();
     log(".");
-    p.then(log.bind(null, "nand(t) Success"));
+    p.then(clog("nand(t) Success"));
     p2 = P();
     p.nand(p2);
     p2.resolve(true);
@@ -418,7 +451,7 @@ try {
 
     p = P();
     log(".");
-    p.then(log.bind(null, "nand(t, t) Success"));
+    p.then(clog("nand(t, t) Success"));
     p2 = P();
     p3 = P();
     p.nand(p2, p3);
@@ -428,7 +461,7 @@ try {
 
     p = P();
     log(".");
-    p.then(log.bind(null, "nand(t, f) Success"));
+    p.then(clog("nand(t, f) Success"));
     p2 = P();
     p3 = P();
     p.nand(p2, p3);
@@ -438,7 +471,7 @@ try {
 
     p = P();
     log(".");
-    p.then(log.bind(null, "nand(f, f) Success"));
+    p.then(clog("nand(f, f) Success"));
     p2 = P();
     p3 = P();
     p.nand(p2, p3);
@@ -447,14 +480,9 @@ try {
     shows("Success, true");
 
     log(".");
-    p = P.collect("A", P("B"), "C", P("D")).then(log.bind(null, "collect() Success"));
+    p = P.collect("A", P("B"), "C", P("D")).then(clog("collect() Success"));
     shows("Success, A,B,C,D");
     // Note: A,B,C,D is an array
-
-    log(h1("Q compatibility"));
-    var q = P.Q();
-    q.promise.then( function(){ log( "Q is OK");});
-    q.resolve();
 
     p_general.resolve("general test done");
 
@@ -705,7 +733,7 @@ function (results) {
             log("!!! " + count_fails + " failures");
             process.exit(1);
         }
-        log("TEST SUCCESS");
+        log("test/parole.js -- TEST SUCCESS");
         process.exit(0);
     });
 },

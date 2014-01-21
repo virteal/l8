@@ -1,6 +1,6 @@
 {
   "name": "l8",
-  "version": "0.1.79",
+  "version": "0.2.01",
   "description": "l8 is a task manager for javascript. Simple tasks becomes 'paroles', complex tasks become functions broken in steps. l8 comes with synchronisation and distribution tools including semaphores, mutexes, message queues, generators, actors and socket.io proxied actors, among others. The roadmap includes a solution to run the same code in the brower and in the server, using the full node.js API in both cases.",
   "main": "lib/l8.js",
   "files": [
@@ -24,14 +24,15 @@
     "requirejs":        "latest"
   },
   "devDependencies": {
-    "coffee-script": "~1.4.0",
+    "coffee-script": "latest",
     "browserify":    "latest",
     "uglify-js" :    "1",
-    "promises-aplus-tests": "*"
+    "mocha":         "latest",
+    "promises-aplus-tests": "latest"
   },
   "scripts": {
     "postinstall": "ln -s ../. node_modules/l8 || true",
-    "test": "node test/suite.js && node test/actor.js && node test/node.js && node test/parole.js && promises-aplus-tests test/promise.js"
+    "test": "node test/parole.js && mocha test/boxon.js -R spec && promises-aplus-tests test/promise.js && node test/suite.js && node test/actor.js && node test/node.js"
   },
   "repository": {
     "type": "git",
@@ -42,9 +43,9 @@
     "control",
     "flow control",
     "flow-control",
-    "q",
     "async",
     "promise",
+    "future",
     "defer",
     "deferred",
     "parole",
@@ -61,8 +62,6 @@
     "rpc",
     "message passing",
     "message queue",
-    "nodejs",
-    "browserify",
     "websockets",
     "socket.io"
   ],
