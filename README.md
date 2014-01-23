@@ -50,7 +50,7 @@ function delayedPromise( delay ){
 Please find more documentation in [the wiki](../../wiki/AboutBoxons)
 
 
-L8 Paroles
+l8 Paroles
 ==========
 
 Parole (lib/whisper.js) is another independant subset of l8 tailored to provide some of the most convenient features of l8 using the node.js callback convention.
@@ -126,7 +126,7 @@ p1( "Hello" )( "World" );
 Please find more documentation in [the wiki](../../wiki/AboutParoles)
 
 
-L8 Tasks
+l8 Tasks
 ========
 
 A Task is an activity that a "normal" javascript function cannot do because... javascript functions cannot block! Where functions provide results, tasks provide promises instead. To become tasks that can block, functions are broken into steps that the l8 scheduler executes.
@@ -190,8 +190,8 @@ Cluster - run actors in multiple processes to get more speed on multi-core CPUs.
 The goal is to have a tool to build code that runs in browsers and servers, distributed using the actor model for inter process communications.
 
 
-l8 API
-======
+l8 API at a glance
+==================
 
 ```
   l8
@@ -317,7 +317,7 @@ l8 API
   Signals are usefull to send a signal to multiple tasks when some condition is
   met:
 
-    .promise            -- a promise fullfilled when signal is next signaled
+    .promise            -- a promise fulfilled when signal is next signaled
     .signal( value )    -- signal signal, resolve all pending promises
 
   Calls are functions that will be called when signaled. They are similar to
@@ -363,8 +363,8 @@ l8 API
   promise. The result of a promise can be a Function that will be evaluated and
   will replace the initial promise.
 
-  Other librairies provides additional usefull services. See Q.js, When.js,
-  Promise.io, etc.
+  Other librairies provides additional usefull Promise related services. See
+  lueebird, Q.js, When.js, Promise.io, etc.
 
   -- Actors runs in places called "stages"
   They are remotely accessible using proxies.
