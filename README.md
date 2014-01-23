@@ -183,6 +183,8 @@ Browser adaptor - this works somehow. It's about running code on the browser usi
 
 Boxon - done.
 
+ECMA 6 Promise - partial, need more tests and doc.
+
 ECMA 6 Generators - using "yield" to break a function in steps is a nice option. Study phase.
 
 Cluster - run actors in multiple processes to get more speed on multi-core CPUs.
