@@ -1,6 +1,6 @@
 {
   "name": "l8",
-  "version": "0.2.03",
+  "version": "0.2.04",
   "description": "l8 is a task manager for javascript. Simple tasks becomes 'paroles', complex tasks become functions broken in steps. l8 comes with synchronisation and distribution tools including semaphores, mutexes, message queues, generators, actors and socket.io proxied actors, among others. The roadmap includes a solution to run the same code in the brower and in the server, using the full node.js API in both cases.",
   "main": "lib/l8.js",
   "files": [
@@ -15,20 +15,21 @@
     "node": ">=0.10.0"
   },
   "dependencies": {
-    "matches":          ">=0.5.0",
-    "socket.io":        ">=0.9.13",
-    "zeparser":         ">=0.0.5",
+    "matches": ">=0.5.0",
+    "socket.io": ">=0.9.13",
+    "zeparser": ">=0.0.5",
     "socket.io-client": ">=0.9.11",
-    "connect":          ">=2.7.1",
-    "bugsnag":          "latest",
-    "requirejs":        "latest"
+    "connect": ">=2.7.1",
+    "bugsnag": "latest",
+    "requirejs": "latest"
   },
   "devDependencies": {
     "coffee-script": "latest",
-    "browserify":    "latest",
-    "uglify-js" :    "1",
-    "mocha":         "latest",
-    "promises-aplus-tests": "latest"
+    "browserify": "latest",
+    "uglify-js": "1",
+    "mocha": "latest",
+    "promises-aplus-tests": "*",
+    "mocha-unfunk-reporter": "~0.4.0"
   },
   "scripts": {
     "postinstall": "ln -s ../. node_modules/l8 || true",
@@ -66,10 +67,9 @@
     "socket.io"
   ],
   "author": {
-    "name"  : "Jean Hugues Robert",
-    "email" : "jean_hugues_robert@yahoo.com",
-    "url"   : "http://virteal.com"
+    "name": "Jean Hugues Robert",
+    "email": "jean_hugues_robert@yahoo.com",
+    "url": "http://virteal.com"
   },
   "license": "MIT"
 }
-
