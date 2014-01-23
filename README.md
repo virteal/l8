@@ -1,9 +1,9 @@
-l8 0.2.01
+l8 0.2.05
 =========
 
 [![Build Status](https://travis-ci.org/JeanHuguesRobert/l8.png)](https://travis-ci.org/JeanHuguesRobert/l8)
 
-l8 is a modern multi-tasker for javascript. It schedules javascript tasks using promises and distributed actors. Such tasks can run browser side and server side.
+l8 is a pthread/erlang inspired multi-tasker for javascript. It schedules javascript tasks using promises and distributed actors. Such tasks can run browser side and server side.
 
 This is a work in progress that is not ready for production yet.
 See [![Build Status](https://c9.io/site/wp-content/themes/cloud9/img/logo_cloud9_small.png)](https://c9.io/jhr/l8)
@@ -14,7 +14,17 @@ npm install l8
 cd node_modules/l8; npm test
 ```
 
-L8 Boxon
+Introduction
+============
+
+It is well known that JavaScript is mono-threaded. The closest concept to multi-threading is the ECMA 6 proposal for generator functions, a special purpose type of co-routines. Platform specific extensions exists (fiber, NodeJX task, ...) as well as transpilers. These solutions have drawbacks known for years and there is no clear path of evolution on sight.
+
+Until recently JavaScript applications were simple and synchronisation issues could be dealt with in some adhoc manner reasonnably. This is less and less the case. As a result a new class of problems appears. Starting with infamous "Callback Hell" problem.
+
+Fortunately, two low level mechanisms emerged in recent years. l8 builds on top of these mechanisms to provide the higher level mechanisms available using other languages. These two mechanisms are the nodejs introduced standard signature for callbacks, f( err, ...result ), and the Promise object recently endorsed by ECMA 6 and already available as a shim.
+
+
+l8 Boxon
 ========
 
 Boxon (lib/boxon.js) is a tiny 50loc helper that removes some of the mess with callbacks. It provides an indirect callback object that makes it possible to delay the installation of the actual callback if so desired. That object is also a "thenable" and can be conveniently turned into a Promise by most existing promise librairies including the ECMA 6 one.
@@ -32,7 +42,7 @@ read.boxon( function( err, data ){ ... } );
 ```
 function delayedPromise( delay ){
   var timeout = Boxon(); setTimeout( timeout, delay );
-  // ECMA 6 Promises
+  // ECMA 6 Promises (or l8 shim for it)
   return Promise.cast( timeout );
 }
 ```
@@ -110,6 +120,7 @@ pipe1.pipe( pipe2 ).pipe( function( output ){
   console.log( output );
 });
 p1( "Hello" )( "World" );
+// => !*Hello*!   !*World*!
 ```
 
 Please find more documentation in [the wiki](../../wiki/AboutParoles)
@@ -118,7 +129,7 @@ Please find more documentation in [the wiki](../../wiki/AboutParoles)
 L8 Tasks
 ========
 
-A Task is any activity that a "normal" javascript function cannot do because... javascript functions cannot block! Where functions provide results, tasks provide promises instead. To become tasks that can block, functions are broken into steps that the l8 scheduler executes.
+A Task is an activity that a "normal" javascript function cannot do because... javascript functions cannot block! Where functions provide results, tasks provide promises instead. To become tasks that can block, functions are broken into steps that the l8 scheduler executes.
 
 ```
 // Simpliest multi-user html game ever, best solution in log2 N guesses
@@ -144,13 +155,13 @@ l8.task ->
 # extracted from test/input.coffee
 ```
 
-L8 is a comprehensive library to help those who want to embrace the javascript style of asynchronous programming but feel that the classic thread/blocking-function model is also very readable.
+l8 is a comprehensive library to help those who want to embrace the javascript style of asynchronous programming but feel that the classic thread/blocking-function model is also very readable.
 
 l8 schedules the execution of multiple "tasks". A task is made of "steps", much like a function is made of statements. Execution goes from "step" to "step", steps are closures. If one cannot walk a step immediately, one does block, waiting for something before resuming. Steps can nest, like blocks of statements.
 
-Hence l8 tasks are kind of user level non preemptive threads. They are neither native threads, nor worker threads, nor fibers nor the result of some CPS transformation. Just a bunch of cooperating closures. However, if you are familiar with threads, l8 tasks should seem natural to you.
+Hence l8 tasks are kind of user level non preemptive threads. They are neither native threads, nor worker threads, nor fibers nor the result of some CPS transformation. Just a bunch of cooperating closures. However, if you are familiar with threads or fibers, l8 tasks should seem natural to you.
 
-l8 tasks are also "promises". Once a task is completed, it's promise is either fullfilled or rejected depending on the task success or failure.
+l8 tasks are also "promises". Once a task is completed, it's promise is either fulfilled or rejected depending on the task success or failure.
 
 The main flow control structures are the sequential execution of steps, the execution and join of forked steps on parallel paths, error propagation similar to exception handling and synchronisation using the usual suspects (semaphores, mutexes, reentrant locks, message queues, ports, signals, generators...).
 
@@ -168,20 +179,24 @@ Node.js adaptor - it's about transforming all node.js API functions that use cal
 
 Actors - local & proxied. Mostly done, needs more tests.
 
-Browser adaptor - this is starting to work. It's about running code on the browser using the exact same API as the one when running on a server, including the full node.js API. Some APIs will be emulated locally when possible, the others are submitted to a server via proxies.
+Browser adaptor - this works somehow. It's about running code on the browser using the exact same API as the one when running on a server, including the full node.js API. It is mainly a demo application for the actor code and no further development is envisionned at this stage.
+
+Boxon - done.
+
+ECMA 6 Generators - using "yield" to break a function in steps is a nice option. Study phase.
 
 Cluster - run actors in multiple processes to get more speed on multi-core CPUs.
 
 The goal is to have a tool to build code that runs in browsers and servers, distributed using the actor model for inter process communications.
 
 
-L8 API
+l8 API
 ======
 
 ```
   l8
      -- step/task creation. "body" can create additional steps/subtasks
-    .step(     body )   -- queue a step on the path to task's completion
+    .step(     body )   -- queue a step on the path to task completion
     .task(     body )   -- queue a step that waits on a blocking subtask
     .fork(     body )   -- queue a step that starts a forked task, forks "join"
     .repeat(   body )   -- queue a step that repeats a blocking subtask
@@ -322,8 +337,8 @@ L8 API
     .put                -- a "can yield()" promise
     .next( [msg] )      -- pause task until producer yields, get/send a msg
     .yield( msg )       -- pause task until consumer calls .next(), get/send
-    .try_next( [msg] )  -- if .get promise is ready, get yield's msg
-    .try_yield( msg )   -- if .put promise is ready, get next's msg
+    .try_next( [msg] )  -- if .get promise is ready, get yield msg
+    .try_yield( msg )   -- if .put promise is ready, get next msg
     .signal( msg )      -- alias for try_yield()
     .close()            -- break paused tasks (using .break())
     .closed             -- true once generator is closed
