@@ -34,7 +34,7 @@ Boxon (lib/boxon.js) is a tiny 50loc helper that removes some of the mess with c
 ```
 var read = Boxon(); fs.readFile( "read.txt", "utf8", read );
 // ... somewhere else, in some distant future maybe ...
-read.boxon( function( err, data ){ ... } );
+read( function( err, data ){ ... } );
 ```
 
 "Boxons to build promises" use case
