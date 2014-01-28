@@ -19,7 +19,7 @@ Introduction
 
 It is well known that JavaScript is mono-threaded. The closest concept to multi-threading is the ECMA 6 proposal for generator functions, a special purpose type of co-routines. Platform specific extensions exists (fiber, NodeJX task, ...) as well as transpilers. These solutions have drawbacks known for years and there is no clear path of evolution on sight.
 
-Until recently JavaScript applications were simple and synchronisation issues could be dealt with in some adhoc manner reasonnably. This is less and less the case. As a result a new class of problems appears. Starting with infamous "Callback Hell" problem.
+Until recently JavaScript applications were simple and synchronisation issues could be dealt with in some adhoc manner reasonnably. This is less and less the case. As a result a new class of problems appears. Starting with the infamous "Callback Hell" problem.
 
 Fortunately, two low level mechanisms emerged in recent years. l8 builds on top of these mechanisms to provide the higher level mechanisms available using other languages. These two mechanisms are the nodejs introduced standard signature for callbacks, f( err, ...result ), and the Promise object recently endorsed by ECMA 6 and already available as a shim.
 
