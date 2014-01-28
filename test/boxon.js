@@ -100,6 +100,18 @@
       done();
     });
     
+    it( "handles multiple callbacks", function( done ){
+      var b = Boxon();
+      var f = function(){};
+      b( function( on ){
+        console.log( "callback attached" );
+        assert( on.boxon === b );
+        assert( on.on === f );
+        done();
+      });
+      b( f );
+    });
+    
     // ToDo: more tests
     
   });
