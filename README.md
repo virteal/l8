@@ -1,5 +1,5 @@
-l8 0.2.06
-=========
+l8 0.2.6
+========
 
 [![Build Status](https://travis-ci.org/JeanHuguesRobert/l8.png)](https://travis-ci.org/JeanHuguesRobert/l8)
 
@@ -27,7 +27,7 @@ Fortunately, two low level mechanisms emerged in recent years. l8 builds on top 
 l8 Boxon
 ========
 
-Boxon (lib/boxon.js) is a tiny 100 LOC helper that removes some of the mess with callbacks and promises. It provides an indirect callback object that makes it possible to delay the installation of the actual callback if so desired. That object is also a "thenable" and can be conveniently turned into a Promise by most existing promise librairies including the ECMA 6 one.
+Boxon (lib/boxon.js) is a tiny 200 LOC helper that removes some of the mess with callbacks and promises. It provides an indirect callback object that makes it possible to delay the installation of the actual callback if so desired. That object is also a "thenable" and can be conveniently turned into a Promise by most existing promise librairies including the ECMA 6 one.
 
 "Boxons as better callbacks" use case
 -------------------------------------
@@ -292,6 +292,7 @@ l8 API at a glance
   .timeout( delay )     -- create a promise fulfilled within a delay
   .call( fn )           -- like a callback but returns a promise when signaled
   .parole( [fn] )       -- create a Parole
+  .boxon( ... )         -- create a Boxon
   .generate( block )    -- starts a next()/yield() consumer/producer generator
   .Generator( block )   -- build a Generator Constructor.
 
