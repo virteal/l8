@@ -2,10 +2,9 @@
   //
   // January 2014 by JeanHuguesRobert aka @jhr
 
-  var Boxon = require( "l8/lib/boxon.js" );
-  var assert = require( "assert" );
-  
-  // Smoke test
+  var Promise = require( "l8/lib/whisper.js" ).Promise;
+  var Boxon   = require( "l8/lib/boxon.js" ).scope( Promise );
+  var assert  = require( "assert" );
   
   describe( "Boxon", function(){
     
@@ -100,18 +99,32 @@
       done();
     });
     
-    it( "handles multiple callbacks", function( done ){
+    it( "handles multiple callback errors", function( done ){
       var b = Boxon();
       var f = function(){};
       b( function( on ){
         console.log( "callback attached" );
-        assert( on.boxon === b );
+        assert( on.Boxon === b );
         assert( on.on === f );
         done();
       });
       b( f );
     });
     
+    it( "handles multiple callback with moxons", function( done ){
+      var b = Boxon.Moxon();
+      var count = 0;
+      var f = function( _, msg ){
+        assert( msg === "Moxon!" );
+        count++;
+        console.log( "call", count, msg );
+        if( count === 2 )return done();
+        assert( count === 1 );
+      };
+      b( f );
+      b( f );
+      b( null, "Moxon!" );
+    });
     // ToDo: more tests
     
   });

@@ -1,4 +1,4 @@
-l8 0.2.05
+l8 0.2.06
 =========
 
 [![Build Status](https://travis-ci.org/JeanHuguesRobert/l8.png)](https://travis-ci.org/JeanHuguesRobert/l8)
@@ -27,23 +27,33 @@ Fortunately, two low level mechanisms emerged in recent years. l8 builds on top 
 l8 Boxon
 ========
 
-Boxon (lib/boxon.js) is a tiny 50loc helper that removes some of the mess with callbacks. It provides an indirect callback object that makes it possible to delay the installation of the actual callback if so desired. That object is also a "thenable" and can be conveniently turned into a Promise by most existing promise librairies including the ECMA 6 one.
+Boxon (lib/boxon.js) is a tiny 100 LOC helper that removes some of the mess with callbacks and promises. It provides an indirect callback object that makes it possible to delay the installation of the actual callback if so desired. That object is also a "thenable" and can be conveniently turned into a Promise by most existing promise librairies including the ECMA 6 one.
 
-"Boxons as callbacks" use case
-------------------------------
+"Boxons as better callbacks" use case
+-------------------------------------
 ```
 var read = Boxon(); fs.readFile( "read.txt", "utf8", read );
 // ... somewhere else, in some distant future maybe ...
 read( function( err, data ){ ... } );
 ```
 
-"Boxons to build promises" use case
------------------------------------
+"promise outcome retrieval, nodejs style"
+-----------------------------------------
 ```
-function delayedPromise( delay ){
-  var timeout = Boxon(); setTimeout( timeout, delay );
-  // ECMA 6 Promises (or l8 shim for it)
-  return Promise.cast( timeout );
+var read = Boxon( read_promise );
+read( function( err, data ){ ... } );
+```
+
+"outcome as data" use case
+--------------------------
+```
+var read = Boxon( ... );
+... somewhere else, after outcome was delivered ..
+try{
+  var content = read();
+  ...
+}catch( err ){
+  // oops, some read error
 }
 ```
 
