@@ -93,10 +93,165 @@
       b( "Ignored" );
       var v2 = b();
       console.log( "v1:", v2, "v2:", v2 );
-      assert( typeof v1 === "undefined" );
+      assert( typeof v1 === "undefined", "undefined" );
       console.log( "properly undefined" );
-      assert( v1 === v2 );
+      assert( v1 === v2, "still undefined" );
       done();
+    });
+    
+    it( "interop with other boxon implementations", function( done ){
+      var other = { boxon: function( f  ){
+        assert( typeof f === "function", "proper callback" );
+        f( "a1", "a2" );
+      } };
+      var b = Boxon( other );
+      b( function( a1, a2 ){
+        assert( a1 === "a1", "err handling" );
+        assert( a2 === "a2", "result handling" );
+        done();
+      });
+    });
+    
+    it( "can track another boxon", function( done ){
+      var other = Boxon();
+      var b = Boxon( other );
+      b( function( err, result ){
+        assert( typeof err === "undefined", "undefined err" );
+        assert( typeof result === "undefined", "undefined result" );
+        done();
+      } );
+      other();
+    });
+    
+    it( "can track a rejected promise", function( done ){
+      var p = new Promise( function( ok, ko ){
+        ko( "rejected" );
+      });
+      var b = Boxon( p );
+      b( function( err ){
+        assert( err === "rejected", "rejection" );
+        done();
+      });
+    });
+    
+    it( "can track a resolved promise", function( done ){
+      var p = new Promise( function( ok, ko ){
+        ok( "resolved" );
+      });
+      var b = Boxon( p );
+      b( function( err, result ){
+        console.log( err, result );
+        assert( !err, "no error" );
+        assert( result === "resolved", "resolution" );
+        done();
+      });
+    });
+    
+    it( "can track a delayed promise rejection", function( done ){
+      var p = new Promise( function( ok, ko ){
+        setTimeout( function(){ ko( "rejected" ) }, 0 );
+      });
+      var b = Boxon( p );
+      b( function( err ){
+        assert( err === "rejected", "rejection" );
+        done();
+      });
+    });
+    
+    it( "can track a delayed promise resolution", function( done ){
+      var p = new Promise( function( ok, ko ){
+        setTimeout( function(){ ok( "resolved" ); }, 0 );
+      });
+      var b = Boxon( p );
+      b( function( err, result ){
+        console.log( err, result );
+        assert( !err, "no error" );
+        assert( result === "resolved", "resolution" );
+        done();
+      });
+    });
+    
+    it( "can track a 'thunk'", function( done ){
+      var t = function( cb ){ cb( "called" ); };
+      var b = Boxon( t, t );
+      b( function( p ){
+        assert( p === "called" );
+        done();
+      });
+    });
+    
+    it( "can track a delayed 'thunk'", function( done ){
+      var t = function( cb ){
+        setTimeout( function(){ cb( "called" ); }, 0 );
+      };
+      var b = Boxon.co( t );
+      b( function( p ){
+        assert( p === "called" );
+        done();
+      });
+    });
+    
+    it( "can track an async call", function( done ){
+      var ctx = {
+        fn: function( h, cb ){
+          console.log( "called" );
+          assert( this === ctx, "context" );
+          assert( h === "hello", "parameter ");
+          assert( typeof cb === "function", "callback" );
+          cb( null, h );
+        }
+      };
+      var b = Boxon();
+      b( ctx, ctx.fn, "hello" );
+      b( function( _, h ){
+        console.log( "callback called" );
+        assert( h === "hello", "result" );
+      });
+      b.then( function( p ){
+        console.log( "success callback called" );
+        assert( p === "hello", "result" );
+        done()
+      });
+    });
+    
+    it( "is a promise, resolved", function( done ){
+      var b = Boxon();
+      b.then( function( ok ){
+        assert( ok === "resolved", "resolution" );
+        done();
+      });
+      b( null, "resolved" );
+    });
+    
+    it( "is a promise, rejected", function( done ){
+      var b = Boxon();
+      b.then( null, function( ko ){
+        assert( ko === "rejected", "rejection" );
+        done();
+      });
+      b( "rejected" );
+    });
+    
+    it( "handles 'then' like callbacks, success", function( done ){
+      var b = Boxon();
+      b( function( ok ){
+        assert( ok === "ok", "resolved" );
+        done();
+      }, function( err ){
+        assert( false, "rejected" );
+      });
+      b( null, "ok" );
+    });
+    
+    it( "handles 'then' like callbacks, failure", function( done ){
+      var b = Boxon();
+      b( function( ok ){
+        assert( false, "resolved" );
+      }, function( err ){
+        assert( err === "err", "rejected" );
+        done();
+      });
+      b( "err" );
     });
     
     it( "handles multiple callback errors", function( done ){
@@ -125,6 +280,7 @@
       b( f );
       b( null, "Moxon!" );
     });
+    
     // ToDo: more tests
     
   });
