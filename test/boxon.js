@@ -104,7 +104,7 @@
         assert( typeof f === "function", "proper callback" );
         f( "a1", "a2" );
       } };
-      var b = Boxon( other );
+      var b = Boxon.cast( other );
       b( function( a1, a2 ){
         assert( a1 === "a1", "err handling" );
         assert( a2 === "a2", "result handling" );
@@ -114,7 +114,7 @@
     
     it( "can track another boxon", function( done ){
       var other = Boxon();
-      var b = Boxon( other );
+      var b = Boxon.cast( other );
       b( function( err, result ){
         assert( typeof err === "undefined", "undefined err" );
         assert( typeof result === "undefined", "undefined result" );
@@ -127,7 +127,7 @@
       var p = new Promise( function( ok, ko ){
         ko( "rejected" );
       });
-      var b = Boxon( p );
+      var b = Boxon.cast( p );
       b( function( err ){
         assert( err === "rejected", "rejection" );
         done();
@@ -138,7 +138,7 @@
       var p = new Promise( function( ok, ko ){
         ok( "resolved" );
       });
-      var b = Boxon( p );
+      var b = Boxon.cast( p );
       b( function( err, result ){
         console.log( err, result );
         assert( !err, "no error" );
@@ -151,7 +151,7 @@
       var p = new Promise( function( ok, ko ){
         setTimeout( function(){ ko( "rejected" ) }, 0 );
       });
-      var b = Boxon( p );
+      var b = Boxon.cast( p );
       b( function( err ){
         assert( err === "rejected", "rejection" );
         done();
@@ -162,7 +162,7 @@
       var p = new Promise( function( ok, ko ){
         setTimeout( function(){ ok( "resolved" ); }, 0 );
       });
-      var b = Boxon( p );
+      var b = Boxon.cast( p );
       b( function( err, result ){
         console.log( err, result );
         assert( !err, "no error" );
@@ -173,7 +173,7 @@
     
     it( "can track a 'thunk'", function( done ){
       var t = function( cb ){ cb( "called" ); };
-      var b = Boxon( t, t );
+      var b = Boxon.co( t );
       b( function( p ){
         assert( p === "called" );
         done();
@@ -210,7 +210,7 @@
       b.then( function( p ){
         console.log( "success callback called" );
         assert( p === "hello", "result" );
-        done()
+        done();
       });
     });
     
@@ -230,28 +230,6 @@
         done();
       });
       b( "rejected" );
-    });
-    
-    it( "handles 'then' like callbacks, success", function( done ){
-      var b = Boxon();
-      b( function( ok ){
-        assert( ok === "ok", "resolved" );
-        done();
-      }, function( err ){
-        assert( false, "rejected" );
-      });
-      b( null, "ok" );
-    });
-    
-    it( "handles 'then' like callbacks, failure", function( done ){
-      var b = Boxon();
-      b( function( ok ){
-        assert( false, "resolved" );
-      }, function( err ){
-        assert( err === "err", "rejected" );
-        done();
-      });
-      b( "err" );
     });
     
     it( "handles multiple callback errors", function( done ){
