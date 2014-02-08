@@ -40,7 +40,7 @@ read( function( err, data ){ ... } );
 "promise outcome retrieval, nodejs style"
 -----------------------------------------
 ```
-var read = Boxon( read_promise );
+var read = Boxon.cast( read_promise );
 read( function( err, data ){ ... } );
 ```
 
