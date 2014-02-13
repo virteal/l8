@@ -40,7 +40,8 @@
       b( "This should be ignored" );
       b( function( m ){
         console.log( "memorized: " + m );
-        assert( m == "Hello Boxon" );
+        assert( m == "Hello Boxon", "outcome" );
+        assert( Boxon.current === b, "current" );
         done();
       });
     });
@@ -52,7 +53,8 @@
       b( function( m ) {
         console.log( "context: ", this, ", memorized: " + m );
         assert( this === ctx );
-        assert( m == "Hello Boxon" );
+        assert( m == "Hello Boxon", "outcome" );
+        assert( Boxon.current === b, "current" );
         done();
       }, ctx );
     });
