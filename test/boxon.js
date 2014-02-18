@@ -261,6 +261,36 @@
       b( null, "Moxon!" );
     });
     
+    it( "collects outcomes", function( done ){
+      var r1 = Boxon();
+      var r2 = Boxon();
+      var with_all = Boxon.all([ r1, r2, "done" ]);
+      with_all( function( err, a ){
+        assert( !err, "err" );
+        assert( r1() === "first", "first" );
+        assert( r2() === "second", "second" );
+        assert( a[0] === r1, "r1" );
+        assert( a[1] === r2, "r2" );
+        assert( a[2]() === "done", "done" );
+        done();
+       });
+      r2( null, "second" );
+      r1( null, "first"  );
+    });
+    
+    it( "select first outcome", function( done ){
+      var r1 = Boxon();
+      var r2 = Boxon();
+      Boxon.race([ r1, r2 ] )( function( err, winner ){
+        assert( !err, "err" );
+        assert( winner === r2 );
+        assert( r2() === "second", "second" );
+        done();
+      });
+      r2( null, "second" );
+      r1( null, "first" );
+    });
+    
     // ToDo: more tests
     
   });
