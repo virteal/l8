@@ -1,5 +1,5 @@
-l8 0.2.9
-========
+l8 0.2.10
+=========
 
 [![Build Status](https://travis-ci.org/JeanHuguesRobert/l8.png)](https://travis-ci.org/JeanHuguesRobert/l8)
 
@@ -58,6 +58,27 @@ try{
 ```
 
 Please find more documentation in [the wiki](../../wiki/AboutBoxons)
+
+
+l8 Water
+========
+Water (lib/water.js) is a reactive programming independant subset of l8 related to computed values automatically refreshed when changes occur on the values they depend on. This is like cells in a spreadsheet.
+
+Example
+-------
+```
+var a = Water(), b = Water(), c = Water();
+c( function(){ return a(Water) && b(Water) && a() + b(); }
+var track = Water( function( v ){ console.log( "c: " + v ); } );
+c( track );
+a( 2 );
+b( 5 ); // => outputs 7 on console
+a( 1 ); // => outputs 6
+```
+
+l8 Water manages recursive dependencies, asynchronous refresh, lazy values and interop with boxons and promises.
+
+Please find more documentation in [the wiki](../../wiki/AboutWater)
 
 
 l8 Paroles
@@ -178,28 +199,30 @@ The main flow control structures are the sequential execution of steps, the exec
 Beware that the "thread" model of computation is not without shortcomings. Race conditions and deadlocks are difficult to avoid when using the shared state paradigm. What is sometimes a necessary evil to gain maximal performance out of multiple cores cpus is not an option within a javascript process that is by design single threaded. This is why l8 favors a different approach based on message passing and distributed actors.
 
 
-Roadmap (jan 2014)
+Roadmap (feb 2014)
 ==================
 
-Tasks - mostly done, needs more tests.
+Boxons - mostly complete with good test converage.
+
+Water - current work on progress.
 
 Paroles - mostly done, needs more tests.
 
+Tasks - mostly done, needs more tests.
+
 Node.js adaptor - it's about transforming all node.js API functions that use callbacks into l8 tasks to make it easier to use the node.js API in a blocking manner. See the test/node.js working example.
 
-Actors - local & proxied. Mostly done, needs more tests.
+Actors - local & proxied. half done, needs more tests.
 
 Browser adaptor - this works somehow. It's about running code on the browser using the exact same API as the one when running on a server, including the full node.js API. It is mainly a demo application for the actor code and no further development is envisionned at this stage.
 
-Boxon - done.
-
 ECMA 6 Promise - partial, need more tests and doc.
 
-ECMA 6 Generators - using "yield" to break a function in steps is a nice option. Study phase.
+ECMA 6 Generators - using "yield" to break a function in steps is a nice option. Study phase. Interop with co() seems ok.
 
-Cluster - run actors in multiple processes to get more speed on multi-core CPUs.
+Cluster - run actors in multiple processes to get more speed on multi-core CPUs. Not done.
 
-The goal is to have a tool to build code that runs in browsers and servers, distributed using the actor model for inter process communications.
+The goal is to have a modern toolkit to build code that runs in browsers and servers, distributed using the actor model for inter process communications.
 
 
 l8 API at a glance
