@@ -60,20 +60,38 @@ try{
 Please find more documentation in [the wiki](../../wiki/AboutBoxons)
 
 
-l8 Water
-========
+l8 Water & Fluid
+================
 Water (lib/water.js) is a reactive programming independant subset of l8 related to computed values automatically refreshed when changes occur on the values they depend on. This is like cells in a spreadsheet.
 
 Example
 -------
 ```
 var a = Water(), b = Water(), c = Water();
-c( function(){ return a(Water) && b(Water) && a() + b(); }
-var track = Water( function( v ){ console.log( "c: " + v ); } );
-c( track );
+c( Water, function(){ return a(Water) && b(Water) && a() + b(); }
+Water( c, function( v ){ console.log( "c: " + v ); } );
 a( 2 );
 b( 5 ); // => outputs 7 on console
 a( 1 ); // => outputs 6
+```
+
+Fluid example
+-------------
+```
+var source = Water();
+var sink   = Water();
+Water.fluid()
+  .from( source )
+    .where(  function( v ){ if( v > 0 )return v; } )
+    .map(    function( v ){ return v * 10;       } )
+    .reduce( function( p, v ){ return p + v;  }, 0 )
+    .tap(    function( v ){ console.log( v );    } )
+  .to( sink );
+source( -1 ); // => nothing
+source(  1 ); // => 10
+source( -2 ); // => nothing
+source(  2 ); // => 30
+console.log( sink() ); // => 30
 ```
 
 l8 Water manages recursive dependencies, asynchronous refresh, lazy values and interop with boxons and promises.
