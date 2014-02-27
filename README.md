@@ -68,9 +68,9 @@ Example
 -------
 ```
 var a = Water(), b = Water(), c = Water();
-c( Water, function(){ return a(Water) && b(Water) && a() + b(); }
+c( Water, function(){ return a() + b(); }
 Water( c, function( v ){ console.log( "c: " + v ); } );
-a( 2 );
+a( 2 ); // nothing, b is missing
 b( 5 ); // => outputs 7 on console
 a( 1 ); // => outputs 6
 ```
@@ -78,19 +78,21 @@ a( 1 ); // => outputs 6
 Fluid example
 -------------
 ```
-var source = Water();
-var sink   = Water();
+var source  = Water();
+var source2 = Water();
+var sink    = Water();
 Water.fluid()
-  .from( source )
-    .where(  function( v ){ if( v > 0 )return v; } )
+  .from( source  )
+  .from( source2 )
+    .where(  function( v ){ return v > 0;        } )
     .map(    function( v ){ return v * 10;       } )
     .reduce( function( p, v ){ return p + v;  }, 0 )
     .tap(    function( v ){ console.log( v );    } )
   .to( sink );
-source( -1 ); // => nothing
-source(  1 ); // => 10
-source( -2 ); // => nothing
-source(  2 ); // => 30
+source(  -1 ); // => nothing
+source(   1 ); // => 10
+source(  -2 ); // => nothing
+source2(  2 ); // => 30
 console.log( sink() ); // => 30
 ```
 
@@ -334,6 +336,8 @@ l8 API at a glance
   .call( fn )           -- like a callback but returns a promise when signaled
   .parole( [fn] )       -- create a Parole
   .boxon( ... )         -- create a Boxon
+  .water( ... )         -- create a Water
+  .fluid( ... )         -- create a Fluid
   .generate( block )    -- starts a next()/yield() consumer/producer generator
   .Generator( block )   -- build a Generator Constructor.
 
