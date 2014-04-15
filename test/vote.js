@@ -3,6 +3,7 @@
 //
 // april 2014 by @jhr
 
+"use strict";
 
 var l8    = require( "l8/lib/l8.js"    );
 var boxon = require( "l8/lib/boxon.js" );
@@ -19,15 +20,28 @@ function mand( b ){
   throw new Error( "vote.js assert" );
 }
 
+function safe( f ){
+  return function(){
+    try{
+      return f.apply( this, arguments );
+    }catch( err ){
+      trace( "Error", err, err.stack );
+    }
+  };
+}
+
+
 /*
  *  Reactive entities management
  */
 
 //var global = this;
 
-var epoch = 1397247088461;
+var epoch = 0; // 1397247088461;
 function now(){ return l8.now - epoch; }
+var ONE_YEAR = 365 * 24 * 60 * 60 * 1000;
 
+// Entities have an unique id
 var NextUid = 1;
 function uid( x ){
   if( x ){
@@ -41,16 +55,20 @@ function uid( x ){
   return NextUid++;
 }
 
-var noop = function(){};
-
+// All entities are stored in a big array
 var AllEntities = [];
+
 function lookup( uid ){
-  if( uid > NextUid ){
-    de&&bug( "Forward UID lookup" );
+  if( uid >= NextUid ){
+    de&&bug( "Forward UID lookup", uid );
     NextUid = uid + 1;
   }
   return AllEntities[ uid ] || null_object;
 }
+
+// Misc. util
+
+var noop = function(){};
 
 var no_opts = { version: 1 };
 
@@ -58,7 +76,6 @@ var extend = function( to, from ){
   for( var ii in from ){ to[ ii ] = from[ ii ]; } 
   return to;
 };
-
 
 /*
  *  Base class for all entities
@@ -77,8 +94,8 @@ extend( Entity.prototype, {
   type: "Entity",
   create: function( options ){ return new Entity( options ); },
   is_proto: function(){
-    if( !this.ctor )debugger;
-    return this === this.ctor.prototype;
+    if( !this.constructor )debugger;
+    return this === this.constructor.prototype;
   },
   expired: function(){ return false; },
   log: function(){ console.log( this.toString() ); },
@@ -90,7 +107,7 @@ extend( Entity.prototype, {
     + (this.label ? "[" + this.label + "]" : "" );
   }
 } );
-Entity.prototype.ctor = Entity;
+Entity.prototype.constructor = Entity;
 
 var null_object = new Entity( no_opts );
 null_object.uid = 0;
@@ -104,6 +121,7 @@ function inspect( v, level ){
   if( !v )return buf + v;
   if( typeof v === "function" || typeof v === "object" ){
     if( typeof v === "function" ){
+      // Water, get their current value
       if( v._water ){
         buf += "|" + inspect( v._water.current, level && level - 1 ) + "|";
         return buf;
@@ -120,6 +138,9 @@ function inspect( v, level ){
           buf += "F()";
         }
       }
+    }else if( v.water ){
+      // Water errors!
+      buf += "!" + inspect( v.error, level && level - 1) + "!";
     }else if( Array.isArray( v ) ){
       if( level === 0 || !v.length ){
         return "[]" + (v.length ? "." + v.length : "");
@@ -150,11 +171,17 @@ function inspect( v, level ){
     return buf + "{" + lbuf.join( ", " ) + "}";
   }else if( typeof v === "string" ){
     return buf + '"' + v + '"';
-  }else if( v === 365 * 24 * 60 * 60 * 1000 ){
+  }else if( v === ONE_YEAR ){
     return "a year";
   }else{
     return buf + "" + v;
   }
+}
+
+function dump_entity( x, level ){
+  if( !level ){ level = 1; }
+  console.log( inspect( x, level ) );
+  //console.log( "Value", x.value() );
 }
 
 function dump_entities( from, level ){
@@ -165,12 +192,12 @@ function dump_entities( from, level ){
   var item;
   if( ii < 1000 ){
     while( item = list[ ii++ ] ){
-      console.log( inspect( item, level ) );
+      dump_entity( item, level );
     }
     ii = 1000;
   }
   while( item = list[ ii++ ] ){
-    console.log( inspect( item, level ) );
+    dump_entity( item, level );
   }
   console.log( "--- END DUMP ---" );
 }
@@ -182,35 +209,65 @@ var Subtype = function( ctor, base ){
   var name = ctor.name;
   var sub = ctor.prototype = extend( {}, proto );
   sub.type = name;
-  sub.constructor = sub.ctor = ctor;
+  sub.constructor = ctor;
   ctor.super = base;
   sub.super  = proto;
   // Build the instance creation function
   var efluid = ctor.fluid = fluid();
   ctor.create = sub.create = function( options ){
     if( !options ){ options = {}; }
-    var obj = Object.create( sub );
+    var obj = Entity.created = Object.create( sub );
     if( options.uid ){
       obj.uid = uid( options.uid );
     }else{
       obj.uid = uid();
     }
+    // Track all instances, some of them will expire
+    AllEntities[ obj.uid ] = obj;
     base.call( obj, options );
     ctor.call( obj, options );
-    // Track all instances
-    AllEntities[ obj.uid ] = obj;
     //de&&bug( "New entity", "" + inspect( obj, 2 ) );
-    if( proto_entity ){ efluid.push( obj ); }
+    if( proto_entity ){
+      efluid.push( obj );
+    }
     return obj;
   };
   // Create the prototypal instance. It will will create new instances
+  Entity.proto_stage = true;
   var proto_entity = ctor.create();
+  Entity.proto_stage = false;
   ctor.prototype = sub = AllEntities[ name ] = proto_entity;
   ctor.uid = proto_entity.uid;
   trace( "Create entity " + inspect( proto_entity ) );
   de&&mand( proto_entity.is_proto() );
+  de&&mand( proto_entity.is_entity );
+  de&&mand( proto_entity.uid );
+  de&&mand( proto_entity.v );
+  de&&mand( proto_entity.super === proto );
+  de&&mand( proto_entity.constructor === ctor );
+  de&&mand( proto_entity.constructor.prototype === proto_entity );
   return proto_entity;
 };
+
+// Ember style computed property.
+// Usage, in constructors only:
+//  this.attr = function(){ this.other_attr() * 10 }.when( this.other_attr );
+Function.prototype.when = function(){
+  var transform = this;
+  // When .create() is called, Entity.created points to the beeing created obj
+  var that = Entity.created;
+  // Bind the transform function with the target entity
+  var f = function(){
+    try{
+      return transform.apply( that, arguments );
+    }catch( err ){
+      trace( "Water transform error", err, err.stack );
+      debugger;
+    }
+  };
+  return water( water, f, arguments );
+};
+
 
 /*
  *  Entities sometimes reference each other using uids, when stored typically
@@ -362,6 +419,54 @@ function json_decode( o ){
 }
 
 
+// Entity's value is a snapshot of the entity's current state
+
+function value( x, force ){
+  // console.log( x );
+  var o;
+  var a;
+  var r;
+  if( x ){
+    if( x.is_entity && x.buried ){
+      return;
+    }else if( x.is_entity && !force ){
+      return x.uid;
+    }else if( typeof x === "function" ){
+      if( x._water ){
+        return value( x._water.current );
+      }
+    }else if( typeof x === "object" ){
+      if( x.water ){
+        return { water: "water", error: value( x.water.error ) };
+      }else if( Array.isArray( x ) ){
+        a = [];
+        x.forEach( function( v, ii ){
+          a[ ii ] = value( v );
+        });
+        return a;
+      }else{
+        o = {};
+        for( var attr in x ){
+          r = value( x[ attr ] );
+          if( typeof r !== "undefined"
+          && [ "type", "v", "super", "is_entity", "buried" ].indexOf( attr ) === -1
+          ){
+            o[ attr ] = r;
+          }
+        }
+        return o;
+      }
+    }else{
+      return x;
+    }
+  }else{
+    return x;
+  }
+}
+
+Entity.prototype.value = function(){ return value( this, true ); };
+
+
 /*
  *  The only constant is change - Heraclitus
  */
@@ -378,33 +483,93 @@ function Change( options ){
 
 /*
  *  The rest is ephemeral. It will expire and be buried.
+ *
+ *  Lifecycle: create(), [renew()], expiration(), [resurect() + renew()]... 
  */
 
 Subtype( Ephemeral );
 function Ephemeral( options ){
   this.timestamp  = options.timestamp || now();
-  this.duration   = water( options.duration || (365 * 24 * 60 * 60 * 1000) );
+  this.duration   = water( options.duration || ONE_YEAR );
   this.buried     = false;
-  var that = this;
-  this.expire     = water( this.duration,
-    function(){
-      var limit = that.timestamp + that.duration();
-      if( limit > now() ){ that.bury(); }
-      return limit;
+  this.expire     = Entity.proto_stage ? null : function(){
+    var limit = this.timestamp + this.duration();
+    if( now() > limit ){
+      this.bury();
+    }else{
+      this.schedule( limit );
     }
-  );  
+    return limit;
+  }.when( this.duration );
 }
 
 Ephemeral.prototype.expired = function(){
-  var flag = this.buried || ( this.expire() > now() );
-  if( flag ){ this.bury(); }
-  return flag;
+  if( this.buried )return true;
+  return now() > this.expire();
 };
 
 Ephemeral.prototype.bury = function(){
   if( this.buried )return;
+  if( this.is_proto() ){
+    trace( "Don't bury prototypes!" );
+    debugger;
+  }
   this.buried = true;
+  this.expiration();
+  // Clear object if not resurected, this enables some garbadge collection
+  if( this.buried ){
+    for( var attr in this ){
+      if( attr !== "is_entity" && "attr" !== "buried" ){
+        var v = this[ attr ];
+        if( v ){
+          if( v._water ){ water.dispose( v ); }
+        }
+        this[ attr ] = undefined;
+      }
+    }
+    // Also remove from list of all entities to prevent new references to it
+    AllEntities[ this.uid ] = null;
+  }
+};
+
+Ephemeral.prototype.expiration = function(){
+  // Default is to create an expiration entity but subtype can do differently
   Expiration.create( { entity: this } );
+};
+
+Ephemeral.prototype.resurect = function(){
+// To be called from a redefined .expiration(), needs a renew().
+  if( !this.buried )throw new Error( "Resurect Entity" );
+  this.buried = false;
+};
+
+Ephemeral.prototype.schedule = function( limit ){
+  var delay = limit - now();
+  if( delay < 0 ){ delay = 0; }
+  var that = this;
+  setTimeout( function(){
+    if( that.expired() ){ that.bury(); }
+  }, delay );
+};
+
+Ephemeral.prototype.age = function(){
+  return now() - this.timestamp;
+};
+
+Ephemeral.prototype.renew = function( duration ){
+  if( this.buried )return;
+  if( !duration ){ duration = ONE_YEAR; }
+  var new_limit = now() + duration;
+  var total_duration = new_limit - this.timestamp;
+  this.duration( total_duration );
+};
+
+Ephemeral.prototype.touch = function(){
+  var delay = this.expire() - now();
+  // If touched after mid life, extend duration to twice the current age
+  if( delay < this.age() / 2 ){
+    this.renew( this.age() * 2 );
+  }
 };
 
 
@@ -459,10 +624,10 @@ Persona.group      = "group";
 
 Subtype( Source, Ephemeral );
 function Source( options ){
-  this.url     = options.url;
-  this.label   = options.label;
-  this.persona = options.persona;
   this.topic   = options.topic;
+  this.persona = options.persona;
+  this.label   = options.label;
+  this.url     = options.url;
 }
 
 
@@ -480,8 +645,11 @@ function Topic( options ){
   this.source      = water( options.source );
   this.children    = water( options.children || [] );
   this.delegations = water( [] );
-  this.result      = water();
+  this.result      = Entity.proto_stage ? null : Result.create({ topic: this });
 }
+
+Topic.prototype.add_vote    = function( o, v ){ this.result.add_vote(    o, v ); };
+Topic.prototype.remove_vote = function( o, v ){ this.result.remove_vote( o, v ); };
 
 
 /*
@@ -495,14 +663,36 @@ function Topic( options ){
  
 Subtype( Vote, Ephemeral );
 function Vote( options ){
+  
+  de&&mand( options.person );
+  de&&mand( options.topic  );
   this.persona     = options.persona;
   this.topic       = options.topic;
-  this.orientation = water( options.orientation || Vote.neutral );
-  this.previously  = water( options.previously );
-  this.delegation  = water( options.delegation || "direct" );
   this.analyst     = options.analyst;
   this.source      = options.source;
-  this.privacy     = water( options.privacy || "private" );
+  this.delegation  = water( options.delegation  || Vote.direct  );
+  this.privacy     = water( options.privacy     || Vote.private );
+  this.previously  = water( options.previously  || Vote.neutral );
+  
+  var that = this;
+  this.orientation = water( water, po, [] );
+  if( options.orientation ){
+    this.orientation( options.orientation );
+  }
+  function po( o ){
+    try{
+      var p = water.current.current || Vote.neutral;
+      if( o === p )return;
+      // Orientation changed
+      that.remove( p );
+      that.add( o );
+      return o;
+    }catch( err ){
+      trace( "Could not process vote", err, err.stack );
+      console.trace( err );
+      debugger;
+    }
+  }
 }
 
 // Vote orientations
@@ -512,87 +702,148 @@ Vote.disagree = "disagree";
 Vote.protest  = "protest";
 Vote.blank    = "blank";
 
+// Vote delegation, "direct" or indirect via agent
+Vote.direct = "direct";
+
 // Vote privacy
 Vote.public  = "public";
 Vote.secret  = "secret";
 Vote.private = "private";
 
+// At expiration vote becomes private direct neutral for a while
+Vote.prototype.expiration = function(){
+  if( this.orientation !== Vote.neutral ){
+    this.resurect();
+    this.renew();
+    this.orientation( Vote.neutral );
+    this.delegation(  Vote.direct  );
+    this.privacy(     Vote.private );
+  }
+};
+
+Vote.prototype.add = function( o ){
+  if( o === Vote.neutral )return;
+  var that = this;
+  water.effect(
+    function(){
+      trace( "Add vote to topic" ); debugger;
+      that.topic.add_vote( o, that );
+    }
+  );
+};
+
+Vote.prototype.remove = function( o ){
+  this.previously( o );
+  if( o === Vote.neutral )return;
+  var that = this;
+  water.effect(
+    function(){
+      trace( "Remove vote from topic" ); debugger;
+      that.topic.remove_vote();
+    }
+  );
+};
+
 
 Subtype( Result, Ephemeral );
 function Result( options ){
-  this.topic     = options.topic;
+  
+  de&&mand( options.topic || Entity.proto_stage );
+  this.topic     = options.topic || Topic.prototype;
   this.neutral   = water( options.neutral   || 0 );
   this.blank     = water( options.blank     || 0 );
   this.protest   = water( options.protest   || 0 );
   this.agree     = water( options.agree     || 0 );
   this.disagree  = water( options.disagree  || 0 );
   this.direct    = water( options.direct    || 0 );
-  var that = this;
-  this.total = water( water, function(){
-    return that.neutral()
-    + that.blank()
-    + that.protest()
-    + that.agree()
-    + that.disagree();
-  }, [ this.neutral, this.blank, this.protest, this.agree, this.disagree ] );
-  this.against = water( water, function(){
-    return that.disagree() + that.protest();
-  }, [ this.disagree, this.protest ] );
-  this.win = water( water, function(){
-    return that.agree() > that.against();
-  }, [ this.agree, this.against ] );
-  this.orientation = water( water, function(){
-    var old = that.orientation();
+  
+  this.total = function(){
+    return this.neutral()
+    + this.blank()
+    + this.protest()
+    + this.agree()
+    + this.disagree();
+  }.when( this.neutral, this.blank, this.protest, this.agree, this.disagree );
+  
+  this.against = function(){
+    return this.disagree() + this.protest();
+  }.when( this.disagree, this.protest );
+  
+  this.win = function(){
+    return this.agree() > this.against();
+  }.when( this.agree, this.against );
+  
+  this.orientation = Entity.proto_stage ? null : function(){
+    var old = water.current.current || Vote.neutral;
+    trace( "Compute orientation", value( this, true ) );
+    if( value( this, true).agree === 1 )debugger;
     var now;
-    if( that.expired() ){
+    if( this.expired() ){
       now = Vote.neutral;
-    }else if( that.agree() > that.against() ){
+    }else if( this.agree() > this.against() ){
       // Won
-      if( that.agree() > that.blank() ){
-        // agree > blank, > neutral, > against
+      if( this.agree() > this.blank() ){
+        // agree > blank, > against
         now = Vote.agree;
       }else{
-        // blank > agree, > neutral, > against
+        // blank > agree, > against
         now = Vote.blank;
       }
     }else{
       // Lost
-      if( that.disagree() > that.neutral() ){
-        if( that.disagree() > that.blank() ){
-          if( that.disagree() > that.protest() ){
+      if( this.disagree() > this.neutral() ){
+        if( this.disagree() > this.blank() ){
+          if( this.disagree() > this.protest() ){
             now = Vote.disagree;
           }else{
             now = Vote.protest;
           }
         }else{
-          if( that.blank() > that.protest() ){
+          if( this.blank() > this.protest() ){
             now = Vote.blank;
           }else{
             now = Vote.protest;
           }
         }
       }else{
-        if( that.disagree() > that.blank() ){
-          if( that.disagree() > that.protest() ){
+        if( this.disagree() > this.blank() ){
+          if( this.disagree() > this.protest() ){
             now = Vote.disagree;
           }else{
             now = Vote.protest;
           }
         }else{
-          if( that.blank() > that.protest() ){
+          if( this.blank() > this.protest() ){
             now = Vote.blank;
           }else{
-            now = Vote.protest;
+            now = this.protest() ? Vote.protest : Vote.neutral;
           }
         }
       }
-      if( now !== old ){
-        Transition.create({ result: this, orientation: now, previously: old });
-        return now;
-      }
     }
-  }, [ this.agree, this.disagree, this.blank, this.protest ] );
+    //trace( "Orientation", now, old );
+    if( now !== old ){
+      Transition.create({ result: this, orientation: now, previously: old });
+      return now;
+    }
+  }.when( this.agree, this.disagree, this.blank, this.protest );
 }
+
+Result.prototype.add_vote = function( o, v ){
+  de&&mand( v.topic === this.topic );
+  this[ o ]( this[ o ]() + 1 );
+  if( v.delegation === Vote.direct ){
+    this.direct( this.direct() + 1 );
+  }
+};
+
+Result.prototype.remove_vote = function( o, v ){
+  de&&mand( v.topic === this.topic );
+  this[ o ]( this[ o ]() - 1 );
+  if( v.delegation === Vote.direct ){
+    this.direct( this.direct() - 1 );
+  }
+};
 
 
 /*
@@ -604,9 +855,12 @@ function Result( options ){
  
 Subtype( Transition, Event );
 function Transition( options ){
-  this.result      = options.result;
-  this.orientation = options.orientation;
-  this.previoulsys = options.previously;
+  de&&mand( options.result      || Entity.proto_stage );
+  de&&mand( options.orientation || Entity.proto_stage );
+  de&&mand( options.previously  || Entity.proto_stage );
+  this.result      = options.result      || Result.prototype;;
+  this.orientation = options.orientation || Vote.neutral;
+  this.previously  = options.previously  || Vote.neutral;
 }
 
 
@@ -688,6 +942,7 @@ function CRITICAL(){ TRACE( Trace.critical, arguments ); }
  */
 
 function persist( fn, a_fluid, filter ){
+  var tmp = boxon(); tmp( "forced bootstrap" ); return tmp;
   var restored;
   // At some point changes will have to be stored
   a_fluid.tap( function( item ){
