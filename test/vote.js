@@ -260,6 +260,7 @@ function dump_entities( from, level ){
   while( item = list[ ii++ ] ){
     dump_entity( item, level );
   }
+  console.log( "RootTopic:", value( RootTopic, true ) );
   console.log( "--- END DUMP ---" );
 }
 
@@ -912,12 +913,15 @@ function Persona( options ){
   this.friends     = water( [] ); // Individual's friends or group's members
   this.memberships = water( [] ); // To groups
   this.delegations = water( [] ); // To personas, about topics
-  this.votes       = water( [] );
+  this.votes       = water( [] ); // Direct votes
 }
 
 // Persona roles
 Persona.individual = "individual";
 Persona.group      = "group";
+
+Persona.prototype.is_group      = function(){ return this.role === "group"; };
+Persona.prototype.is_individual = function(){ return !this.is_group();      };
 
 
 /*
@@ -942,21 +946,87 @@ function Source( options ){
  *  Topic entity
  *
  *  Atomic topics are the ultimate target of votes.
+ *    their source is typically a tweet.
  *  Tag topics classify topic/sub-topic relatiohships. 
+ *    they don't have a source.
  */
  
 Subtype( Topic, Ephemeral );
 function Topic( options ){
   this.label       = options.label;
-  this.parent      = water( options.parent );
+  this.parent      = water();
   this.source      = water( options.source );
-  this.children    = water( options.children || [] );
+  if( !this.source ){
+    this.children    = water( options.children || [] );
+  }
   this.delegations = water( [] );
   this.result      = Entity.proto_stage ? null : Result.create({ topic: this });
+  if( !Entity.proto_stage ){
+    this.change_parent( options.parent || RootTopic );
+  }
 }
 
+Topic.prototype.is_atomic   = function(){ return !this.children; };
+Topic.prototype.is_tag      = function(){ return !this.is_atomic(); };
 Topic.prototype.add_vote    = function( o, v ){ this.result.add_vote(    o, v ); };
 Topic.prototype.remove_vote = function( o, v ){ this.result.remove_vote( o, v ); };
+
+  // A topic includes another one if it is an ancestor of it
+Topic.prototype.includes = function( other_topic ){
+  if( this.is_atomic() )return false;
+  var parent = other_topic;
+  while( parent = parent.parent() ){
+    if( parent === this )return true;
+  }
+  return false;
+};
+
+// The ancestors of a topic are the topics that includes it
+Topic.prototype.ancestors = function(){
+  var list = [];
+  var parent = this;
+  while( parent = parent.parent() ){
+    list.push( parent );
+  }
+  return list;
+};
+
+Topic.prototype.change_parent = function( topic ){
+  var parent = this.parent();
+  if( parent ){
+    parent._remove_child( this );
+  }
+  // Only RootTopic has no parent
+  if( !topic )return;
+  topic._add_child( this );
+  this.parent( topic );
+  // ToDo: change votes based on delegations involved
+  trace( "ToDo: topic's parent change handling " + this + "/" + topic );
+};
+
+// Private. Called by .change_parent()
+Topic.prototype._add_child = function( topic ){
+  // Check if already there
+  var list = this.children();
+  if( list.indexOf( topic ) !== -1 )return;
+  // ToDo: ordered list?
+  // Avoid clone?
+  list = list.slice()
+  list.push( topic );
+  this.children( list );
+  trace( "ToDo: topic's child addition handling " + this + "/" + topic );
+};
+
+// Private. Called by .change_parent()
+Topic.prototype._remove_child = function( topic ){
+  // Check if already there
+  var list = this.children();
+  var index = list.indexOf( topic );
+  if( index === -1 )return;
+  list = list.splice( index, 1 );
+  this.children( list );
+  trace( "ToDo: topic's child removal handling " + this + "/" + topic  );
+};
 
 
 /*
@@ -1003,6 +1073,7 @@ function Vote( options ){
 }
 
 // Vote orientations
+Vote.indirect = "indirect";
 Vote.neutral  = "neutral";
 Vote.agree    = "agree";
 Vote.disagree = "disagree";
@@ -1030,6 +1101,8 @@ Vote.prototype.expiration = function(){
 
 Vote.prototype.add = function( o ){
   if( o === Vote.neutral )return;
+  // Indirect votes are processed at delegatee's level
+  if( o === Vote.indirect )return;
   var that = this;
   water.effect(
     function(){
@@ -1042,6 +1115,8 @@ Vote.prototype.add = function( o ){
 Vote.prototype.remove = function( o ){
   this.previously( o );
   if( o === Vote.neutral )return;
+  // Indirect votes are processed at delegatee's level
+  if( o === Vote.indirect )return;
   var that = this;
   water.effect(
     function(){
@@ -1082,7 +1157,7 @@ function Result( options ){
   
   this.orientation = Entity.proto_stage ? null : function(){
     var old = water.current.current || Vote.neutral;
-    trace( "Compute orientation", value( this, true ) );
+    trace( "Compute orientation " + this ); //, value( this, true ) );
     var now;
     if( this.expired() ){
       now = Vote.neutral;
@@ -1173,7 +1248,7 @@ function Transition( options ){
 /*
  *  Delegation entity.
  *
- *  It describes how a persona's vote on topic is delegated to another persona.
+ *  It describes how a persona's vote is delegated to another persona.
  */
 
 Subtype( Delegation, Ephemeral );
@@ -1195,6 +1270,10 @@ function Membership( options ){
   this.member = options.member;
   this.group  = options.leader;
 }
+
+
+// Default parent topic for new topics
+var RootTopic = Topic.create({ label: "Root" });
 
 
 /*
@@ -1304,4 +1383,4 @@ function main(){
 }
 
 l8.begin.step( main ).end;
-l8.countdown( 2 );
+l8.countdown( 200 );
