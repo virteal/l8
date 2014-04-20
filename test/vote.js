@@ -7,12 +7,19 @@
 
 "use strict";
 
-var l8    = require( "l8/lib/l8.js"    );
-var boxon = require( "l8/lib/boxon.js" );
-var water = require( "l8/lib/water.js" );
-var fluid = water.fluid;
+/*
+ *  First, let's create an "ephemeral" reactive flow app framework.
+ *  Application specific code comes next.
+ */
+ 
+var app = {};
+ 
+var l8    = app.l8    = require( "l8/lib/l8.js"    );
+var boxon = app.boxon = require( "l8/lib/boxon.js" );
+var water = app.water = require( "l8/lib/water.js" );
+var fluid = app.fluid = water.fluid;
 
-var trace = l8.trace;
+var trace = app.trace = l8.trace;
 var de = true;
 var bug = trace;
 function mand( b ){
@@ -33,6 +40,21 @@ var safe = function safe( f ){
   };
 };
 
+// Misc. util
+
+var noop = function(){};
+
+var no_opts = { version: 1, machine: MainMachine };
+
+var extend = function( to, from ){
+  for( var ii in from ){ to[ ii ] = from[ ii ]; } 
+  return to;
+};
+
+app.extend = extend;
+app.scope  = function( obj ){ extend( obj, app ); };
+
+
 /*
  *  Reactive entities management
  */
@@ -52,8 +74,8 @@ var UidOffset    = MaxSharedUid + 1;
  *  There is a main voting machine and domain specific ones.
  *  Machines belongs to some "owner".
  *  Vote in domain specific machine is possible for persons who belong to
- *  that domain only. When the owner is a Twitter user, it is the
- *  Twitter users that the owner follows who can vote.
+ *  that domain only. When the owner is a Twitter user, only followed users
+ *  can vote.
  *  Note: each vote in a domain specific machine also impact the same topic
  *  in the main machine. That way, results for domain members can be compared
  *  with results from the general audience.
@@ -66,6 +88,8 @@ function Machine( options ){
   // All entities are stored in a big array
   this.AllEntities = [];
 }
+
+app.machine = Machine;
 
 Machine.prototype.lookup = function( uid ){
   // Sometimes the UID is actually an entity type name
@@ -97,19 +121,7 @@ Machine.prototype.alloc_uid = function( x ){
   return this.NextUid++;
 };
 
-var MainMachine = Machine.current = new Machine({});
-
-// Misc. util
-
-var noop = function(){};
-
-var no_opts = { version: 1, machine: MainMachine };
-
-var extend = function( to, from ){
-  for( var ii in from ){ to[ ii ] = from[ ii ]; } 
-  return to;
-};
-
+var MainMachine = Machine.current = Machine.main = new Machine({});
 
 /*
  *  Base class for all entities
@@ -135,6 +147,8 @@ function Entity( options ){
   }
 }
 
+app.Entity = Entity;
+
 extend( Entity.prototype, {
   is_entity: true,
   type: "Entity",
@@ -143,7 +157,7 @@ extend( Entity.prototype, {
     return this === this.constructor.prototype;
   },
   expired: function(){ return false; },
-  log: function(){ console.log( this.toString() ); },
+  log: function( f ){ console.log( f ? f.call( this, this ) : this.toString() ); },
   toString: function(){
     return ""
     + (this.is_proto() ? "Proto" : "")
@@ -200,7 +214,7 @@ function inspect( v, level ){
         if( v.is_entity ){
           buf += v.toString(); 
         }else{
-          if( level === 0 )return "{}";
+          if( level === 0 )return "{...}";
         }
       }
     }
@@ -221,6 +235,8 @@ function inspect( v, level ){
     return buf + "" + v;
   }
 }
+
+app.inspect = inspect;
 
 function dump_entity( x, level ){
   if( !level ){ level = 1; }
@@ -249,7 +265,7 @@ function dump_entities( from, level ){
 
 // Prototypal style inheritance with typed entities
 var Subtype = function( ctor, base ){
-  if( !base ){ base = Entity; }
+  if( !base ){ base = Ephemeral; }
   var proto = base.prototype;
   var name = ctor.name;
   var sub = ctor.prototype = extend( {}, proto );
@@ -288,6 +304,7 @@ var Subtype = function( ctor, base ){
   Entity.proto_stage = false;
   ctor.prototype = sub = MainMachine.AllEntities[ name ] = proto_entity;
   ctor.uid = proto_entity.uid;
+  app[ name ] = ctor;
   trace( "Create entity " + inspect( proto_entity ) );
   de&&mand( proto_entity.is_proto() );
   de&&mand( proto_entity.is_entity );
@@ -320,7 +337,7 @@ Function.prototype.when = function(){
 
 
 /*
- *  Entities sometimes reference each other using uids, when stored typically
+ *  Entities sometimes reference each others using uids, when stored typically
  */
 
 function ref(){
@@ -361,7 +378,7 @@ function deref( o, seen ){
   }
   if( typeof o !== "object" )return o;
   if( !seen ){
-    seen = {}
+    seen = {};
   }else{
     if( o.is_entity ){
       if( seen[ o.uid ] )return o;
@@ -380,7 +397,8 @@ function deref( o, seen ){
 
 /*
  *  json encoding of entity requires changing pointers into references.
- *  if o.attr points to an entity it is replaced by an o.$attr with an uid.
+ *  if o.attr points to an entity, it is replaced by an o.$attr with an uid.
+ *  In arrays, pointers are replaced by { $: uid } values.
  */
 
 var cached_rattr_encode = {};
@@ -445,6 +463,13 @@ function json_encode( o ){
   return json;
 }
 
+var json_decode_map = {};
+
+function json_decode_mapper( uid ){
+  var m = json_decode_map[ uid ];
+  if( m )return m;
+}
+
 function json_decode( o ){
   if( typeof o !== "object" )return o;
   var decoded;
@@ -454,11 +479,14 @@ function json_decode( o ){
     decoded = [];
     o.forEach( function( v, ii ){
       if( v && v.$ ){
-        uid = Machine.current.alloc_uid( v.$ );
+        uid    = Machine.current.alloc_uid( v.$ );
         entity = Machine.current.lookup( uid );
         if( entity ){
           decoded[ ii ] = entity;
         }else{
+          // Disallow forward references
+          trace( "Invalid stored forward reference", v.$ );
+          throw new Error( "Invalid Ephemeral" );
           decoded[ ii ] = ref( v.$ );
         }
       }else{
@@ -478,6 +506,9 @@ function json_decode( o ){
           decoded[ rattr_decode( attr ) ] = entity;
         // If entity does not exists in memory yet, use a ref(), see deref()
         }else{
+          // Disallow forward references
+          trace( "Invalid stored forward reference", uid );
+          throw new Error( "Invalid Ephemeral" );
           decoded[ rattr_decode( attr ) ] = ref( uid );
         }
       }else{
@@ -490,7 +521,6 @@ function json_decode( o ){
 
 
 // Entity's value is a snapshot of the entity's current state
-
 function value( x, force ){
   // console.log( x );
   var o;
@@ -516,9 +546,11 @@ function value( x, force ){
         return a;
       }else{
         o = {};
+        // Scan all properties, including inherited ones
         for( var attr in x ){
           r = value( x[ attr ] );
           if( typeof r !== "undefined"
+          // Filter out some attributes
           && [ "machine", "type", "v", "super", "is_entity", "buried" ]
             .indexOf( attr ) === -1
           ){
@@ -545,7 +577,7 @@ Entity.prototype.value = function(){
  *  The only constant is change - Heraclitus
  */
 
-Subtype( Change );
+Subtype( Change, Entity );
 function Change( options ){
   this.ts  = options.timestamp || now();
   this.t   = options.t;
@@ -561,7 +593,7 @@ function Change( options ){
  *  Lifecycle: create(), [renew()], expiration(), [resurect() + renew()]... 
  */
 
-Subtype( Ephemeral );
+Subtype( Ephemeral, Entity );
 function Ephemeral( options ){
   this.timestamp  = options.timestamp || now();
   this.duration   = water( options.duration || ONE_YEAR );
@@ -577,6 +609,8 @@ function Ephemeral( options ){
   }.when( this.duration );
 }
 
+app.Subtype = Subtype;
+
 Ephemeral.prototype.expired = function(){
   if( this.buried )return true;
   return now() > this.expire();
@@ -587,6 +621,7 @@ Ephemeral.prototype.bury = function(){
   if( this.is_proto() ){
     trace( "Don't bury prototypes!" );
     debugger;
+    throw( "BROKEN" );
   }
   this.buried = true;
   this.expiration();
@@ -619,6 +654,7 @@ Ephemeral.prototype.resurect = function(){
 // To be called from a redefined .expiration(), needs a renew().
   if( !this.buried )throw new Error( "Resurect Entity" );
   this.buried = false;
+  // Resurection.create( { entity: this ); } );
 };
 
 Ephemeral.prototype.schedule = function( limit ){
@@ -640,6 +676,7 @@ Ephemeral.prototype.renew = function( duration ){
   var new_limit = now() + duration;
   var total_duration = new_limit - this.timestamp;
   this.duration( total_duration );
+  // Renewal.create( { entity: this } );
 };
 
 Ephemeral.prototype.touch = function(){
@@ -648,6 +685,7 @@ Ephemeral.prototype.touch = function(){
   if( delay < this.age() / 2 ){
     this.renew( this.age() * 2 );
   }
+  // Touch.create( { entity: this } );
 };
 
 
@@ -655,7 +693,7 @@ Ephemeral.prototype.touch = function(){
  *  Base type of event entities
  */
 
-Subtype( Event );
+Subtype( Event, Entity );
 function Event(){}
 
 
@@ -669,6 +707,197 @@ function Event(){}
    this.entity = options.entity;
  }
 
+
+/*
+ *  Trace entity
+ *
+ *  This is for deployed systems
+ */
+ 
+Subtype( Trace );
+function Trace( options ){
+  this.subject     = options.subject;
+  this.event       = options.verb;
+  this.parameters  = options.parameters;
+}
+
+// Trace event types
+Trace.debug    = "debug";
+Trace.info     = "info";
+Trace.error    = "error";
+Trace.critical = "critical";
+
+function TRACE( e, p ){ Trace.create({ event: e, parameters: p }); }
+function DEBUG(){    TRACE( Trace.debug,    arguments ); }
+function INFO(){     TRACE( Trace.info,     arguments ); }
+function ERROR(){    TRACE( Trace.error,    arguments ); }
+function CRITICAL(){ TRACE( Trace.critical, arguments ); }
+
+app.TRACE    = TRACE;
+app.DEBUG    = DEBUG;
+app.INFO     = INFO;
+app.ERROR    = ERROR;
+app.CRITICAL = CRITICAL;
+
+/*
+ *  Persistent changes processor
+ */
+
+function persist( fn, a_fluid, filter ){
+  //var tmp = boxon(); tmp( "forced bootstrap" ); return tmp;
+  var restored;
+  // At some point changes will have to be stored
+  a_fluid.tap( function( item ){
+    if( !restored )return;
+    // Some changes don't deserve to be stored
+    if( filter && !filter( item ) )return;
+    try{
+      de&&bug( "Write", fn, "uid:", item.uid );
+      // ToDo: let entity decide about is own storage format
+      var json;
+      if( 0 ){
+        if( item.toJson ){
+          json = item.toJson();
+        }else{
+          Entity.toJson.call( item );
+        }
+      }else{
+        json = JSON.stringify( json_encode( deref( item ) ) );
+      }
+      fs.appendFileSync( fn, json + "\r\n" );
+    }catch( err ){
+      trace( "Could not write to", fn, "uid:", item.uid, "err:", err );
+      trace( err );
+    }
+  });
+  // Return a boxon, fulfilled when restore is done
+  var next = boxon();
+  // Convert Nodejs stream into l8 fluid
+  var flow = fluid();
+  var error;
+  json_decode_map = {};
+  flow // .log( "Restore" )
+  .map( json_decode )
+  .failure( function( err ){
+    // ToDo: only ENOENT is valid, other errors should terminate program
+    error = err;
+    flow.close();
+  })
+  .final( function(){
+    trace( "End of restore" );
+    // restore done. what is now pushed to "changes" gets logged
+    restored = true;
+    next( error );
+  })
+  .to( a_fluid );
+  // Use a Nodejs stream to read from previous changes from json text file
+  var fs = require( "fs" );
+  var split = require( "split" );
+  var input = fs.createReadStream( fn );
+  input
+  .on( "error", function( err    ){
+    trace( "Error about test/vote.json", err );
+    flow.fail( err );
+    flow.close();
+  })
+  .pipe( split( JSON.parse ) )
+  // ToDo: use "readable" + read() to avoid filling all data in memory
+  .on( "data",  function( change ){ flow.push( change ); } )
+  .on( "error", function( err ){
+    trace( "Restore, stream split error", err );
+    // ToDo: only "unexpected end of input" is a valid error
+    // flow.fail( err );
+  })
+  .on( "end", function(){
+    trace( "EOF reached", fn );
+    flow.close();
+  });
+  return next;
+}
+
+app.persist = persist;
+
+Change.prototype.process = function(){
+  var target = Machine.current.lookup( this.t );
+  // trace( "Change.process, invoke", this.o, "on " + target );
+  if( this.p && !this.p.uid && this.uid ){
+    this.p.uid = this.uid;
+  }
+  return target[ this.o ].call( target, this.p );
+};
+
+
+// Exports
+
+app.start = function( bootstrap, cb ){
+  // uid 0...9999 are reserved for meta objects
+  MainMachine.NextUid = MaxSharedUid + 1;
+  start( bootstrap, cb );
+};
+
+
+/*
+ *  Dataflow processing. TBD
+ */
+ 
+fluid.method( "inspect", function(){
+  return fluid.it.map( function( it ){ return inspect( it ); } );
+} );
+
+app.Expiration = Expiration .fluid.inspect().log( "Log Expiration" );
+app.Trace      = Trace      .fluid.inspect().log( "Log Trace"      );
+
+
+// Start the "change processor".
+// It replays logged changes and then plays new ones.
+// When there is no log, it bootstraps first.
+function start( bootstrap, cb ){
+  if( !cb ){ cb = boxon(); }
+  de&&dump_entities();
+  // Here is a "change processor"
+  Change.fluid
+  .map( function( change ){
+    return Change.prototype.process.call( deref( change ) ); }
+  ).failure( function( err ){ trace( "Change process error", err, "change:", change.uid ); } )
+  .inspect().log();
+  // It replays old changes and log new ones
+  persist(
+    "ephemeral.json",
+    Change.fluid,
+    function( item ){ return item.type !== "Trace"; } // filter trace entities
+  ).boxon( function( err ){
+    var ready = boxon();
+    if( !err ){
+      trace( "Restored from ephemeral.json" );
+      ready();
+    }else{
+      trace( "Restore error", err );
+      // ToDo: handle error, only ENOENT is ok, ie file does not exist
+      trace( "Bootstrapping" );
+      var b = water.boxon();
+      bootstrap( b );
+      b.boxon( function( err ){
+        trace( "Bootstrap READY" );
+        ready();
+      });
+    }
+    ready( function( err ){
+      de&&dump_entities();
+      if( err ){
+        CRITICAL( "Cannot proceed, corrupted" );
+        cb( new Error( "Corrupted store" ) );
+      }else{
+        INFO( "READY" );
+        cb();
+      }
+    });
+  });
+}
+
+
+/* ========================= Application specific code ===================== */
+
+// require( "ephemeral.js" ).scope( global );
 
 /*
  *  Persona entity
@@ -759,10 +988,10 @@ function Vote( options ){
   }
   function po( o ){
     try{
-      var p = water.current.current || Vote.neutral;
-      if( o === p )return;
+      var prev = water.current.current || Vote.neutral;
+      if( o === prev )return;
       // Orientation changed
-      that.remove( p );
+      that.remove( prev );
       that.add( o );
       return o;
     }catch( err ){
@@ -935,7 +1164,7 @@ function Transition( options ){
   de&&mand( options.result      || Entity.proto_stage );
   de&&mand( options.orientation || Entity.proto_stage );
   de&&mand( options.previously  || Entity.proto_stage );
-  this.result      = options.result      || Result.prototype;;
+  this.result      = options.result      || Result.prototype;
   this.orientation = options.orientation || Vote.neutral;
   this.previously  = options.previously  || Vote.neutral;
 }
@@ -987,125 +1216,6 @@ function Action( options ){
   this.parameters  = options.parameters;
 }
 
-
-/*
- *  Trace entity
- *
- *  This is for deployed systems
- */
- 
-Subtype( Trace, Ephemeral );
-function Trace( options ){
-  this.subject     = options.subject;
-  this.event       = options.verb;
-  this.parameters  = options.parameters;
-}
-
-// Trace event types
-Trace.debug    = "debug";
-Trace.info     = "info";
-Trace.error    = "error";
-Trace.critical = "critical";
-
-function TRACE( e, p ){ Trace.create({ event: e, parameters: p }); }
-function DEBUG(){    TRACE( Trace.debug,    arguments ); }
-function INFO(){     TRACE( Trace.info,     arguments ); }
-function ERROR(){    TRACE( Trace.error,    arguments ); }
-function CRITICAL(){ TRACE( Trace.critical, arguments ); }
-
-
-/*
- *  Persistent changes processor
- */
-
-function persist( fn, a_fluid, filter ){
-  //var tmp = boxon(); tmp( "forced bootstrap" ); return tmp;
-  var restored;
-  // At some point changes will have to be stored
-  a_fluid.tap( function( item ){
-    if( !restored )return;
-    if( filter && !filter( item ) )return;
-    try{
-      de&&bug( "Write", fn, "uid:", item.uid );
-      // ToDo: let entity decide about is own storage format
-      var json;
-      if( 0 ){
-        if( item.toJson ){
-          json = item.toJson();
-        }else{
-          Entity.toJson.call( item );
-        }
-      }else{
-        json = JSON.stringify( json_encode( deref( item ) ) );
-      }
-      fs.appendFileSync( fn, json + "\r\n" );
-    }catch( err ){
-      trace( "Could not write to", fn, "uid:", item.uid, "err:", err );
-      trace( err );
-    }
-  });
-  // Return a boxon, fulfilled when restore is done
-  var next = boxon();
-  // Convert Nodejs stream into l8 fluid
-  var flow = fluid();
-  var error;
-  flow // .log( "Restore" )
-  .map( json_decode )
-  .failure( function( err ){
-    // ToDo: only ENOENT is valid, other errors should terminate program
-    error = err;
-    flow.close();
-  })
-  .final( function(){
-    trace( "End of restore" );
-    // restore done. what is now pushed to "changes" gets logged
-    restored = true;
-    next( error );
-  })
-  .to( a_fluid );
-  // Use a Nodejs stream to read from previous changes from json text file
-  var fs = require( "fs" );
-  var split = require( "split" );
-  var input = fs.createReadStream( fn );
-  input
-  .on( "error", function( err    ){
-    trace( "Error about test/vote.json", err );
-    flow.fail( err );
-    flow.close();
-  })
-  .pipe( split( JSON.parse ) )
-  // ToDo: use "readable" + read() to avoid filling all data in memory
-  .on( "data",  function( change ){ flow.push( change ); } )
-  .on( "error", function( err ){
-    trace( "Restore, stream split error", err );
-    // ToDo: only "unexpected end of input" is a valid error
-    // flow.fail( err );
-  })
-  .on( "end", function(){
-    trace( "EOF reached", fn );
-    flow.close();
-  });
-  return next;
-}
-
-Change.prototype.process = function(){
-  var target = Machine.current.lookup( this.t );
-  // trace( "Change.process, invoke", this.o, "on " + target );
-  if( this.p && !this.p.uid && this.uid ){
-    this.p.uid = this.uid;
-  }
-  return target[ this.o ].call( target, this.p );
-};
-
-// uid 0...9999 are reserved for meta objects
-MainMachine.NextUid = MaxSharedUid + 1;
-
-
-/*
- *  Application specific code, using entities
- */
- 
-// Bootstrap
 
 function bootstrap(){
   
@@ -1162,55 +1272,10 @@ function bootstrap(){
 }
 
 
-function main(){
-  trace( "Welcome to l8/test/vote.js -- Liquid demo...cracy" );
-  de&&dump_entities();
-  // There is a "change processor"
-  Change.fluid
-  .map( function( change ){
-    return Change.prototype.process.call( deref( change ) ); }
-  ).failure( function( err ){ trace( "Change process error", err, "change:", change.uid ); } )
-  .inspect().log();
-  // It replays old changes and log new ones
-  persist(
-    "test/vote.json",
-    Change.fluid,
-    function( item ){ return item.type !== "Trace"; } // filter trace entities
-  ).boxon( function( err ){
-    var ready = boxon();
-    if( !err ){
-      trace( "Restored from vote.json" );
-      ready();
-    }else{
-      trace( "Restore error", err );
-      // ToDo: handle error, only ENOENT is ok, ie file does not exist
-      trace( "Bootstrapping" );
-      bootstrap().boxon( function( err ){
-        trace( "Bootstrap READY" );
-        ready();
-      });
-    }
-    ready( function( err ){
-      if( err ){
-        CRITICAL( "Cannot proceed, corrupted" );
-      }else{
-        INFO( "READY" );
-      }
-      de&&dump_entities();
-    });
-  });
-}
-
-
 /*
  *  Dataflow processing. TBD
  */
  
-fluid.method( "inspect", function(){
-  return fluid.it.map( function( it ){ return inspect( it ); } );
-} );
-
-Expiration .fluid.inspect().log( "Log Expiration" );
 Persona    .fluid.inspect().log( "Log Persona"    );
 Source     .fluid.inspect().log( "Log Source"     );
 Topic      .fluid.inspect().log( "Log Topic"      );
@@ -1220,10 +1285,23 @@ Result     .fluid.inspect().log( "Log Result"     );
 Transition .fluid.inspect().log( "Log Transition" );
 Visitor    .fluid.inspect().log( "Log Visitor"    );
 Action     .fluid.inspect().log( "Log Action"     );
-Trace      .fluid.inspect().log( "Log Trace"      );
-persist( "test/vote.log.json", Trace.fluid );
+
+app.persist( "test/vote.log.json", Trace.fluid );
 
 
-main();
-//l8.begin.step( main ).end;
+function main(){
+  console.log( "Welcome to l8/test/vote.js -- Liquid demo...cracy" );
+  debugger;
+  app.start( bootstrap, function( err ){
+    if( err ){
+      console.log( "Cannot proceed", err );
+      process.exit( 1 );
+      return;
+    }
+    // Let's provide a frontend...
+    console.log( "READY!" );
+  } );
+}
+
+l8.begin.step( main ).end;
 l8.countdown( 2 );
