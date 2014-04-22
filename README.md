@@ -98,7 +98,7 @@ console.log( sink() ); // => 30
 
 l8 Water manages recursive dependencies, asynchronous refresh, lazy values and interop with boxons and promises.
 
-Please find more documentation in [the wiki](../../wiki/AboutWater)
+Please find more documentation in in the wiki [about water](../../wiki/AboutWater) and [about fluids](../../wiki/AboutFluids)
 
 
 l8 Paroles
