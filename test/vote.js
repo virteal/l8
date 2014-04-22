@@ -7,27 +7,34 @@
 
 "use strict";
 
+function ephemeral( app ){
+
 /*
- *  First, let's create an "ephemeral" reactive flow app framework.
+ *  First, let's create an "ephemeral" reactive dataflow framework.
  *  Application specific code comes next.
  */
  
-var app = {};
- 
 var l8    = app.l8    = require( "l8/lib/l8.js"    );
+// Boxons are similar to promises, but very light
 var boxon = app.boxon = require( "l8/lib/boxon.js" );
+// Water sources are reactive variables
 var water = app.water = require( "l8/lib/water.js" );
+// Fluids are streams of piped data
 var fluid = app.fluid = water.fluid;
 
-var trace = app.trace = l8.trace;
+// My de&&bug() darling, traces that can be disabled with low overhead
 var de = true;
+var trace = l8.trace;
 var bug = trace;
+
+// de&&mand() is like assert()
 function mand( b ){
   if( b )return;
   bug( "l8/test/vote.js, assert error" );
   debugger;
   throw new Error( "vote.js assert" );
 }
+
 // safe( fn ) is like fn but with exceptions traced in debug mode
 var safe = function safe( f ){
   return !de ? f : function(){
@@ -40,19 +47,30 @@ var safe = function safe( f ){
   };
 };
 
+
 // Misc. util
 
-var noop = function(){};
+function noop(){}
+function idem( x ){ return x; }
 
-var no_opts = { version: 1, machine: MainMachine };
+var _ = noop();      // _ === undefined
 
+var no_opts = {};
+
+// Never changing undefined & empty array waters
+var _emptiness_ = water();
+var emptiness   = water( [] );
+
+
+// Fast inject of properties. Note: not just owned ones, prototype's too
 var extend = function( to, from ){
   for( var ii in from ){ to[ ii ] = from[ ii ]; } 
   return to;
 };
 
-app.extend = extend;
-app.scope  = function( obj ){ extend( obj, app ); };
+// Cool to load all vocabulary at once in some scope.
+// Usage: require( "ephemeral.js" ).into( global )
+app.into  = function( obj ){ extend( obj, app ); };
 
 
 /*
@@ -61,13 +79,10 @@ app.scope  = function( obj ){ extend( obj, app ); };
 
 //var global = this;
 
-var epoch = 0; // 1397247088461;
+var epoch = 0; // 1397247088461; // 2034 is too soon
 function now(){ return l8.now - epoch; }
 var ONE_YEAR = 365 * 24 * 60 * 60 * 1000;
 
-var NextUid      = 0;
-var MaxSharedUid = 9999;
-var AllEntities  = [];
 
 /*
  *  Voting machines.
@@ -80,6 +95,8 @@ var AllEntities  = [];
  *  Note: each vote in a domain specific machine also impact the same topic
  *  in the main machine. That way, results for domain members can be compared
  *  with results from the general audience.
+ *
+ *  ToDo: factorize to make this application neutral.
  */
  
 function Machine( options ){
@@ -88,72 +105,133 @@ function Machine( options ){
 }
 
 app.machine = Machine;
+var MainMachine = Machine.current = Machine.main = new Machine({});
 
-var lookup = function( uid ){
+
+/*
+ *  Ids - increasing integers
+ *
+ *  Ids are integers. When an entity needs one, NextId is provided and
+ *  then incremented. NextId is adjusted to always be more than any previouly
+ *  used id (stored ones typically).
+ */
+
+// Global pool of all entities, id indexed
+var NextId      = 0;
+var MaxSharedId = 9999;
+var AllEntities = [];
+
+// Look for an existing entity based on id, xor undefined.
+// Also detect forward reference ids and adjust NextId accordingly.
+var lookup = function( id ){
   // Sometimes the UID is actually an entity type name
-  if( typeof uid === "string" )return AllEntities[ uid ];
-  if( uid >= NextUid ){
-    de&&bug( "Forward UID lookup", uid );
-    NextUid = uid + 1;
+  if( typeof id === "string" )return AllEntities[ id ];
+  if( id >= NextId ){
+    de&&bug( "Forward UID lookup", id );
+    NextId = id + 1;
   }
-  return AllEntities[ uid ];
+  return AllEntities[ id ];
 };
 
-// Entities have an unique id
-var alloc_uid = function( x ){
+// Entities have an unique id. This function checks if a provided id is
+// a forward reference id and adjusts NextId accordingly. If no id is
+// provided, one is returned and NextId is incremented.
+var alloc_id = function( x ){
   if( x ){
-    if( x >= NextUid ){
+    if( x >= NextId ){
       de&&bug( "Forward UID", x );
-      NextUid = x + 1;
+      NextId = x + 1;
     }
     return x;
   }
-  // de&&bug( "New UID", NextUid );
-  return NextUid++;
+  // de&&bug( "New UID", NextId );
+  return NextId++;
 };
 
-var MainMachine = Machine.current = Machine.main = new Machine({});
 
 /*
  *  Base class for all entities
  *
- *  Entities have a version attribute and a UID.
+ *  From latin "ens" + "itas", is beeing (real, physical).
+ *   aka: a thing.
+ *
+ *  Entities have an ID, usually.
  *  There is a global table of all entities: AllEntities.
  *  Ephemeral entities will "expire", sometimes prematurely.
+ *  Entities without an ID are "updates": they describe changes about
+ *  properties of an existing entity; they are "values", not "objects".
  */
 
 function Entity( options ){
-  // this.machine = options.machine || Machine.current;
-  this.v = options.version || no_opts.version;
-  if( options.uid ){
-    this.uid = alloc_uid( options.uid );
-  }else{
-    this.uid = alloc_uid();
-  }
-  // Track all instances, some of them will expire
-  AllEntities[ this.uid ] = this;
+  // Make sure the entity has an id. .register() may remove it...
+  this.id = alloc_id( options.id );
+  // Track all entities, some of them will expire or lose their id (quickly)
+  AllEntities[ this.id ] = this;
 }
 
 app.Entity = Entity;
 
 extend( Entity.prototype, {
+  
+  // To enable "duck" typing
   is_entity: true,
+  
+  // Redefined by sub types
   type: "Entity",
+  
+  // Create a new entity or update an existing one (ie one with same "key")
   create: function( options ){ return new Entity( options ); },
-  is_proto: function(){
-    return this === this.constructor.prototype;
-  },
+  
+  // Most entities "expires", usually after some delay. Some may "resurrect"
   expired: function(){ return false; },
+  
+  // Debug related
   log: function( f ){ console.log( f ? f.call( this, this ) : this.toString() ); },
   toString: function(){
     return ""
-    + (this.is_proto() ? "Proto" : "")
+    + (this === this.constructor.prototype ? "Proto" : "")
     + this.type
-    + "." + this.uid
+    + "." + this.id
     + (this.label ? "[" + this.label + "]" : "" );
-  }
+  },
+  
+  // Register entity and detect updates about pre-existing entities
+  register: function( key ){
+    // Look for an existing entity with same type and same key
+    var entity = this.constructor.all[ key ];
+    // If found then this entity is actually an update for that existing entity
+    if( entity ){
+      de&&mand( !entity.is_update() );
+      // Such an update does not need an UID because some Change entity made it
+      de&&mand( this.id === NextId - 1 );
+      de&&mand( AllEntities[ NextId - 2 ].type === "Change" );
+      // "unallocate" the recently allocated id
+      AllEntities[ this.id ] = _;
+      this.id = 0;
+      de&&mand( this.is_update() );
+      NextId--;
+      // Add the update to the entity's log of updates
+      var updates = entity.updates();
+      updates.push( this );
+      entity.updates( updates );
+      // Remember the target entity that this update procuces an effect on
+      this.target = entity;
+      return entity;
+    }
+    // Genuine new entity, key first seen
+    this.constructor.all[ key ] = this;
+    return this;
+  },
+  
+  is_update: function(){ return !this.id; },
+  
+  // Changes to entities involves watering the original with an update
+  water: function( other ){ return other === this ? water : idem; }
+  
 } );
+
 Entity.prototype.constructor = Entity;
+Entity.type = function( ctor ){ return type( ctor, this ); }
 
 var null_object = new Entity( { machine: MainMachine } );
 
@@ -169,11 +247,11 @@ function inspect( v, level ){
       if( v._water ){
         buf += "|" + inspect( v._water.current, level && level - 1 ) + "|";
         return buf;
-      }else if( v.ruid ){
+      }else if( v.rid ){
         if( v.entity ){
           buf += "&" + inspect( v.entity, level && level - 1 );
         }else{
-          buf += "&" + v.ruid;
+          buf += "&" + v.rid;
         }
       }else{
         if( v.name ){
@@ -182,7 +260,7 @@ function inspect( v, level ){
           buf += "F()";
         }
       }
-    }else if( v.water ){
+    }else if( v.watered ){
       // Water errors!
       buf += "!" + inspect( v.error, level && level - 1) + "!";
     }else if( Array.isArray( v ) ){
@@ -207,7 +285,7 @@ function inspect( v, level ){
     if( level <= 0 )return buf;
     var lbuf = [];
     for( var attr in v ){
-      if( attr !== "uid" && v.hasOwnProperty( attr ) ){
+      if( attr !== "id" && v.hasOwnProperty( attr ) ){
         lbuf.push( "" + attr + ": " + inspect( v[ attr ], level && level - 1 ) );
       }
     }
@@ -222,8 +300,6 @@ function inspect( v, level ){
   }
 }
 
-app.inspect = inspect;
-
 function dump_entity( x, level ){
   if( !level ){ level = 1; }
   console.log( inspect( x, level ) );
@@ -236,13 +312,13 @@ function dump_entities( from, level ){
   var list = AllEntities;
   var ii = from || 0;
   var item;
-  if( ii <= MaxSharedUid ){
+  if( ii <= MaxSharedId ){
     while( item = list[ ii++ ] ){
       dump_entity( item, level );
     }
-    ii = MaxSharedUid + 1;
+    ii = MaxSharedId + 1;
   }
-  while( item = list[ ii++ ] || ii < NextUid ){
+  while( item = list[ ii++ ] || ii < NextId ){
     item && dump_entity( item, level );
   }
   console.log( "RootTopic:", value( RootTopic, true ) );
@@ -250,7 +326,15 @@ function dump_entities( from, level ){
 }
 
 // Prototypal style inheritance with typed entities
-var Subtype = function( ctor, base ){
+// "ctor" is a function. It's name is the subtype name.
+// It is called in two cases:
+// - To initialize a newly created entity
+// - To update an existing entity
+// It must call this.register( key ) to distinguish these cases.
+//  'key' can be anything, including a combination of ids, "." separated.
+// After that call, this.is_update() is false for creations.
+//   this.water() returns l8 water() for entities xor idem() for updates
+var type = function( ctor, base ){
   if( !base ){ base = Ephemeral; }
   var proto = base.prototype;
   var name = ctor.name;
@@ -290,13 +374,16 @@ var Subtype = function( ctor, base ){
   Entity.call( proto_entity, { machine: MainMachine } );
   // ctor.create( { machine: MainMachine } );
   ctor.prototype = sub = AllEntities[ name ] = proto_entity;
-  ctor.uid = proto_entity.uid;
+  ctor.id = proto_entity.id;
   app[ name ] = ctor;
   trace( "Create entity " + inspect( proto_entity ) );
-  de&&mand( proto_entity.is_proto() );
+  // Create global table of all entities of this new type
+  ctor.all = {};
+  // Ease sub typing
+  ctor.type = function( sub_type ){ return type( sub_type, ctor ); };
+  de&&mand( proto_entity === proto_entity.constructor.prototype );
   de&&mand( proto_entity.is_entity );
-  de&&mand( proto_entity.uid );
-  de&&mand( proto_entity.v );
+  de&&mand( proto_entity.id );
   de&&mand( proto_entity.super === proto );
   de&&mand( proto_entity.constructor === ctor );
   de&&mand( proto_entity.constructor.prototype === proto_entity );
@@ -304,9 +391,9 @@ var Subtype = function( ctor, base ){
 };
 
 // Ember style computed property.
-// Usage, in constructors only:
-//  this.attr = function(){ this.other_attr() * 10 }.when( this.other_attr );
-Function.prototype.when = function(){
+// Usage, during entities's .create() only:
+//  this.attr = function(){ this.other_attr() * 10 }.water( this.other_attr );
+Function.prototype.water = Function.prototype.when = function(){
   var transform = this;
   // When .create() is called, Entity.created points to the beeing created obj
   var that = Entity.created;
@@ -324,7 +411,7 @@ Function.prototype.when = function(){
 
 
 /*
- *  Entities sometimes reference each others using uids, when stored typically
+ *  Entities sometimes reference each others using ids, when stored typically
  */
 
 function ref(){
@@ -335,32 +422,32 @@ function ref(){
       // r( some_entity )
       if( typeof entity === "object" ){
         f.entity = entity;
-        f.ruid   = entity.uid;
+        f.rid   = entity.id;
       // r( some_id )
       }else{
         f.entity = null;
-        f.ruid   = entity || 0;
+        f.rid   = alloc_id( entity ) || 0;
       }
       return f;
     }
     // Get
     if( f.entity )return f.entity;
-    return f.entity = AllEntities[ f.ruid ];
+    return f.entity = AllEntities[ f.rid ];
   };
   if( arguments.length ){
     f.apply( null, arguments );
   }else{
     f.entity = null;
-    f.ruid   = 0;
+    f.rid   = 0;
   }
   return f;
 }
 
-// Resolve uid references into pointers
+// Resolve id references into pointers
 function deref( o, seen ){
   if( !o )return o;
   if( typeof o === "function" ){
-    if( o.ruid )return o();
+    if( o.rid )return o();
     return o;
   }
   if( typeof o !== "object" )return o;
@@ -368,8 +455,8 @@ function deref( o, seen ){
     seen = {};
   }else{
     if( o.is_entity ){
-      if( seen[ o.uid ] )return o;
-      seen[ o.uid ] = true;
+      if( seen[ o.id ] )return o;
+      seen[ o.id ] = true;
     }
   }
   for( var attr in o ){
@@ -384,8 +471,8 @@ function deref( o, seen ){
 
 /*
  *  json encoding of entity requires changing pointers into references.
- *  if o.attr points to an entity, it is replaced by an o.$attr with an uid.
- *  In arrays, pointers are replaced by { $: uid } values.
+ *  if o.attr points to an entity, it is replaced by an o.$attr with an id.
+ *  In arrays, pointers are replaced by { $: id } values.
  */
 
 var cached_rattr_encode = {};
@@ -409,7 +496,7 @@ function rattr_decode( attr ){
   return v;  
 }
 
-// Change pointers into uid references for json storage
+// Change pointers into id references for json storage
 function json_encode( o ){
   if( typeof o !== "object" )return o;
   var json;
@@ -417,10 +504,10 @@ function json_encode( o ){
     json = [];
     o.forEach( function( v, ii ){
       if( v ){
-        if( v.uid ){
-          json[ ii ] = { $: v.uid };
-        }else if( v.ruid ){
-          json[ ii ] = { $: v.ruid };
+        if( v.id ){
+          json[ ii ] = { $: v.id };
+        }else if( v.rid ){
+          json[ ii ] = { $: v.rid };
         }else{
           json[ ii ] = json_encode( v );
         }
@@ -436,9 +523,9 @@ function json_encode( o ){
       if( attr === "machine" )continue;
       if( o[ attr ] ){
         if( o[ attr ].is_entity ){
-          json[ rattr_encode( attr ) ] = o[ attr ].uid;
-        }else if( o[ attr ].ruid ){
-          json[ rattr_encode( attr ) ] = o[ attr ].ruid;
+          json[ rattr_encode( attr ) ] = o[ attr ].id;
+        }else if( o[ attr ].rid ){
+          json[ rattr_encode( attr ) ] = o[ attr ].rid;
         }else{
           json[ attr ] = json_encode( o[ attr ] );
         }
@@ -450,10 +537,10 @@ function json_encode( o ){
   return json;
 }
 
-function json_decode_resolve( uid ){
-  alloc_uid( uid );
-  var entity = lookup( uid );
-  return entity || ref( uid );
+function json_decode_resolve( id ){
+  alloc_id( id );
+  var entity = lookup( id );
+  return entity || ref( id );
 }
 
 function json_decode( o ){
@@ -494,14 +581,14 @@ function value( x, force ){
     if( x.is_entity && x.buried ){
       return;
     }else if( x.is_entity && !force ){
-      return x.uid;
+      return x.id;
     }else if( typeof x === "function" ){
       if( x._water ){
         return value( x._water.current );
       }
     }else if( typeof x === "object" ){
-      if( x.water ){
-        return { water: "water", error: value( x.water.error ) };
+      if( x.watered ){
+        return { watered: "water", error: value( x.error ) };
       }else if( Array.isArray( x ) ){
         a = [];
         x.forEach( function( v, ii ){
@@ -539,26 +626,75 @@ Entity.prototype.value = function(){
 
 /*
  *  The only constant is change - Heraclitus
+ *
+ *  Changes are TOPs: Target.Operation( Parameter ). They describe an event/
+ *  action about something. Usually it's about creating some entity.
+ *
+ *  The processing of change produces one or more effects. The first effect
+ *  is linked with the change.
  */
 
-Subtype( Change, Entity );
+Entity.type( Change );
 function Change( options ){
-  this.ts  = options.timestamp || now();
-  this.t   = options.t;
-  this.o   = options.o || "change";
-  this.p   = options.p || {};
-  this.src = options.src;
+  this.ts   = options.timestamp || now();
+  this.t    = options.t;             // Target
+  this.o    = options.o || "create"; // Operation
+  this.p    = options.p || {};       // Parameters
+  this.from = options.from;          // Another change
+  this.to   = _;
+}
+
+/*
+ *  Effect entity
+ *
+ *  Changes produce effects.
+ */
+
+Entity.type( Effect );
+function Effect( options ){
+  var change = AllEntities[ this.id - 1 ];
+  // If the effect is due to a change (hopefully), link change to effect
+  if( change.type === "Change" ){
+    change.to = this;
+    // Also remember this change as the "first" update, ie the "create" update
+    this.updates = water( [change] );
+  }else{
+    trace( "Effect without a change" );
+    this.updates = emptiness;
+  }
+  // Some effects are about a pre existing entity, ie they are updates
+  this.target = _;
 }
 
 
 /*
- *  The rest is ephemeral. It will expire and be buried.
+ *  Version entity
  *
- *  Lifecycle: create(), [renew()], expiration(), [resurect() + renew()]... 
+ *  Persisted entity are stored in "log" files. Whenever a new version of this
+ *  software is created, with changes in the data schema, a new version entity
+ *  is created.
+ *  During restore (from log) global Change.versioning progress until it
+ *  reaches the value of Change.version, the current version of the schema.
  */
 
-Subtype( Ephemeral, Entity );
+Change.version    = "1"
+Change.versioning = "";
+
+Entity.type( Version );
+function Version( options ){
+  this.label = Change.version = options.label;
+}
+
+
+/*
+ *  The rest is ephemeral. It will expire and be buried, unless resurrected.
+ *
+ *  Lifecycle: create(), [renew()], expiration(), [resurrect() + renew()]... 
+ */
+
+Entity.type( Ephemeral );
 function Ephemeral( options ){
+  
   this.timestamp  = options.timestamp || now();
   this.duration   = water( options.duration || ONE_YEAR );
   this.buried     = false;
@@ -573,8 +709,6 @@ function Ephemeral( options ){
   }.when( this.duration );
 }
 
-app.Subtype = Subtype;
-
 Ephemeral.prototype.expired = function(){
   if( this.buried )return true;
   return now() > this.expire();
@@ -582,17 +716,12 @@ Ephemeral.prototype.expired = function(){
 
 Ephemeral.prototype.bury = function(){
   if( this.buried )return;
-  if( this.is_proto() ){
-    trace( "Don't bury prototypes!" );
-    debugger;
-    throw( "BROKEN" );
-  }
   this.buried = true;
   this.expiration();
-  // Clear object if not resurected, this enables some garbadge collection
+  // Clear object if not resurrected, this enables some garbadge collection
   if( this.buried ){
     for( var attr in this ){
-      if( attr !== "is_entity" && "attr" !== "buried" ){
+      if( attr !== "is_entity" && attr !== "buried" ){
         var v = this[ attr ];
         if( v ){
           if( v._water ){ water.dispose( v ); }
@@ -601,7 +730,7 @@ Ephemeral.prototype.bury = function(){
       }
     }
     // Also remove from list of all entities to prevent new references to it
-    AllEntities[ this.uid ] = null;
+    AllEntities[ this.id ] = null;
   }
 };
 
@@ -610,11 +739,11 @@ Ephemeral.prototype.expiration = function(){
   Expiration.create( { entity: this } );
 };
 
-Ephemeral.prototype.resurect = function(){
+Ephemeral.prototype.resurrect = function(){
 // To be called from a redefined .expiration(), needs a renew().
-  if( !this.buried )throw new Error( "Resurect Entity" );
+  if( !this.buried )throw new Error( "Resurrect Entity" );
   this.buried = false;
-  // Resurection.create( { entity: this ); } );
+  // Resurrection.create( { entity: this ); } );
 };
 
 Ephemeral.prototype.schedule = function( limit ){
@@ -653,7 +782,7 @@ Ephemeral.prototype.touch = function(){
  *  Base type of event entities
  */
 
-Subtype( Event, Entity );
+Entity.type( Event );
 function Event(){}
 
 
@@ -662,7 +791,7 @@ function Event(){}
  *  This is the event that occurs when an entity expires
  */
  
- Subtype( Expiration, Event );
+ Entity.type( Expiration );
  function Expiration( options ){
    this.entity = options.entity;
  }
@@ -674,7 +803,7 @@ function Event(){}
  *  This is for deployed systems
  */
  
-Subtype( Trace );
+Ephemeral.type( Trace );
 function Trace( options ){
   this.subject     = options.subject;
   this.event       = options.verb;
@@ -718,7 +847,7 @@ function persist( fn, a_fluid, filter ){
       return;
     }
     try{
-      de&&bug( "Write", fn, "uid:", item.uid );
+      de&&bug( "Write", fn, "id:", item.id );
       // ToDo: let entity decide about is own storage format
       var value = json_encode( deref( item ) );
       var json;
@@ -729,12 +858,26 @@ function persist( fn, a_fluid, filter ){
           value = Entity.store_value.call( item );
         }
       }
-      // Track max uid so far, needed at restore time
-      // value.luid = NextUid - 1;
+      // Special handling for "Change" entity
+      // ToDo: should be in Change.prototype.store_value()
+      if( value.o === "create" ){
+        // Remove default o:"create" member from Change entities
+        value.o = _;
+        // Get rid of duplicated id
+        de&&mand( value.id === value.p.id );
+        value.id = _;
+        // Move timestamp into "options" parameter
+        value.p.ts = value.ts;
+        value.ts = _;
+        // As a result value.t is like an SQL table name
+        // and value.p is like an SQL record
+      }
+      // Track max id so far, needed at restore time
+      // value.lid = NextId - 1;
       json = JSON.stringify( value );
       fs.appendFileSync( fn, json + "\r\n" );
     }catch( err ){
-      trace( "Could not write to", fn, "uid:", item.uid, "err:", err );
+      trace( "Could not write to", fn, "id:", item.id, "err:", err );
       trace( err );
     }
   });
@@ -745,16 +888,21 @@ function persist( fn, a_fluid, filter ){
   // ToDo: avoid reading whole file!
   try{
     var content = fs.readFileSync( fn, "utf8" );
-    var idx = content.lastIndexOf( '"uid":' );
+    var idx = content.lastIndexOf( '"id":' );
     if( idx !== -1 ){
-      content = content.substring( idx + '"uid":'.length );
+      content = content.substring( idx + '"id":'.length );
       content = parseInt( content, 10 );
-      trace( "Restore, max uid:", content );
-      alloc_uid( content );
+      trace( "Restore, max id:", content );
+      alloc_id( content );
     }
   }catch( err ){
     // File does not exist, nothing to restore
     restored = true;
+    // Log version
+    if( Change.version !== Change.versioning ){
+      Change.versioning = null;
+      Change.create({ t: "Version", o: "create", p: { label: Change.version } }); 
+    }
     next( err );
     return next;
   }
@@ -772,6 +920,11 @@ function persist( fn, a_fluid, filter ){
     trace( "End of restore" );
     // restore done. what is now pushed to "changes" gets logged
     restored = true;
+    // Log version
+    if( Change.version !== Change.versioning ){
+      Change.versioning = null;
+      Change.create({ t: "Version", o: "create", p: { label: Change.version } } ); 
+    }
     next( error );
   })
   .to( a_fluid );
@@ -800,24 +953,13 @@ function persist( fn, a_fluid, filter ){
   return next;
 }
 
-app.persist = persist;
-
 Change.prototype.process = function(){
   var target = lookup( this.t );
   // trace( "Change.process, invoke", this.o, "on " + target );
-  if( this.p && !this.p.uid && this.uid ){
-    this.p.uid = this.uid;
+  if( this.p && !this.p.id && this.id ){
+    this.p.id = this.id;
   }
   return target[ this.o ].call( target, this.p );
-};
-
-
-// Exports
-
-app.start = function( bootstrap, cb ){
-  // uid 0...9999 are reserved for meta objects
-  NextUid = MaxSharedUid + 1;
-  start( bootstrap, cb );
 };
 
 
@@ -829,9 +971,7 @@ fluid.method( "inspect", function(){
   return fluid.it.map( function( it ){ return inspect( it ); } );
 } );
 
-app.Expiration = Expiration;
 de&&Expiration.fluid.inspect().log( "Log Expiration" );
-app.Trace      = Trace;
 
 // Start the "change processor".
 // It replays logged changes and then plays new ones.
@@ -847,7 +987,7 @@ function start( bootstrap, cb ){
   ;//.inspect().log();
   // It replays old changes and log new ones
   persist(
-    "ephemeral.json",
+    app.store || "ephemeral.json.log",
     Change.fluid,
     function( item ){ return item.t !== "Trace"; } // filter trace entities
   ).boxon( function( err ){
@@ -859,17 +999,21 @@ function start( bootstrap, cb ){
       trace( "Restore error", err );
       // ToDo: handle error, only ENOENT is ok, ie file does not exist
       trace( "Bootstrapping" );
-      var b = water.boxon();
-      bootstrap().boxon( function( err ){
-        trace( "Bootstrap READY" );
-        ready();
-      });
+      try{
+        bootstrap().boxon( function( err ){
+          trace( "Bootstrap READY" );
+          ready( err );
+        });
+      }catch( err ){
+        trace( "Bootstrap error", err, err.stack );
+        ready( err );
+      }
     }
     ready( function( err ){
       de&&dump_entities();
       if( err ){
-        CRITICAL( "Cannot proceed, corrupted" );
-        cb( new Error( "Corrupted store" ) );
+        CRITICAL( "Cannot proceed, corrupted " + app.store );
+        cb( err ); // new Error( "Corrupted store" ) );
       }else{
         INFO( "READY" );
         cb();
@@ -878,10 +1022,46 @@ function start( bootstrap, cb ){
   });
 }
 
+// More exports
+Ephemeral.start = function( bootstrap, cb ){
+  // id 0...9999 are reserved for meta objects
+  NextId = MaxSharedId + 1;
+  start( bootstrap, cb );
+};
+Ephemeral.inject = function( t, p ){
+  return Change.create( { t: t, o: "create", p: p } );
+};
+Ephemeral.get_next_id = function(){ return NextId; }
+Ephemeral.ref = ref;
 
+// Debug related
+Ephemeral.trace   = trace;
+Ephemeral.assert  = mand;
+Ephemeral.inspect = inspect;
+
+return app;
+
+} // end of function ephemeral()
+
+// exports = ephemeral;
+
+
+
+/* ========================================================================= */
 /* ========================= Application specific code ===================== */
+/* ========================================================================= */
 
-// require( "ephemeral.js" ).scope( global );
+
+var vote = { store: "vote.json.log" }; // ToDo: "file://vote.json.log"
+// require( "ephemeral.js" )( vote ).into( global );
+ephemeral( vote ).into( global ); // global is module local actually
+
+// My de&&bug() and de&&mand() darlings
+var de = true;
+var bug   = vote.Ephemeral.trace;
+var mand  = vote.Ephemeral.assert;
+var trace = vote.Ephemeral.trace;
+
 
 /*
  *  Persona entity
@@ -889,14 +1069,21 @@ function start( bootstrap, cb ){
  *  Individuals and groups.
  */
 
-Subtype( Persona, Ephemeral );
+Ephemeral.type( Persona );
 function Persona( options ){
+  
+  var persona = this.register( options.label );
+  var water   = this.water( persona );
+  
   this.label       = options.label;
   this.role        = options.role || "individual";
   this.friends     = water( [] ); // Individual's friends or group's members
   this.memberships = water( [] ); // To groups
   this.delegations = water( [] ); // To personas, about topics
   this.votes       = water( [] ); // Direct votes
+  
+  return this.is_update() ? persona.update( this ) : this;
+  
 }
 
 // Persona roles
@@ -905,6 +1092,8 @@ Persona.group      = "group";
 
 Persona.prototype.is_group      = function(){ return this.role === "group"; };
 Persona.prototype.is_individual = function(){ return !this.is_group();      };
+
+Persona.prototype.update = function( other ){ return this; };
 
 
 /*
@@ -916,7 +1105,7 @@ Persona.prototype.is_individual = function(){ return !this.is_group();      };
  *    votes, as she is the most legitimate source.
  */
 
-Subtype( Source, Ephemeral );
+Ephemeral.type( Source );
 function Source( options ){
   this.topic   = options.topic;
   this.persona = options.persona;
@@ -934,21 +1123,40 @@ function Source( options ){
  *    they don't have a source.
  */
  
-Subtype( Topic, Ephemeral );
+Ephemeral.type( Topic );
 function Topic( options ){
+  
+  de&&mand( options.label );
+  
+  var topic = this.register( options.label );
+  var water = this.water( topic );
+  
   this.label       = options.label;
   this.parent      = water();
   if( !options.source ){
     // Tag topic
-    this.children = water( options.children || [] );
+    this.children = water( options.children );
   }else{
     // Atomic topic
     this.source = water( options.source );
-    this.result = Result.create({ topic: this });
+    this.result = this.id ? Result.create({ topic: this }) : options.result;
   }
   this.delegations = water( [] );
-  this.change_parent( options.parent || RootTopic );
+  
+  if( this.is_update() )return this.update( topic );
+  
+  this.update_parent( options.parent || RootTopic );
+
 }
+
+Topic.prototype.update = function( other ){
+  if( other.parent      ){ this.update_parent(   other.parent ); }
+  if( other.children    ){ this.update_children( other.children ); }
+  this.source( other.source );
+  this.result( other.result );
+  if( other.result      ){ this.update_result(      other.result );      }
+  if( other.delegations ){ this.update_delegations( other.delegations ); }
+};
 
 Topic.prototype.is_atomic   = function(){ return this.source; };
 Topic.prototype.is_tag      = function(){ return !this.is_atomic(); };
@@ -976,7 +1184,11 @@ Topic.prototype.ancestors = function(){
   return list;
 };
 
-Topic.prototype.change_parent = function( topic ){
+Topic.prototype.update_parent = function( topic ){
+  if( this.is_update() ){
+    this.parent = topic;
+    return;
+  }
   var parent = this.parent();
   if( parent ){
     parent._remove_child( this );
@@ -1023,19 +1235,27 @@ Topic.prototype._remove_child = function( topic ){
  *  Analysts can vote on behalf of personas, based on some public source.
  */
  
-Subtype( Vote, Ephemeral );
+Ephemeral.type( Vote );
 function Vote( options ){
   
   de&&mand( options.persona );
   de&&mand( options.topic );
+  
   this.persona     = options.persona;
   this.topic       = options.topic;
   de&&mand( this.topic.is_atomic() );
+  
+  // Decide: is it a new entity or an update?
+  var vote  = Vote.register( this.persona.id + "." + this.topic.id );
+  var water = this.water( vote ); 
+  
   this.analyst     = options.analyst;
   this.source      = options.source;
   this.delegation  = water( options.delegation  || Vote.direct  );
   this.privacy     = water( options.privacy     || Vote.private );
   this.previously  = water( options.previously  || Vote.neutral );
+  
+  if( this.is_update() )return vote.update( this );
   
   var that = this;
   this.orientation = water( water, po, [] );
@@ -1058,6 +1278,7 @@ function Vote( options ){
   }
 }
 
+
 // Vote orientations
 Vote.indirect = "indirect";
 Vote.neutral  = "neutral";
@@ -1077,7 +1298,7 @@ Vote.private = "private";
 // At expiration vote becomes private direct neutral for a while
 Vote.prototype.expiration = function(){
   if( this.orientation !== Vote.neutral ){
-    this.resurect();
+    this.resurrect();
     this.renew();
     this.orientation( Vote.neutral );
     this.delegation(  Vote.direct  );
@@ -1115,7 +1336,7 @@ Vote.prototype.remove = function( o ){
 };
 
 
-Subtype( Result, Ephemeral );
+Ephemeral.type( Result );
 function Result( options ){
   
   de&&mand( options.topic );
@@ -1159,7 +1380,7 @@ function Result( options ){
   this.orientation = function(){
     var old = this.orientation() || Vote.neutral;
     var now;
-    if( this.topic.uid === 10017 )debugger;
+    if( this.topic.id === 10017 )debugger;
     trace( "Computing orientation for " + this,
       "expired:", this.expired(),
       "agree:",   this.agree(),
@@ -1243,7 +1464,7 @@ Result.prototype.remove_vote = function( o, v ){
  *  changes on a topic.
  */
  
-Subtype( Transition, Event );
+Event.type( Transition );
 function Transition( options ){
   de&&mand( options.result );
   de&&mand( options.orientation );
@@ -1260,7 +1481,7 @@ function Transition( options ){
  *  It describes how a persona's vote is delegated to another persona.
  */
 
-Subtype( Delegation, Ephemeral );
+Ephemeral.type( Delegation );
 function Delegation( options ){
   this.persona = options.persona;
   this.topic   = options.topic;
@@ -1274,7 +1495,7 @@ function Delegation( options ){
  *  They make personas members of group personas.
  */
 
-Subtype( Membership, Ephemeral );
+Ephemeral.type( Membership );
 function Membership( options ){
   this.member = options.member;
   this.group  = options.leader;
@@ -1289,7 +1510,7 @@ var RootTopic = Topic.create({ label: "Root" });
  *  For WEB UI
  */
  
-Subtype( Visitor, Ephemeral );
+Ephemeral.type( Visitor );
 function Visitor( options ){
   this.persona     = options.persona;
   this.twitter     = options.twitter; // Twitter credentials
@@ -1297,19 +1518,16 @@ function Visitor( options ){
 }
 
 
-Subtype( Action, Ephemeral );
+Ephemeral.type( Action );
 function Action( options ){
   this.visitor     = options.visitor;
   this.verb        = options.verb;
   this.parameters  = options.parameters;
 }
 
-
 function bootstrap(){
   
-  function c( t, p ){
-    return ref( Change.create({ t: t, o: "create", p: p }).uid );
-  }
+  function c( t, p ){ return Ephemeral.ref( Ephemeral.inject( t, p ).id ); }
   function p( n ){ p[n] = c( "Persona", { label: n } ); }
   function g( n ){ p[n] = c( "Persona", { label: n, role: "group" } ); }
   function t( n, l ){ t[n] = c( "Topic", { label: n, source: "bootstrap" } ); }
@@ -1322,11 +1540,11 @@ function bootstrap(){
     d[ d.n++ ] = c( "Delegation", { persona: p, topic: t, agent: a } );
   }
   d.n = 0;
-  function mark(){ mark.uid = NextUid; }
+  function mark(){ mark.id = Ephemeral.get_next_id(); }
   function collect( n ){
     collect.list = [];
-    for( var ii = mark.uid ; ii < NextUid ; ii++ ){
-      collect.list.push( ref( ii ) );
+    for( var ii = mark.id ; ii < Ephemeral.get_next_id() ; ii++ ){
+      collect.list.push( Ephemeral.ref( ii ) );
     }
   }
   
@@ -1353,8 +1571,9 @@ function bootstrap(){
     // Delegations
     function(){ d( p["@jhr"], t["President"], p["@N_Hulot"] ); },
     // Votes
-    function(){ v( p["@peter"],   t["Hulot president"], "agree" ); },
-    function(){ v( p["@N_Hulot"], t["Hulot president"], "agree" ); },
+    function(){ v( p["@peter"],   t["Hulot president"], "agree"   ); },
+    function(){ v( p["@N_Hulot"], t["Hulot president"], "agree"   ); },
+    function(){ v( p["@peter"],   t["Hulot president"], "neutral" ); },
   ];
   // Execute steps (sequentially) and return boxon fired when all done
   return water.steps( steps );
@@ -1375,15 +1594,15 @@ Transition .fluid.inspect().log( "Log Transition" );
 Visitor    .fluid.inspect().log( "Log Visitor"    );
 Action     .fluid.inspect().log( "Log Action"     );
 
-app.persist( "test/vote.log.json", Trace.fluid );
+//Ephemeral.persist( "test/vote.trace.log", Trace.fluid );
 
 
 function main(){
   console.log( "Welcome to l8/test/vote.js -- Liquid demo...cracy" );
   debugger;
-  app.start( bootstrap, function( err ){
+  Ephemeral.start( bootstrap, function( err ){
     if( err ){
-      console.log( "Cannot proceed", err );
+      console.log( "Cannot proceed", err, err.stack );
       process.exit( 1 );
       return;
     }
@@ -1394,4 +1613,4 @@ function main(){
 }
 
 l8.begin.step( main ).end;
-l8.countdown( 200 );
+l8.countdown( 10 );
