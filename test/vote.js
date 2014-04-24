@@ -23,26 +23,35 @@ var water = app.water = require( "l8/lib/water.js" );
 var fluid = app.fluid = water.fluid;
 
 // My de&&bug() darling, traces that can be disabled with low overhead
-var de = true;
-var trace = l8.trace;
-var bug = trace;
+var de        = true;
+var debugging = de && true;
+var trace     = l8.trace;
+var bug       = trace;
 
 // de&&mand() is like assert()
 function mand( b ){
   if( b )return;
   bug( "l8/test/vote.js, assert error" );
-  debugger;
-  throw new Error( "vote.js assert" );
+  if( debugging )debugger;
+  if( !debugging )throw new Error( "vote.js assert" );
 }
 
+// de&&bugger() invokes the debugger only in debugging mode
+function bugger(){ if( debugging )debugger; }
+
 // safe( fn ) is like fn but with exceptions traced in debug mode
+// ToDo: rename
 var safe = function safe( f ){
   return !de ? f : function(){
     try{
       return f.apply( this, arguments );
     }catch( err ){
       trace( "Error", err, err.stack );
-      throw err;
+      if( debugging ){
+        de&&bugger();
+      }else{
+        throw err;
+      }
     }
   };
 };
@@ -193,40 +202,7 @@ extend( Entity.prototype, {
     + this.type
     + "." + this.id
     + (this.label ? "[" + this.label + "]" : "" );
-  },
-  
-  // Register entity and detect updates about pre-existing entities
-  register: function( key ){
-    // Look for an existing entity with same type and same key
-    var entity = this.constructor.all[ key ];
-    // If found then this entity is actually an update for that existing entity
-    if( entity ){
-      de&&mand( !entity.is_update() );
-      // Such an update does not need an UID because some Change entity made it
-      de&&mand( this.id === NextId - 1 );
-      de&&mand( AllEntities[ NextId - 2 ].type === "Change" );
-      // "unallocate" the recently allocated id
-      AllEntities[ this.id ] = _;
-      this.id = 0;
-      de&&mand( this.is_update() );
-      NextId--;
-      // Add the update to the entity's log of updates
-      var updates = entity.updates();
-      updates.push( this );
-      entity.updates( updates );
-      // Remember the target entity that this update procuces an effect on
-      this.target = entity;
-      return entity;
-    }
-    // Genuine new entity, key first seen
-    this.constructor.all[ key ] = this;
-    return this;
-  },
-  
-  is_update: function(){ return !this.id; },
-  
-  // Changes to entities involves watering the original with an update
-  water: function( other ){ return other === this ? water : idem; }
+  }
   
 } );
 
@@ -235,17 +211,47 @@ Entity.type = function( ctor ){ return type( ctor, this ); }
 
 var null_object = new Entity( { machine: MainMachine } );
 
+var abbreviations = {
+  orientation: "orient",
+  win:       "win",
+  disagree:  "disa",
+  against:   "again",
+  total:     "tot",
+  direct:    "dir",
+  duration:  "dura",
+  topic:     "&",
+  tag:       "#",
+  timestamp: "ts",
+  proposition: "prop",
+  vote: "vot",
+  votes: "vot",
+  persona: "@",
+  "result": "+"
+};
+function abbreviate( str ){
+  if( str[ str.length - 1 ] === "s" ){
+    str = str.substring( 0, str.length - 1 );
+  }
+  return abbreviations[ str ]
+  || str[0] + str.substring( 1 ).replace( /[aeiou]/g, "" );
+}
+
 function inspect( v, level ){
+  
   if( arguments.length < 2 ){ level = 1; }
-  if( level < 0 )return "...";
+  
+  if( level < 0 )return ".";
+  
   var buf = "";
+  
   if( typeof v === "undefined" )return "_";
-  if( !v )return buf + v;
+  
   if( typeof v === "function" || typeof v === "object" ){
+    
     if( typeof v === "function" ){
       // Water, get their current value
       if( v._water ){
-        buf += "|" + inspect( v._water.current, level && level - 1 ) + "|";
+        buf += "|" + inspect( v._water.current, level && level - 1 );
         return buf;
       }else if( v.rid ){
         if( v.entity ){
@@ -255,14 +261,16 @@ function inspect( v, level ){
         }
       }else{
         if( v.name ){
-          buf += v.name + "()";
+          buf += "." + v.name + "()";
         }else{
-          buf += "F()";
+          buf += "()";
         }
       }
+      
     }else if( v.watered ){
       // Water errors!
       buf += "!" + inspect( v.error, level && level - 1) + "!";
+      
     }else if( Array.isArray( v ) ){
       if( level === 0 || !v.length ){
         return "[]" + (v.length ? "." + v.length : "");
@@ -271,30 +279,58 @@ function inspect( v, level ){
         v.forEach( function( v ){
           abuf.push( inspect( v, level - 1 ) );
         });
-        return "[" + abuf.joind( ", " ) + "]";
+        return "[" + abuf.join( " " ) + "]";
       }
+      
     }else{
       if( level <= 1 ){
         if( v.is_entity ){
           buf += v.toString(); 
         }else{
-          if( level === 0 )return "{...}";
+          if( level === 0 )return "{.}";
         }
       }
     }
     if( level <= 0 )return buf;
     var lbuf = [];
+    var val;
     for( var attr in v ){
       if( attr !== "id" && v.hasOwnProperty( attr ) ){
-        lbuf.push( "" + attr + ": " + inspect( v[ attr ], level && level - 1 ) );
+        val = v[ attr ];
+        if( attr === "label" )continue;
+        if( attr === "buried" ){
+          if( val ){ lbuf.push( "buried" ) }
+          continue;
+        }else if( attr === "timestamp" ){
+          val = val - now();
+        }else if( attr === "expire" ){
+          if( ( val.water && val() || val ) - now() > 2 * 24 * 60 * 60 * 1000 ){
+            val = false;
+          }
+        }
+        if( val === true || val === false ){
+          lbuf.push( (val ? "" : "!") + abbreviate( attr ) );
+          continue;
+        }
+        if( typeof val !== "function" ){ attr = abbreviate( attr ); }
+        lbuf.push( "" + attr + "" + inspect( val, level && level - 1 ) );
       }
     }
     if( !lbuf.length )return buf;
-    return buf + "{" + lbuf.join( ", " ) + "}";
+    return buf + "{" + lbuf.join( " " ) + "}";
+    
   }else if( typeof v === "string" ){
     return buf + '"' + v + '"';
+    
   }else if( v === ONE_YEAR ){
-    return "a year";
+    return "1year";
+    
+  }else if( v === true ){
+    return "_t";
+    
+  }else if( v === false ){
+    return "_f";
+    
   }else{
     return buf + "" + v;
   }
@@ -321,7 +357,7 @@ function dump_entities( from, level ){
   while( item = list[ ii++ ] || ii < NextId ){
     item && dump_entity( item, level );
   }
-  console.log( "RootTopic:", value( RootTopic, true ) );
+  //console.log( "RootTopic:", value( RootTopic, true ) );
   console.log( "--- END DUMP ---" );
 }
 
@@ -351,6 +387,14 @@ var type = function( ctor, base ){
   sub.super  = proto;
   // Build the instance creation function
   var efluid = ctor.fluid = fluid();
+  sub.push = function(){
+    efluid.push( this );
+    var sup = this.super.push;
+    // ToDo: fix stack overflow
+    if( 0 && sup ){
+      sup.call( this );
+    }
+  };
   ctor.create = sub.create = function( options ){
     var obj = Entity.created = Object.create( sub );
     //if( !options ){ obj.machine = Machine.current; }
@@ -365,7 +409,7 @@ var type = function( ctor, base ){
     //de&&bug( "New entity", "" + inspect( obj, 2 ) );
     // Push new entity on the fluid bound to the entity's type, unless proto
     if( proto_entity ){
-      efluid.push( obj );
+      obj.push();
     }
     return obj;
   };
@@ -403,7 +447,7 @@ Function.prototype.water = Function.prototype.when = function(){
       return transform.apply( that, arguments );
     }catch( err ){
       trace( "Water transform error", err, err.stack );
-      debugger;
+      de&&bugger();
     }
   };
   return water( water, f, arguments );
@@ -619,7 +663,7 @@ function value( x, force ){
 }
 
 Entity.prototype.value = function(){
-  de&&mand( Machine.current = this.machine );
+  //de&&mand( Machine.current = this.machine );
   return value( this, true );
 };
 
@@ -641,30 +685,86 @@ function Change( options ){
   this.o    = options.o || "create"; // Operation
   this.p    = options.p || {};       // Parameters
   this.from = options.from;          // Another change
-  this.to   = _;
+  this.to   = options.to;
 }
 
 /*
- *  Effect entity
+ *  Effect entity, abstract type
+ *  aka Mutable
  *
- *  Changes produce effects.
+ *  Changes produce effects. Let's track the updates.
  */
 
 Entity.type( Effect );
 function Effect( options ){
-  var change = AllEntities[ this.id - 1 ];
+  var change = Change.current;
   // If the effect is due to a change (hopefully), link change to effect
-  if( change.type === "Change" ){
+  if( change && change.p.id === this.id ){
     change.to = this;
     // Also remember this change as the "first" update, ie the "create" update
     this.updates = water( [change] );
   }else{
-    trace( "Effect without a change" );
-    this.updates = emptiness;
+    trace( "Effect without a change, spontaneous?" );
+    de&&bugger();
+    this.updates = water( [] );
   }
-  // Some effects are about a pre existing entity, ie they are updates
-  this.target = _;
+  // Some effects are about a pre existing entity, ie they are updates.
+  // .register( key ) will detect such cases 
+  this.effect = _;
 }
+
+// Called by .register(), when there is an update
+Effect.prototype.touch = function(){};
+
+// Register entity and detect updates about pre-existing entities
+Effect.prototype.register = function( key ){
+  // if( this.id === 10016 )debugger;
+  // Look for an existing entity with same type and same key
+  var entity = this.constructor.all[ key ];
+  // If found then this entity is actually an update for that existing entity
+  if( entity ){
+    trace( "Update on " + entity + ", key:", key, "update: " + this );
+    de&&mand( entity !== this );
+    de&&mand( !entity.is_update() );
+    // Such an update does not need an UID because some Change entity made it*
+    if( 0 ){
+      if( AllEntities[ NextId - 2 ].type !== "Change" ){
+        trace( value( AllEntities[ NextId - 2 ], true ) );
+        trace( value( AllEntities[ NextId - 1 ], true ) );
+        trace( value( entity, true ) );
+        trace( value( this, true ) );
+        de&&bugger();
+      }
+      de&&mand( AllEntities[ NextId - 2 ].type === "Change" );
+      NextId--;
+    }
+    // Remember the target entity that this update procuces an effect on
+    if( this.id === 10016 )debugger;
+    this.effect = entity;
+    //this.to = entity;
+    de&&mand( this.is_update() );
+    de&&mand( !entity.is_update() );
+    // Add the update to the entity's log of updates
+    var updates = entity.updates();
+    updates.push( this );
+    entity.updates( updates );
+    // Invoke possibly redefined .touch()
+    entity.touch();
+    return entity;
+  }
+  // Genuine new entity, key first seen, track it
+  trace( "Key for " + this + " is: ", key );
+  this.constructor.all[ key ] = this;
+  return this;
+};
+  
+Effect.prototype.is_update = function(){ return this.effect; },
+  
+// Changes to entities involves watering the original with an update
+Effect.prototype.water = function( other ){
+  // There must be actual water only in the original, not in the updates
+  return other === this ? water : idem;
+};
 
 
 /*
@@ -673,7 +773,7 @@ function Effect( options ){
  *  Persisted entity are stored in "log" files. Whenever a new version of this
  *  software is created, with changes in the data schema, a new version entity
  *  is created.
- *  During restore (from log) global Change.versioning progress until it
+ *  During restore (from log) global Change.versioning progresses until it
  *  reaches the value of Change.version, the current version of the schema.
  */
 
@@ -692,9 +792,8 @@ function Version( options ){
  *  Lifecycle: create(), [renew()], expiration(), [resurrect() + renew()]... 
  */
 
-Entity.type( Ephemeral );
+Effect.type( Ephemeral );
 function Ephemeral( options ){
-  
   this.timestamp  = options.timestamp || now();
   this.duration   = water( options.duration || ONE_YEAR );
   this.buried     = false;
@@ -803,7 +902,7 @@ function Event(){}
  *  This is for deployed systems
  */
  
-Ephemeral.type( Trace );
+Event.type( Trace );
 function Trace( options ){
   this.subject     = options.subject;
   this.event       = options.verb;
@@ -869,6 +968,10 @@ function persist( fn, a_fluid, filter ){
         // Move timestamp into "options" parameter
         value.p.ts = value.ts;
         value.ts = _;
+        // Remove .to if it points to the entity itself
+        if( value.$to && value.p.$to === value.uid ){
+          value.$to = _;
+        }
         // As a result value.t is like an SQL table name
         // and value.p is like an SQL record
       }
@@ -955,11 +1058,19 @@ function persist( fn, a_fluid, filter ){
 
 Change.prototype.process = function(){
   var target = lookup( this.t );
-  // trace( "Change.process, invoke", this.o, "on " + target );
-  if( this.p && !this.p.id && this.id ){
-    this.p.id = this.id;
+  de&&mand( target );
+  var operation = this.o || "create";
+  de&&bug( "Change.process, invoke", operation, "on " + target, "p:", value( this.p ) );
+  try{
+    if( this.p && !this.p.id && this.id ){
+      this.p.id = this.id;
+    }
+    Change.current = this;
+    return target[ operation ].call( target, this.p );
+  }catch( err ){
+    trace( "Could not process change", value( this, true ), err, err.stack );
+    return water.fail( err );
   }
-  return target[ this.o ].call( target, this.p );
 };
 
 
@@ -1031,13 +1142,18 @@ Ephemeral.start = function( bootstrap, cb ){
 Ephemeral.inject = function( t, p ){
   return Change.create( { t: t, o: "create", p: p } );
 };
-Ephemeral.get_next_id = function(){ return NextId; }
+Ephemeral.get_next_id = function(){ return NextId; };
 Ephemeral.ref = ref;
 
 // Debug related
-Ephemeral.trace   = trace;
-Ephemeral.assert  = mand;
-Ephemeral.inspect = inspect;
+Ephemeral.trace    = trace;
+Ephemeral.assert   = mand;
+Ephemeral.bugger   = bugger;
+Ephemeral.inspect  = inspect;
+Ephemeral.safe     = safe;
+Ephemeral.value    = value;
+Ephemeral.idem     = idem;
+Ephemeral.now      = now;
 
 return app;
 
@@ -1055,12 +1171,16 @@ return app;
 var vote = { store: "vote.json.log" }; // ToDo: "file://vote.json.log"
 // require( "ephemeral.js" )( vote ).into( global );
 ephemeral( vote ).into( global ); // global is module local actually
+var Ephemeral = vote.Ephemeral;
 
 // My de&&bug() and de&&mand() darlings
 var de = true;
-var bug   = vote.Ephemeral.trace;
-var mand  = vote.Ephemeral.assert;
-var trace = vote.Ephemeral.trace;
+var bug    = Ephemeral.trace;
+var bugger = Ephemeral.bugger;
+var safe   = Ephemeral.safe;
+var mand   = Ephemeral.assert;
+var trace  = Ephemeral.trace;
+var value  = Ephemeral.value;
 
 
 /*
@@ -1118,9 +1238,14 @@ function Source( options ){
  *  Topic entity
  *
  *  Atomic topics are the ultimate target of votes.
+ *  aka Propositions
  *    their source is typically a tweet.
- *  Tag topics classify topic/sub-topic relatiohships. 
+ *    they can be tagged.
+ *  Tag topics help to classify propositions. 
  *    they don't have a source.
+ *    they can be voted on too, like propositions.
+ *
+ *  ToDo: split in two types, tags and propositions?
  */
  
 Ephemeral.type( Topic );
@@ -1131,41 +1256,91 @@ function Topic( options ){
   var topic = this.register( options.label );
   var water = this.water( topic );
   
-  this.label       = options.label;
-  this.parent      = water();
-  if( !options.source ){
-    // Tag topic
-    this.children = water( options.children );
-  }else{
-    // Atomic topic
-    this.source = water( options.source );
-    this.result = this.id ? Result.create({ topic: this }) : options.result;
-  }
-  this.delegations = water( [] );
+  de&&mand( water !== Ephemeral.idem );
   
+  // Name of proposition or #xxxx tag
+  this.label = options.label;
+  
+  // Source could be a url, typically
+  this.source = water( options.source );
+  
+  // Propositions track all the votes about them
+  this.votes = water( options.votes );
+  
+  // The result of votes on the proposition
+  this.result = !this.is_update() ? Result.create({ topic: this }) : options.result;
+  
+  // Tags track the propositions they tag
+  this.propositions = water( options.propositions );
+  
+  // Propositions track the tags assigned to them
+  this.tags = water( options.tags );
+  
+  // Tags track the delegations they impact, can be huge!
+  this.delegations = water( options.delegations );
+  
+  // ToDo: implement .update()?
   if( this.is_update() )return this.update( topic );
   
-  this.update_parent( options.parent || RootTopic );
-
+  // Let's tag the propositions
+  if( options.propositions ){
+    options.propositions.forEach( function( proposition ){
+      proposition.add_tag( topic );
+    });
+  }
+  
+  // Let the tags know that a new proposition uses them
+  if( options.tags ){
+    options.tags.forEach( function( tag ){
+      if( !tag.propositions ){
+        trace( "Missing .propositions for tag " + tag, value( tag, true ) );
+      }
+      de&&mand( tag.propositions && typeof tag.propositions === "function" );
+      tag.add_proposition( topic );
+    });
+  }
 }
 
 Topic.prototype.update = function( other ){
-  if( other.parent      ){ this.update_parent(   other.parent ); }
-  if( other.children    ){ this.update_children( other.children ); }
-  this.source( other.source );
-  this.result( other.result );
+  // ToDo: handle .tags and .propositions changes
+  if( other.source ){ this.source( other.source ); }
   if( other.result      ){ this.update_result(      other.result );      }
   if( other.delegations ){ this.update_delegations( other.delegations ); }
+  return this;
 };
 
-Topic.prototype.is_atomic   = function(){ return this.source; };
-Topic.prototype.is_tag      = function(){ return !this.is_atomic(); };
-Topic.prototype.add_vote    = function( o, v ){ this.result.add_vote(    o, v ); };
-Topic.prototype.remove_vote = function( o, v ){ this.result.remove_vote( o, v ); };
+Topic.prototype.update_delegations = function( list ){
+  trace( "ToDo: update delegations" );
+  return this;
+};
 
+Topic.prototype.is_proposition = function(){ return this.label[0] !== "#"; };
+Topic.prototype.is_tag         = function(){ return !this.is_proposition(); };
+Topic.prototype.add_vote       = function( o, v ){ this.result.add_vote(    o, v ); };
+Topic.prototype.remove_vote    = function( o, v ){ this.result.remove_vote( o, v ); };
+
+// There is a log of all votes. It is a snapshot copy of the vote value that is
+// kept because a persona's vote can change over time.
+Topic.prototype.track_vote = function( v ){
+  var val = v.value();
+  v.snaptime = Ephemeral.now();
+  var votes = this.votes();
+  if( !votes ){ votes = []; }
+  votes.push( val );
+  this.votes( votes );
+  return this;
+};
+
+/*
+
+  Hierarchical tagging does not work so well in the data world.
+  See: http://www.shirky.com/writings/ontology_overrated.html
+  delegations should work better when based on "filters".
+  A filter is a list of required tags, simple.
+  
 // A topic includes another one if it is an ancestor of it
 Topic.prototype.includes = function( other_topic ){
-  if( this.is_atomic() )return false;
+  if( this.is_proposition() )return false;
   var parent = other_topic;
   while( parent = parent.parent() ){
     if( parent === this )return true;
@@ -1225,6 +1400,119 @@ Topic.prototype._remove_child = function( topic ){
   trace( "ToDo: topic's child removal handling " + this + "/" + topic  );
 };
 
+*/
+
+Topic.prototype.add_tag = function( tag, loop ){
+  var list = this.tags()|| [];
+  var idx = list.indexOf( tag );
+  // Done if already there
+  if( idx !== -1 )return this;
+  // ToDo: avoid clone?
+  var new_list = list.slice();
+  new_list.push( tag );
+  this.tags( new_list );
+  if( !loop ){
+    tag.add_topic( this, true );
+    this.update_votes();
+  }
+  return this;
+};
+
+Topic.prototype.remove_tag = function( tag, loop ){
+  var list = this.tags()|| [];
+  var idx = list.indexOf( tag );
+  // Done if already not there
+  if( idx === -1 )return this;
+  // ToDo: avoid clone?
+  var new_list;
+  de&&mand( idx !== - 1 );
+  new_list = list.splice( idx, 1 );
+  this.tags( new_list );
+  if( !loop ){
+    tag.remove_topic( this, true );
+    this.update_votes();
+  }
+  return this;
+};
+
+Topic.prototype.add_proposition = safe( function( proposition, loop ){
+  var list = this.propositions() || [];
+  // Done if already there
+  if( list.indexOf( proposition ) !== - 1 )return this;
+  // ToDo: avoid clone?
+  var new_list = list.slice();
+  new_list.push( proposition );
+  this.propositions( new_list );
+  if( !loop ){
+    proposition.add_tag( this, true );
+    this.update_votes();
+  }
+  return this;
+} );
+
+Topic.prototype.remove_proposition = function( proposition, loop ){
+  var list = this.propositions()|| [];
+  var idx = list.indexOf( proposition );
+  // Done if already not there
+  if( idx === -1 )return this;
+  // ToDo: avoid clone
+  var new_list;
+  de&&mand( idx !== - 1 );
+  new_list = list.splice( idx, 1 );
+  this.propositions( new_list );
+  if( !loop ){
+    proposition.remove_tag( this, true );
+    this.update_votes();
+  }
+  return this;
+};
+
+Topic.prototype.is_tagged = function( tags ){
+  var list = this.tags();
+  for( var tag in tags ){
+    if( list.indexOf( tag ) === -1 )return false;
+  }
+  return true;
+};
+
+Topic.prototype.update_votes = function(){
+  // Something changed, this may have an impact on delegated votes
+  var delegations = this.delegations();
+  var delegation;
+  for( delegation in delegations ){
+    // ToDo: hum... complex!
+    trace( "ToDo: handle delegation " + delegation );
+    de&&bugger();
+  }
+};
+
+
+/*
+ *  Tagging event (or detagging)
+ *
+ *  This event is created typically when some UI changes the tags for a
+ *  proposition/topic.
+ *  Potential huge side effect!
+ */
+
+Event.type( Tagging );
+function Tagging( options ){
+  de&&mand( options.proposition );
+  var proposition = options.proposition;
+  var remove_tags = options.detags;
+  var add_tags    = options.tags;
+  this.proposition = proposition;
+  this.detags = remove_tags;
+  this.tags = add_tags;
+  var tag;
+  for( tag in remove_tags ){
+    proposition.remove_tag( tag );
+  }
+  for( tag in add_tags ){
+    proposition.add_tag( tag );
+  }
+}
+
 
 /*
  *  Vote entity
@@ -1243,10 +1531,9 @@ function Vote( options ){
   
   this.persona     = options.persona;
   this.topic       = options.topic;
-  de&&mand( this.topic.is_atomic() );
   
   // Decide: is it a new entity or an update?
-  var vote  = Vote.register( this.persona.id + "." + this.topic.id );
+  var vote  = this.register( this.persona.id + "." + this.topic.id );
   var water = this.water( vote ); 
   
   this.analyst     = options.analyst;
@@ -1255,9 +1542,11 @@ function Vote( options ){
   this.privacy     = water( options.privacy     || Vote.private );
   this.previously  = water( options.previously  || Vote.neutral );
   
-  if( this.is_update() )return vote.update( this );
+  if( this.is_update() ){
+    this.orientation = options.orientation;
+    return vote.update( this );
+  }
   
-  var that = this;
   this.orientation = water( water, po, [] );
   if( options.orientation ){
     this.orientation( options.orientation );
@@ -1267,15 +1556,19 @@ function Vote( options ){
       var prev = water.current.current || Vote.neutral;
       if( o === prev )return;
       // Orientation changed
-      that.remove( prev );
-      that.add( o );
+      vote.remove( prev );
+      vote.add( o );
+      // Push updated entity
+      vote.push();
       return o;
     }catch( err ){
-      trace( "Could not process vote", err, err.stack );
+      trace( "Could not process vote " + vote, err, err.stack );
       console.trace( err );
-      debugger;
+      de&&bugger();
     }
   }
+  
+  //this.topic.track_vote( this );
 }
 
 
@@ -1312,7 +1605,6 @@ Vote.prototype.add = function( o ){
   if( o === Vote.indirect )return;
   var that = this;
   de&&mand( this.topic );
-  de&&mand( this.topic.is_atomic() );
   water.effect(
     function(){
       trace( "Add vote to topic " + that.topic, ":", o );
@@ -1329,18 +1621,24 @@ Vote.prototype.remove = function( o ){
   var that = this;
   water.effect(
     function(){
-      trace( "Remove vote from topic" ); debugger;
-      that.topic.remove_vote();
+      trace( "Remove vote from topic" ); de&&bugger();
+      that.topic.remove_vote( o, that );
     }
   );
 };
 
+Vote.prototype.update = function( other ){
+  if( other.orientation ){
+    this.orientation( other.orientation );
+  }
+};
 
-Ephemeral.type( Result );
+
+Entity.type( Result );
 function Result( options ){
   
   de&&mand( options.topic );
-  this.topic     = options.topic || Topic.prototype;
+  this.topic     = options.topic;
   this.label = this.topic.label;
   this.neutral   = water( options.neutral   || 0 );
   this.blank     = water( options.blank     || 0 );
@@ -1380,7 +1678,7 @@ function Result( options ){
   this.orientation = function(){
     var old = this.orientation() || Vote.neutral;
     var now;
-    if( this.topic.id === 10017 )debugger;
+    if( this.topic.id === 10017 )de&&bugger();
     trace( "Computing orientation for " + this,
       "expired:", this.expired(),
       "agree:",   this.agree(),
@@ -1484,7 +1782,7 @@ function Transition( options ){
 Ephemeral.type( Delegation );
 function Delegation( options ){
   this.persona = options.persona;
-  this.topic   = options.topic;
+  this.tags    = options.tags;
   this.votes   = water( [] );
 }
 
@@ -1503,7 +1801,7 @@ function Membership( options ){
 
 
 // Default parent topic for new topics
-var RootTopic = Topic.create({ label: "Root" });
+// var RootTopic = Topic.create({ label: "Root" });
 
 
 /*
@@ -1530,14 +1828,15 @@ function bootstrap(){
   function c( t, p ){ return Ephemeral.ref( Ephemeral.inject( t, p ).id ); }
   function p( n ){ p[n] = c( "Persona", { label: n } ); }
   function g( n ){ p[n] = c( "Persona", { label: n, role: "group" } ); }
-  function t( n, l ){ t[n] = c( "Topic", { label: n, source: "bootstrap" } ); }
-  function tag( n, l ){ t[n] = c( "Topic", { label: n, children: l } ); }
+  function t( n, l ){ t[n] = c( "Topic", { label: n, source: "bootstrap", tags: l } ); }
+  //function tag( n, l ){ t[n] = c( "Topic", { label: n, children: l } ); }
+  function tag( n ){ t[n] = c( "Topic", { label: n } ); }
   function v( p, t, o ){
     v[ v.n++ ] = c( "Vote", { persona: p, topic: t, orientation: o } );
   }
   v.n = 0;
   function d( p, t, a ){ 
-    d[ d.n++ ] = c( "Delegation", { persona: p, topic: t, agent: a } );
+    d[ d.n++ ] = c( "Delegation", { persona: p, tags: t, agent: a } );
   }
   d.n = 0;
   function mark(){ mark.id = Ephemeral.get_next_id(); }
@@ -1558,22 +1857,24 @@ function bootstrap(){
     function(){ p( "@luke"); },
     function(){ p( "@marc"); },
     function(){ p( "@peter"); },
-    // *** Topics ***
-    function(){ mark(); },
-      function(){ t( "Hollande president" ); },
-      function(){ t( "Marine presidente" ); },
-      function(){ t( "Sarkozy president" ); },
-      function(){ t( "Valls president" ); },
-      function(){ t( "Melenchon president" ); },
-      function(){ t( "Hulot president" ); },
-    function(){ collect(); },
-    function(){ tag( "President", collect.list ); },
+    // *** Tags ***
+    function(){ tag( "#President" ); },
+    // *** Propositions ***
+    //function(){ mark(); },
+      function(){ t( "Hollande president",  [ t["#President"] ] ); },
+      function(){ t( "Marine presidente",   [ t["#President"] ] ); },
+      function(){ t( "Sarkozy president",   [ t["#President"] ] ); },
+      function(){ t( "Valls president",     [ t["#President"] ] ); },
+      function(){ t( "Melenchon president", [ t["#President"] ] ); },
+      function(){ t( "Hulot president",     [ t["#President"] ] ); },
+    //function(){ collect(); },
     // Delegations
-    function(){ d( p["@jhr"], t["President"], p["@N_Hulot"] ); },
+    function(){ d( p["@jhr"], [t.President], p["@N_Hulot"] ); },
     // Votes
-    function(){ v( p["@peter"],   t["Hulot president"], "agree"   ); },
-    function(){ v( p["@N_Hulot"], t["Hulot president"], "agree"   ); },
-    function(){ v( p["@peter"],   t["Hulot president"], "neutral" ); },
+    function(){ v( p["@peter"],   t["Hulot president"], "agree"    ); },
+    function(){ v( p["@N_Hulot"], t["Hulot president"], "agree"    ); },
+    function(){ v( p["@peter"],   t["Hulot president"], "neutral"  ); },
+    function(){ v( p["@N_Hulot"], t["Hulot president"], "disagree" ); },
   ];
   // Execute steps (sequentially) and return boxon fired when all done
   return water.steps( steps );
@@ -1599,7 +1900,7 @@ Action     .fluid.inspect().log( "Log Action"     );
 
 function main(){
   console.log( "Welcome to l8/test/vote.js -- Liquid demo...cracy" );
-  debugger;
+  de&&bugger();
   Ephemeral.start( bootstrap, function( err ){
     if( err ){
       console.log( "Cannot proceed", err, err.stack );
@@ -1608,7 +1909,7 @@ function main(){
     }
     // Let's provide a frontend...
     console.log( "READY!" );
-    debugger;
+    de&&bugger();
   } );
 }
 
