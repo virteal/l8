@@ -94,6 +94,87 @@ var ONE_YEAR = 365 * 24 * 60 * 60 * 1000;
 
 
 /*
+ *  Computation steps managements
+ *
+ *  Steps create or update entities.
+ *  They can trigger consequences by pushing an entity into a fluid.
+ *  If the same entity is pushed multiple times into the same fluid, only
+ *  the first push is actually performed.
+ */
+ 
+var StepQueue = [];
+var PushQueue = [];
+var PushMap   = {};
+
+function steps( list ){
+  //debugger;
+  if( list ){
+    list.forEach( function( item ){
+      step( item );
+    });
+  }
+  var queue  = StepQueue;
+  StepQueue = [];
+  var box = boxon();
+  water.steps( queue ).boxon( function( err ){
+    if( err ){
+      // Get rid of potential new steps, cancelled
+      StepQueue = [];
+      box( err );
+      return;
+    }
+    // If new steps where created, perform them now
+    if( StepQueue.length ){
+      steps().boxon( function( err ){ box( err ); } );
+    }else{
+      box();
+    }
+  } );
+  return box;
+}
+
+function step( fn ){
+  var s = function(){
+    de&&mand( !StepQueue.length );
+    try{
+      fn();
+    }catch( err ){
+      trace( "Failed step", err, err.stack );
+      throw err;
+    }
+    // Code was run, do pushes, at most one per fluid
+    var queue = PushQueue;
+    PushQueue = [];
+    var map   = PushMap;
+    PushMap = {};
+    queue.forEach( function( f_e ){
+      var fluid  = f_e.fluid;
+      var entity = f_e.entity;
+      var push_id = "" + fluid.water().id + "." + entity.id;
+      // If such push is still pending, push and mark as 'done'
+      if( map[ push_id ] !== "done" ){
+        map[ push_id ] = "done";
+        fluid.push( entity );
+      }
+    } );
+  };
+  StepQueue.push( s );
+}
+
+// Add a push operation for an entity, done at end of current 'step'
+function push( f, e ){
+  var push_id = "" + f.water().id + "." + e.id;
+  var state = PushMap[ push_id ];
+  if( !state || state === "done" ){
+    PushMap[ push_id ] = "pending"; // pending
+    PushQueue.push( { fluid: f, entity: e } );
+  }
+  return e;
+}
+  
+
+
+/*
  *  Voting machines.
  *
  *  There is a main voting machine and domain specific ones.
@@ -193,6 +274,9 @@ extend( Entity.prototype, {
   
   // Most entities "expires", usually after some delay. Some may "resurrect"
   expired: function(){ return false; },
+  
+  // Queue a push, done at end of current step
+  push: function( a_fluid ){ return push( a_fluid, this ); },
   
   // Debug related
   log: function( f ){ console.log( f ? f.call( this, this ) : this.toString() ); },
@@ -387,13 +471,18 @@ var type = function( ctor, base ){
   sub.super  = proto;
   // Build the instance creation function
   var efluid = ctor.fluid = fluid();
-  sub.push = function(){
-    efluid.push( this );
+  sub.push = function( f ){
+    if( f ){
+      push( f, this );
+      return this;
+    }
+    push( efluid, this );
     var sup = this.super.push;
     // ToDo: fix stack overflow
     if( 0 && sup ){
       sup.call( this );
     }
+    return this;
   };
   ctor.create = sub.create = function( options ){
     var obj = Entity.created = Object.create( sub );
@@ -701,13 +790,11 @@ function Effect( options ){
   // If the effect is due to a change (hopefully), link change to effect
   if( change && change.p.id === this.id ){
     change.to = this;
-    // Also remember this change as the "first" update, ie the "create" update
-    this.updates = water( [change] );
   }else{
     trace( "Effect without a change, spontaneous?" );
-    de&&bugger();
-    this.updates = water( [] );
   }
+  // Also remember this change as the "first" update, ie the "create" update
+  this.updates = water( [change] );
   // Some effects are about a pre existing entity, ie they are updates.
   // .register( key ) will detect such cases 
   this.effect = _;
@@ -718,7 +805,7 @@ Effect.prototype.touch = function(){};
 
 // Register entity and detect updates about pre-existing entities
 Effect.prototype.register = function( key ){
-  // if( this.id === 10016 )debugger;
+  if( this.id === 10009 )debugger;
   // Look for an existing entity with same type and same key
   var entity = this.constructor.all[ key ];
   // If found then this entity is actually an update for that existing entity
@@ -1004,7 +1091,9 @@ function persist( fn, a_fluid, filter ){
     // Log version
     if( Change.version !== Change.versioning ){
       Change.versioning = null;
-      Change.create({ t: "Version", o: "create", p: { label: Change.version } }); 
+      step( function(){
+        Change.create({ t: "Version", o: "create", p: { label: Change.version } });
+      } );
     }
     next( err );
     return next;
@@ -1026,7 +1115,9 @@ function persist( fn, a_fluid, filter ){
     // Log version
     if( Change.version !== Change.versioning ){
       Change.versioning = null;
-      Change.create({ t: "Version", o: "create", p: { label: Change.version } } ); 
+      step( function(){
+        Change.create({ t: "Version", o: "create", p: { label: Change.version } } ); 
+      } );
     }
     next( error );
   })
@@ -1111,7 +1202,7 @@ function start( bootstrap, cb ){
       // ToDo: handle error, only ENOENT is ok, ie file does not exist
       trace( "Bootstrapping" );
       try{
-        bootstrap().boxon( function( err ){
+        steps( bootstrap() ).boxon( function( err ){
           trace( "Bootstrap READY" );
           ready( err );
         });
@@ -1146,14 +1237,16 @@ Ephemeral.get_next_id = function(){ return NextId; };
 Ephemeral.ref = ref;
 
 // Debug related
-Ephemeral.trace    = trace;
-Ephemeral.assert   = mand;
-Ephemeral.bugger   = bugger;
-Ephemeral.inspect  = inspect;
-Ephemeral.safe     = safe;
-Ephemeral.value    = value;
-Ephemeral.idem     = idem;
-Ephemeral.now      = now;
+app.trace    = trace;
+app.assert   = mand;
+app.bugger   = bugger;
+app.inspect  = inspect;
+app.safe     = safe;
+
+// More exports
+app.value    = value;
+app.idem     = idem;
+app.now      = now;
 
 return app;
 
@@ -1169,18 +1262,24 @@ return app;
 
 
 var vote = { store: "vote.json.log" }; // ToDo: "file://vote.json.log"
-// require( "ephemeral.js" )( vote ).into( global );
-ephemeral( vote ).into( global ); // global is module local actually
+// require( "ephemeral.js" )( vote )
+ephemeral( vote );
+
+var l8        = vote.l8;
+var Event     = vote.Event;
+var Effect    = vote.Effect;
 var Ephemeral = vote.Ephemeral;
 
 // My de&&bug() and de&&mand() darlings
 var de = true;
-var bug    = Ephemeral.trace;
-var bugger = Ephemeral.bugger;
-var safe   = Ephemeral.safe;
-var mand   = Ephemeral.assert;
-var trace  = Ephemeral.trace;
-var value  = Ephemeral.value;
+var bug    = vote.trace;
+var bugger = vote.bugger;
+var safe   = vote.safe;
+var mand   = vote.assert;
+var trace  = vote.trace;
+var value  = vote.value;
+var water  = vote.water;
+//debugger;
 
 
 /*
@@ -1634,10 +1733,14 @@ Vote.prototype.update = function( other ){
 };
 
 
-Entity.type( Result );
+Effect.type( Result );
 function Result( options ){
   
   de&&mand( options.topic );
+  
+  var result = this.register( options.topic.id );
+  var water  = this.water( result );
+  
   this.topic     = options.topic;
   this.label = this.topic.label;
   this.neutral   = water( options.neutral   || 0 );
@@ -1646,6 +1749,21 @@ function Result( options ){
   this.agree     = water( options.agree     || 0 );
   this.disagree  = water( options.disagree  || 0 );
   this.direct    = water( options.direct    || 0 );
+  
+  // If this is an update, it simply supercedes the so far known result.
+  // This is handy to import bulk results from an external system or to
+  // compact the persistent log of changes.
+  if( this.is_update() ){
+    this.topic.result.neutral(  this.neutral  );
+    this.topic.result.blank(    this.blank    );
+    this.topic.result.protest(  this.protest  );
+    this.topic.result.agree(    this.agree    );
+    this.topic.result.disagree( this.disagree );
+    this.topic.result.direct(   this.direct   );
+    return;
+  }
+  
+  // Computed attributes, including transition detection
   
   this.total = function(){
     var old = this.total();
@@ -1781,10 +1899,32 @@ function Transition( options ){
 
 Ephemeral.type( Delegation );
 function Delegation( options ){
+  
+  de&&mand( options.persona );
+  de&&mand( options.tags    );
+  
+  var delegation = this.register( this.id );
+  var water      = this.water( delegation );
+  
   this.persona = options.persona;
-  this.tags    = options.tags;
+  this.tags    = water( options.tags );
+  this.active  = water( options.active || true );
+  
+  if( this.is_update() ){
+    delegation.tags( this.tags );
+    return;
+  }
+  
+  // ToDo: handle change in list of tags
+  // ie: removal and additions
+  
+  // ToDo: handle activation/deactivation of delegation
+  
+  //debugger;
   this.votes   = water( [] );
 }
+
+// ToDo: handle expiration, should deactivate delegation
 
 
 /*
@@ -1795,13 +1935,40 @@ function Delegation( options ){
 
 Ephemeral.type( Membership );
 function Membership( options ){
+  
+  de&&mand( options.member ); // a persona
+  de&&mand( options.leader ); // a group typically
+  
+  var key = "" + options.leader.id + "." + options.member.id;
+  var membership = this.register( key );
+  var water      = this.water( membership );
+  
   this.member = options.member;
   this.group  = options.leader;
+  this.active = water( options.active || true, pa, [] );
+  
+  if( this.is_update() ){
+    membership.active( this.active );
+    return;
+  }
+  
+  // ToDo: handle change in membership activation
+  function pa( is_active ){
+    var old = water.current.current;
+    if( old === is_active )return;
+    // Change
+    if( is_active ){
+      // Activate
+      trace( "ToDo: activate membership" );
+    }else{
+      // Deactivate
+      trace( "ToDo: deactivate membership" );
+    }
+  }
+  
 }
 
-
-// Default parent topic for new topics
-// var RootTopic = Topic.create({ label: "Root" });
+// ToDo: handle expiration, should deactivate membership
 
 
 /*
@@ -1812,7 +1979,7 @@ Ephemeral.type( Visitor );
 function Visitor( options ){
   this.persona     = options.persona;
   this.twitter     = options.twitter; // Twitter credentials
-  this.actions     = fluid();
+  this.actions     = Ephemeral.fluid();
 }
 
 
@@ -1839,6 +2006,11 @@ function bootstrap(){
     d[ d.n++ ] = c( "Delegation", { persona: p, tags: t, agent: a } );
   }
   d.n = 0;
+  function r( t, a, d, p, b, n, dir ){
+    c( "Result",
+      { topic: t, agree: a, disagree: d, protest: p, blank: b, neutral: n, direct: dir
+    } );
+  }
   function mark(){ mark.id = Ephemeral.get_next_id(); }
   function collect( n ){
     collect.list = [];
@@ -1848,7 +2020,7 @@ function bootstrap(){
   }
   
   trace( "Bootstrap" );
-  var steps = [
+  return [
     // *** Personas ***
     function(){ p( "@jhr" ); },
     function(){ p( "@N_Hulot" ); },
@@ -1861,12 +2033,12 @@ function bootstrap(){
     function(){ tag( "#President" ); },
     // *** Propositions ***
     //function(){ mark(); },
-      function(){ t( "Hollande president",  [ t["#President"] ] ); },
-      function(){ t( "Marine presidente",   [ t["#President"] ] ); },
-      function(){ t( "Sarkozy president",   [ t["#President"] ] ); },
-      function(){ t( "Valls president",     [ t["#President"] ] ); },
-      function(){ t( "Melenchon president", [ t["#President"] ] ); },
-      function(){ t( "Hulot president",     [ t["#President"] ] ); },
+    function(){ t( "Hollande president",  [ t["#President"] ] ); },
+    function(){ t( "Marine presidente",   [ t["#President"] ] ); },
+    function(){ t( "Sarkozy president",   [ t["#President"] ] ); },
+    function(){ t( "Valls president",     [ t["#President"] ] ); },
+    function(){ t( "Melenchon president", [ t["#President"] ] ); },
+    function(){ t( "Hulot president",     [ t["#President"] ] ); },
     //function(){ collect(); },
     // Delegations
     function(){ d( p["@jhr"], [t.President], p["@N_Hulot"] ); },
@@ -1875,14 +2047,19 @@ function bootstrap(){
     function(){ v( p["@N_Hulot"], t["Hulot president"], "agree"    ); },
     function(){ v( p["@peter"],   t["Hulot president"], "neutral"  ); },
     function(){ v( p["@N_Hulot"], t["Hulot president"], "disagree" ); },
+    function(){ r( t["Hulot president"], 102, 101, 1, 12, 1000, 99 ); }
   ];
-  // Execute steps (sequentially) and return boxon fired when all done
-  return water.steps( steps );
 }
 
 
-/*
+/* ---------------------------------------------------------------------------
  *  Dataflow processing. TBD
+ *  Each fluid is fed whenever an entity is created or updated.
+ *  The only valid action is to inject a change in the machine:
+ *    ephemeral.push( "type", {...named paramers...} ); or
+ *    type.push( {...named parameters...} );
+ *  That change gets logged in a persistent store and will be replayed whenever
+ *  the machine is restarted.
  */
  
 Persona    .fluid.inspect().log( "Log Persona"    );
