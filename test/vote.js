@@ -81,6 +81,29 @@ var extend = function( to, from ){
 // Usage: require( "ephemeral.js" ).into( global )
 app.into  = function( obj ){ extend( obj, app ); };
 
+// Compare two sets and detect changes.
+// Returns { added: [...], removed: [...], kept: [...] );
+function array_diff( old, now ){
+  if( !old || !old.length )return { added: now || [], removed: [], kept: [] };
+  if( !now || !now.length )return { removed: old, added: [], kept: [] };
+  var added   = [];
+  var removed = [];
+  var kept    = [];
+  old.forEach( function( v ){
+    if( now.indexOf( v ) === -1 ){
+      removed.push( v );
+    }else{
+      kept.push( v );
+    }
+  });
+  now.forEach( function( v ){
+    if( old.indexOf( v ) === -1 ){
+      removed.push( v );
+    }
+  });
+  return { added: added, removed: removed, kept: kept };
+}
+
 
 /*
  *  Reactive entities management
@@ -297,20 +320,20 @@ var null_object = new Entity( { machine: MainMachine } );
 
 var abbreviations = {
   orientation: "orient",
-  win:       "win",
-  disagree:  "disa",
-  against:   "again",
-  total:     "tot",
-  direct:    "dir",
-  duration:  "dura",
-  topic:     "&",
-  tag:       "#",
-  timestamp: "ts",
+  win:         "win",
+  disagree:    "disa",
+  against:     "again",
+  total:       "tot",
+  direct:      "dir",
+  duration:    "dura",
+  topic:       "&",
+  tag:         "#",
+  timestamp:   "ts",
   proposition: "prop",
-  vote: "vot",
-  votes: "vot",
-  persona: "@",
-  "result": "+"
+  vote:        "vot",
+  votes:       "vot",
+  persona:     "@",
+  "result":    "+"
 };
 function abbreviate( str ){
   if( str[ str.length - 1 ] === "s" ){
@@ -320,6 +343,8 @@ function abbreviate( str ){
   || str[0] + str.substring( 1 ).replace( /[aeiou]/g, "" );
 }
 
+
+// ToDo: rename into pretty()
 function inspect( v, level ){
   
   if( arguments.length < 2 ){ level = 1; }
@@ -328,7 +353,7 @@ function inspect( v, level ){
   
   var buf = "";
   
-  if( typeof v === "undefined" )return "_";
+  if( v === _ )return "_";
   
   if( typeof v === "function" || typeof v === "object" ){
     
@@ -376,22 +401,34 @@ function inspect( v, level ){
       }
     }
     if( level <= 0 )return buf;
+    // Display attributes of object
     var lbuf = [];
     var val;
     for( var attr in v ){
       if( attr !== "id" && v.hasOwnProperty( attr ) ){
         val = v[ attr ];
+        // Skip label, already displayed
         if( attr === "label" )continue;
+        // Skip "buried" unless actually buried
         if( attr === "buried" ){
           if( val ){ lbuf.push( "buried" ) }
           continue;
+        // Show "timestamp" relative to time now versus since epoch
         }else if( attr === "timestamp" ){
           val = val - now();
+        // Turn "expire" into a boolean that is false if expiration is remote
         }else if( attr === "expire" ){
           if( ( val.water && val() || val ) - now() > 2 * 24 * 60 * 60 * 1000 ){
             val = false;
           }
+        // Skip "effect" when there is none
+        }else if( attr === "effect" ){
+          if( val === _ )continue;
+        // Skip "updates" when only the initial create update is there
+        }else if( attr === "updates" ){
+          if( val.water && val() && val().length === 1 )continue;
         }
+        // For booleans, show the flag name, with a ! prefix if false
         if( val === true || val === false ){
           lbuf.push( (val ? "" : "!") + abbreviate( attr ) );
           continue;
@@ -491,10 +528,12 @@ var type = function( ctor, base ){
     var ii = 0;
     var list = ctor.ctors;
     var a_ctor;
+    var r;
     // ToDo: unroll for speed
     while( a_ctor = list[ ii++ ] ){
-      a_ctor.call( obj, options );
+      r = a_ctor.call( obj, options );
     }
+    if( r ){ obj = r; }
     //de&&bug( "New entity", "" + inspect( obj, 2 ) );
     // Push new entity on the fluid bound to the entity's type, unless proto
     if( proto_entity ){
@@ -805,12 +844,12 @@ Effect.prototype.touch = function(){};
 
 // Register entity and detect updates about pre-existing entities
 Effect.prototype.register = function( key ){
-  if( this.id === 10009 )debugger;
+  //if( this.id === 10009 )debugger;
   // Look for an existing entity with same type and same key
   var entity = this.constructor.all[ key ];
   // If found then this entity is actually an update for that existing entity
   if( entity ){
-    trace( "Update on " + entity + ", key:", key, "update: " + this );
+    de&&bug( "Update on " + entity + ", key:" + key + ", update: " + this );
     de&&mand( entity !== this );
     de&&mand( !entity.is_update() );
     // Such an update does not need an UID because some Change entity made it*
@@ -825,7 +864,7 @@ Effect.prototype.register = function( key ){
       de&&mand( AllEntities[ NextId - 2 ].type === "Change" );
       NextId--;
     }
-    // Remember the target entity that this update procuces an effect on
+    // Remember the target entity that this update produces an effect on
     if( this.id === 10016 )debugger;
     this.effect = entity;
     //this.to = entity;
@@ -840,7 +879,7 @@ Effect.prototype.register = function( key ){
     return entity;
   }
   // Genuine new entity, key first seen, track it
-  trace( "Key for " + this + " is: ", key );
+  trace( "Key for new " + this + " is: " + key );
   this.constructor.all[ key ] = this;
   return this;
 };
@@ -1151,7 +1190,7 @@ Change.prototype.process = function(){
   var target = lookup( this.t );
   de&&mand( target );
   var operation = this.o || "create";
-  de&&bug( "Change.process, invoke", operation, "on " + target, "p:", value( this.p ) );
+  de&&bug( "\nChange.process, invoke", operation, "on " + target, "p:", value( this.p ) );
   try{
     if( this.p && !this.p.id && this.id ){
       this.p.id = this.id;
@@ -1244,9 +1283,11 @@ app.inspect  = inspect;
 app.safe     = safe;
 
 // More exports
+app._        = _;
 app.value    = value;
 app.idem     = idem;
 app.now      = now;
+app.diff     = array_diff;
 
 return app;
 
@@ -1272,13 +1313,16 @@ var Ephemeral = vote.Ephemeral;
 
 // My de&&bug() and de&&mand() darlings
 var de = true;
-var bug    = vote.trace;
-var bugger = vote.bugger;
-var safe   = vote.safe;
-var mand   = vote.assert;
-var trace  = vote.trace;
-var value  = vote.value;
-var water  = vote.water;
+var bug     = vote.trace;
+var bugger  = vote.bugger;
+var safe    = vote.safe;
+var mand    = vote.assert;
+var trace   = vote.trace;
+var value   = vote.value;
+var inspect = vote.inspect;
+var water   = vote.water;
+var diff    = vote.diff;
+var _       = vote._;
 //debugger;
 
 
@@ -1294,12 +1338,13 @@ function Persona( options ){
   var persona = this.register( options.label );
   var water   = this.water( persona );
   
-  this.label       = options.label;
-  this.role        = options.role || "individual";
-  this.friends     = water( [] ); // Individual's friends or group's members
-  this.memberships = water( [] ); // To groups
-  this.delegations = water( [] ); // To personas, about topics
-  this.votes       = water( [] ); // Direct votes
+  this.label            = options.label;
+  this.role             = options.role || "individual";
+  this.friends          = water( [] ); // Individual's friends or group's members
+  this.memberships      = water( [] ); // To groups
+  this.delegations      = water( [] ); // To personas, about topics
+  this.delegations_from = water( [] ); // From personas
+  this.votes            = water( [] ); // Direct votes
   
   return this.is_update() ? persona.update( this ) : this;
   
@@ -1313,6 +1358,96 @@ Persona.prototype.is_group      = function(){ return this.role === "group"; };
 Persona.prototype.is_individual = function(){ return !this.is_group();      };
 
 Persona.prototype.update = function( other ){ return this; };
+
+Persona.prototype.get_orientation_on = function( proposition ){
+  var votes = this.votes();
+  var orientation;
+  votes.forEach( function( vote ){
+    if( vote.proposition === proposition ){
+      orientation = vote.orientation();
+      // ToDo: exit loop
+    }
+  });
+  return orientation;
+};
+
+Persona.prototype.add_delegation = function( delegation, loop ){
+  de&&mand( delegation.persona === this );
+  var delegations = this.delegations() || [];
+  if( delegations.indexOf( delegation ) !== -1 ){
+    trace( "BUG? Delegation already added " + delegation
+      + ", persona: " + this
+      + ", agent: " + delegation.agent
+    );
+    return this;
+  }
+  var now = delegations.slice();
+  now.push( delegation );
+  trace( "Add delegation " + delegation
+   + " for persona " + this 
+   + " for topics tagged " + inspect( delegation.tags() )
+   + " to agent " + delegation.agent
+  ); 
+  this.delegations( now );
+  if( !loop ){
+    delegation.agent.add_delegation_from( delegation, true );
+  }
+  return this;
+};
+
+Persona.prototype.add_delegation_from = function( delegation, loop ){
+  de&&mand( delegation.agent === this );
+  var delegations_from = this.delegations_from() || [];
+  if( delegations_from.indexOf( delegation ) !== -1 ){
+    trace( "BUG? Delegation 'from' already added: " + delegation
+      + ", agent: " + delegation.agent
+      + ", persona: ", delegation.persona
+    );
+  }
+  var now = delegations_from.slice();
+  now.push( delegation );
+  trace( "Add delegation " + delegation
+   + " by agent " + this 
+   + " for topics tagged " + inspect( delegation.tags() )
+   + " from persona " + delegation.persona
+  ); 
+  this.delegations_from( now );
+  if( !loop ){
+    delegation.persona.add_delegation( delegation, true );
+  }
+  return this;
+};
+
+
+Persona.prototype.vote_for_others = function( vote ){
+  var persona     = this;
+  var orientation = vote.orientation();
+  var proposition = vote.proposition;
+  var delegations_from = this.delegations_from() || [];
+  if( !delegations_from.length )return this;
+  trace( "Persona " + persona + " votes " + orientation
+    + " on proposition " + vote.proposition
+    + " for " + delegations_from.length + " other personas"
+  );
+  //debugger;
+  delegations_from.forEach( function( delegation ){
+    if( proposition.is_tagged( delegation.tags() ) ){
+      trace( "Delegated vote by " + persona
+        + " on behalf of " + delegation.persona 
+        + " for proposition: " + proposition
+        + ", orientation: " + orientation
+      );
+      var vote = Vote.create({
+        persona:     delegation.persona,
+        delegation:  delegation,
+        proposition: proposition,
+        orientation: orientation
+      });
+      delegation.add_vote( vote );
+    }
+  });
+  return this;
+};
 
 
 /*
@@ -1355,8 +1490,6 @@ function Topic( options ){
   var topic = this.register( options.label );
   var water = this.water( topic );
   
-  de&&mand( water !== Ephemeral.idem );
-  
   // Name of proposition or #xxxx tag
   this.label = options.label;
   
@@ -1367,7 +1500,9 @@ function Topic( options ){
   this.votes = water( options.votes );
   
   // The result of votes on the proposition
-  this.result = !this.is_update() ? Result.create({ topic: this }) : options.result;
+  this.result = this.is_update() 
+  ? options.result
+  : Result.create({ proposition: this });
   
   // Tags track the propositions they tag
   this.propositions = water( options.propositions );
@@ -1379,7 +1514,7 @@ function Topic( options ){
   this.delegations = water( options.delegations );
   
   // ToDo: implement .update()?
-  if( this.is_update() )return this.update( topic );
+  if( this.is_update() )return topic.update( this );
   
   // Let's tag the propositions
   if( options.propositions ){
@@ -1430,79 +1565,8 @@ Topic.prototype.track_vote = function( v ){
   return this;
 };
 
-/*
-
-  Hierarchical tagging does not work so well in the data world.
-  See: http://www.shirky.com/writings/ontology_overrated.html
-  delegations should work better when based on "filters".
-  A filter is a list of required tags, simple.
-  
-// A topic includes another one if it is an ancestor of it
-Topic.prototype.includes = function( other_topic ){
-  if( this.is_proposition() )return false;
-  var parent = other_topic;
-  while( parent = parent.parent() ){
-    if( parent === this )return true;
-  }
-  return false;
-};
-
-// The ancestors of a topic are the super topics that includes it
-Topic.prototype.ancestors = function(){
-  var list = [];
-  var parent = this;
-  while( parent = parent.parent() ){
-    // ToDo: remove RootTopic?
-    list.push( parent );
-  }
-  return list;
-};
-
-Topic.prototype.update_parent = function( topic ){
-  if( this.is_update() ){
-    this.parent = topic;
-    return;
-  }
-  var parent = this.parent();
-  if( parent ){
-    parent._remove_child( this );
-  }
-  // Only RootTopic has no parent
-  if( !topic )return;
-  topic._add_child( this );
-  this.parent( topic );
-  // ToDo: change votes based on delegations involved
-  trace( "ToDo: topic's parent change handling " + this + "/" + topic );
-};
-
-// Private. Called by .change_parent()
-Topic.prototype._add_child = function( topic ){
-  // Check if already there
-  var list = this.children();
-  if( list.indexOf( topic ) !== -1 )return;
-  // ToDo: ordered list?
-  // Avoid clone?
-  list = list.slice()
-  list.push( topic );
-  this.children( list );
-  trace( "ToDo: topic's child addition handling " + this + "/" + topic );
-};
-
-// Private. Called by .change_parent()
-Topic.prototype._remove_child = function( topic ){
-  // Check if already there
-  var list = this.children();
-  var index = list.indexOf( topic );
-  if( index === -1 )return;
-  list = list.splice( index, 1 );
-  this.children( list );
-  trace( "ToDo: topic's child removal handling " + this + "/" + topic  );
-};
-
-*/
-
 Topic.prototype.add_tag = function( tag, loop ){
-  var list = this.tags()|| [];
+  var list = this.tags() || [];
   var idx = list.indexOf( tag );
   // Done if already there
   if( idx !== -1 )return this;
@@ -1518,7 +1582,7 @@ Topic.prototype.add_tag = function( tag, loop ){
 };
 
 Topic.prototype.remove_tag = function( tag, loop ){
-  var list = this.tags()|| [];
+  var list = this.tags() || [];
   var idx = list.indexOf( tag );
   // Done if already not there
   if( idx === -1 )return this;
@@ -1534,7 +1598,7 @@ Topic.prototype.remove_tag = function( tag, loop ){
   return this;
 };
 
-Topic.prototype.add_proposition = safe( function( proposition, loop ){
+Topic.prototype.add_proposition = function( proposition, loop ){
   var list = this.propositions() || [];
   // Done if already there
   if( list.indexOf( proposition ) !== - 1 )return this;
@@ -1547,7 +1611,7 @@ Topic.prototype.add_proposition = safe( function( proposition, loop ){
     this.update_votes();
   }
   return this;
-} );
+}
 
 Topic.prototype.remove_proposition = function( proposition, loop ){
   var list = this.propositions()|| [];
@@ -1566,17 +1630,30 @@ Topic.prototype.remove_proposition = function( proposition, loop ){
   return this;
 };
 
+// Returns true if a topic includes the specified tags
 Topic.prototype.is_tagged = function( tags ){
-  var list = this.tags();
+  var list = this.tags() || [];
   for( var tag in tags ){
-    if( list.indexOf( tag ) === -1 )return false;
+    if( list.indexOf( tags[ tag ] ) === -1 )return false;
   }
   return true;
 };
 
+Topic.prototype.add_delegation = function( delegation, loop ){
+  var delegations = this.delegations() || [];
+  if( delegations.indexOf( delegation ) === -1 ){
+    delegations.push( delegation );
+    this.delegations( delegations );
+  }
+  if( !loop ){
+    delegation.add_tag( this, true );
+  }
+  return this;
+};
+
 Topic.prototype.update_votes = function(){
   // Something changed, this may have an impact on delegated votes
-  var delegations = this.delegations();
+  var delegations = this.delegations() || [];
   var delegation;
   for( delegation in delegations ){
     // ToDo: hum... complex!
@@ -1597,18 +1674,15 @@ Topic.prototype.update_votes = function(){
 Event.type( Tagging );
 function Tagging( options ){
   de&&mand( options.proposition );
-  var proposition = options.proposition;
-  var remove_tags = options.detags;
-  var add_tags    = options.tags;
-  this.proposition = proposition;
-  this.detags = remove_tags;
-  this.tags = add_tags;
+  this.proposition = options.proposition;
+  this.detags      = options.detags || [];
+  this.tags        = options.tags   || [];
   var tag;
-  for( tag in remove_tags ){
-    proposition.remove_tag( tag );
+  for( tag in this.detags ){
+    this.proposition.remove_tag( tag );
   }
-  for( tag in add_tags ){
-    proposition.add_tag( tag );
+  for( tag in this.tags ){
+    this.proposition.add_tag( tag );
   }
 }
 
@@ -1616,7 +1690,7 @@ function Tagging( options ){
 /*
  *  Vote entity
  *
- *  Personas can vote on topics. They can change their mind.
+ *  Personas can vote on propositions. They can change their mind.
  *  A group votes when the consolidated orientation of the group changes.
  *  Vote is either "direct" or "indirect" with a delegation.
  *  Analysts can vote on behalf of personas, based on some public source.
@@ -1626,13 +1700,16 @@ Ephemeral.type( Vote );
 function Vote( options ){
   
   de&&mand( options.persona );
-  de&&mand( options.topic );
+  de&&mand( options.proposition );
+  
+  //if( options.id === 10024 )debugger;
   
   this.persona     = options.persona;
-  this.topic       = options.topic;
+  this.label       = options.label || this.persona.label;
+  this.proposition = options.proposition;
   
-  // Decide: is it a new entity or an update?
-  var vote  = this.register( this.persona.id + "." + this.topic.id );
+  // Decide: is it a new entity or an update? key is persona_id.proposition_id
+  var vote  = this.register( this.persona.id + "." + this.proposition.id );
   var water = this.water( vote ); 
   
   this.analyst     = options.analyst;
@@ -1646,19 +1723,28 @@ function Vote( options ){
     return vote.update( this );
   }
   
-  this.orientation = water( water, po, [] );
+  this.orientation = water( Vote.neutral, po, [] );
   if( options.orientation ){
     this.orientation( options.orientation );
   }
+  
+  // Trigger on orientation change
   function po( o ){
     try{
       var prev = water.current.current || Vote.neutral;
       if( o === prev )return;
       // Orientation changed
       vote.remove( prev );
+      if( !options.label ){
+        vote.label = vote.persona.label + "/" + o;
+      }
       vote.add( o );
       // Push updated entity
       vote.push();
+      // Handle delegated votes
+      water.effect( function(){
+        vote.persona.vote_for_others( vote );
+      });
       return o;
     }catch( err ){
       trace( "Could not process vote " + vote, err, err.stack );
@@ -1667,7 +1753,7 @@ function Vote( options ){
     }
   }
   
-  //this.topic.track_vote( this );
+  //this.proposition.track_vote( this );
 }
 
 
@@ -1702,26 +1788,38 @@ Vote.prototype.add = function( o ){
   if( o === Vote.neutral )return;
   // Indirect votes are processed at delegatee's level
   if( o === Vote.indirect )return;
-  var that = this;
-  de&&mand( this.topic );
+  var vote = this;
+  de&&mand( this.proposition );
+  // ToDo: is the .effect required?
   water.effect(
     function(){
-      trace( "Add vote to topic " + that.topic, ":", o );
-      that.topic.add_vote( o, that );
+      de&&bug( "Add vote " + vote 
+        + " now " + o
+        + " of " + vote.persona
+        + " from proposition " + vote.proposition
+      );
+      vote.proposition.add_vote( o, vote );
     }
   );
 };
 
 Vote.prototype.remove = function( o ){
+  //debugger;
   this.previously( o );
   if( o === Vote.neutral )return;
   // Indirect votes are processed at delegatee's level
   if( o === Vote.indirect )return;
-  var that = this;
+  var vote = this;
+  // ToDo: is the .effect required?
   water.effect(
     function(){
-      trace( "Remove vote from topic" ); de&&bugger();
-      that.topic.remove_vote( o, that );
+      de&&bug( "Remove vote " + vote 
+        + " previously " + o
+        + " of " + vote.persona
+        + " from proposition " + vote.proposition
+      );
+      //de&&bugger();
+      vote.proposition.remove_vote( o, vote );
     }
   );
 };
@@ -1736,30 +1834,33 @@ Vote.prototype.update = function( other ){
 Effect.type( Result );
 function Result( options ){
   
-  de&&mand( options.topic );
+  de&&mand( options.proposition );
   
-  var result = this.register( options.topic.id );
+  var result = this.register( options.proposition.id );
   var water  = this.water( result );
   
-  this.topic     = options.topic;
-  this.label = this.topic.label;
-  this.neutral   = water( options.neutral   || 0 );
-  this.blank     = water( options.blank     || 0 );
-  this.protest   = water( options.protest   || 0 );
-  this.agree     = water( options.agree     || 0 );
-  this.disagree  = water( options.disagree  || 0 );
-  this.direct    = water( options.direct    || 0 );
+  this.proposition = options.proposition;
+  this.label       = this.proposition.label;
+  this.neutral     = water( options.neutral   || 0 );
+  this.blank       = water( options.blank     || 0 );
+  this.protest     = water( options.protest   || 0 );
+  this.agree       = water( options.agree     || 0 );
+  this.disagree    = water( options.disagree  || 0 );
+  this.direct      = water( options.direct    || 0 );
   
   // If this is an update, it simply supercedes the so far known result.
   // This is handy to import bulk results from an external system or to
   // compact the persistent log of changes.
   if( this.is_update() ){
-    this.topic.result.neutral(  this.neutral  );
-    this.topic.result.blank(    this.blank    );
-    this.topic.result.protest(  this.protest  );
-    this.topic.result.agree(    this.agree    );
-    this.topic.result.disagree( this.disagree );
-    this.topic.result.direct(   this.direct   );
+    debugger;
+    trace( "+++++++++++++++++++++++++++++++++++++++++++++++" );
+    result.neutral(  this.neutral  );
+    result.blank(    this.blank    );
+    result.protest(  this.protest  );
+    result.agree(    this.agree    );
+    result.disagree( this.disagree );
+    result.direct(   this.direct   );
+    trace( "-----------------------------------------------" );
     return;
   }
   
@@ -1772,32 +1873,35 @@ function Result( options ){
     + this.protest()
     + this.agree()
     + this.disagree();
-    trace( "Total for " + this, "is:", r, "was:", old );
+    de&&bug( "  Total for " + this, "is:", r, "was:", old );
     return r;
   }.when( this.neutral, this.blank, this.protest, this.agree, this.disagree );
   this.total( 0 );
+  de && ( this.total.label = "total" );
   
   this.against = function(){
     var old = this.against();
     var r = this.disagree() + this.protest();
-    trace( "Against about " + this, "is:", r, "was:", old );
+    de&&bug( "  Against about " + this, "is:", r, "was:", old );
     return r;
   }.when( this.disagree, this.protest );
   this.against( 0 );
+  de && ( this.against.label = "against" );
   
   this.win = function(){
     var old = this.win();
     var r = this.agree() > this.against();
-    trace( "Win about " + this, "is:", r, "was:", old );
+    de&&bug( "  Win about " + this, "is:", r, "was:", old );
     return r;
   }.when( this.agree, this.against );
   this.win( false );
+  de && ( this.win.label = "win" );
   
   this.orientation = function(){
     var old = this.orientation() || Vote.neutral;
     var now;
-    if( this.topic.id === 10017 )de&&bugger();
-    trace( "Computing orientation for " + this,
+    if( this.proposition.id === 10017 )de&&bugger();
+    de&&bug( "  Computing orientation for " + this,
       "expired:", this.expired(),
       "agree:",   this.agree(),
       "against:", this.against(),
@@ -1847,17 +1951,21 @@ function Result( options ){
         }
       }
     }
-    trace( "Computed orientation " + this, "was:", old, "is:", now ); //, value( this, true ) );
+    de&&bug( "  Computed orientation " + this, "was:", old, "is:", now ); //, value( this, true ) );
     if( now !== old ){
+      de&&bug( "  Change of orientation, create a transition" );
+      //debugger;
       Transition.create({ result: this, orientation: now, previously: old });
       return now;
     }
   }.when( this.agree, this.against, this.blank );
   this.orientation( Vote.neutral );
+  de && ( this.orientation.label = "orientation" );
 }
 
 Result.prototype.add_vote = function( o, v ){
-  de&&mand( v.topic === this.topic );
+  de&&mand( v.proposition === this.proposition );
+  if( o === Vote.neutral )return this;
   this[ o ]( this[ o ]() + 1 );
   if( v.delegation === Vote.direct ){
     this.direct( this.direct() + 1 );
@@ -1865,11 +1973,17 @@ Result.prototype.add_vote = function( o, v ){
 };
 
 Result.prototype.remove_vote = function( o, v ){
-  de&&mand( v.topic === this.topic );
-  this[ o ]( this[ o ]() - 1 );
+  de&&mand( v.proposition === this.proposition );
+  if( o === Vote.neutral )return this;
+  var old = this[ o ]();
+  de&&mand( old > 0 );
+  this[ o ]( old - 1 );
   if( v.delegation === Vote.direct ){
-    this.direct( this.direct() - 1 );
+    old = this.direct();
+    de&&mand( old > 0 );
+    this.direct( old - 1 );
   }
+  return this;
 };
 
 
@@ -1885,9 +1999,9 @@ function Transition( options ){
   de&&mand( options.result );
   de&&mand( options.orientation );
   de&&mand( options.previously );
-  this.result      = options.result      || Result.prototype;
-  this.orientation = options.orientation || Vote.neutral;
-  this.previously  = options.previously  || Vote.neutral;
+  this.result      = options.result;
+  this.orientation = options.orientation;
+  this.previously  = options.previously;
 }
 
 
@@ -1895,34 +2009,147 @@ function Transition( options ){
  *  Delegation entity.
  *
  *  It describes how a persona's vote is delegated to another persona.
+ *  A delegation involves a filter that detects the involved topics. That
+ *  filter is a list of tags, with an "and" logic.
  */
 
 Ephemeral.type( Delegation );
 function Delegation( options ){
   
+  //debugger;
+  
   de&&mand( options.persona );
+  de&&mand( options.agent   );
   de&&mand( options.tags    );
   
   var delegation = this.register( this.id );
   var water      = this.water( delegation );
   
-  this.persona = options.persona;
-  this.tags    = water( options.tags );
-  this.active  = water( options.active || true );
+  var act = options.active === true || options.active === _;
   
-  if( this.is_update() ){
-    delegation.tags( this.tags );
-    return;
-  }
+  this.persona = options.persona;
+  this.agent   = options.agent;
+  this.label   = this.agent.label;
+  this.active  = water( act ); 
+  this.votes   = water( [] ); // Due to the delegation
+  this.tags    = water( water, safe( update_tags ), [] );
+  
+  de&&mand( !this.is_update() );
+  
+  delegation.tags( options.tags );
+  this.persona.add_delegation( this );
   
   // ToDo: handle change in list of tags
   // ie: removal and additions
-  
   // ToDo: handle activation/deactivation of delegation
+  // ToDo: handle expiration of delegation
   
-  //debugger;
-  this.votes   = water( [] );
+  function update_tags( tags ){
+    //debugger;
+    var old     = water.current.current;
+    var delta   = diff( old, tags );
+    var added   = delta.added;
+    var removed = delta.removed;
+    var kept    = delta.kept;
+    // If totally different sets
+    if( !kept.length ){
+      removed.forEach( function( tag ){
+        trace( "ToDo: handle removed tag " + tag + " for fresh delegation " + delegation );
+      
+      });
+      added.forEach( function( tag ){
+        trace( "Add tag " + tag + " for fresh delegation " + delegation );
+        tag.add_delegation( delegation, true ); 
+        // true => don't add tag to delegation, it's beeing done here
+      });
+    // If sets with some commonality
+    }else{
+      removed.forEach( function( tag ){
+        trace( "ToDo: handle removed tag " + tag + " for delegation " + delegation );
+      
+      });
+      added.forEach( function( tag ){
+        trace( "ToDo: handle added tag " + tag + " for delegation " + delegation );
+      
+      });
+    }
+    // ToDo: update existing votes
+    var votes = delegation.votes() || [];
+    votes.forEach( function( vote ){
+      var new_orientation = delegation.agent.get_orientation_on( vote.proposition );
+      if( new_orientation ){
+        vote.orientation( new_orientation );
+      }
+    });
+    // Discover new delegated votes for tagged propositions
+    var all_propositions = [];
+    var first = true;
+    // ToDo: should sort tags by increasing number of topics
+    tags.forEach( function( tag ){
+      // Start with a set of topics
+      if( first ){
+        first = false;
+        all_propositions = all_propositions.concat( tag.propositions() );
+      // Remove all topics that are not tagged
+      }else{
+        var propositions = tags.propositions();
+        all_propositions.forEach( function( proposition, idx ){
+          // If a proposition is not tagged, flag it for removal
+          if( propositions.indexOf( proposition ) === -1 ){
+            all_propositions[ idx ] = null;
+          }
+        });
+      }
+    });
+    var tmp = all_propositions;
+    all_propositions = [];
+    tmp.forEach( function( proposition ){
+      if( proposition ){ all_propositions.push( proposition ); }
+    });
+    // Vote on propositions based on agent's orientation
+    all_propositions.forEach( function( proposition ){
+      var orientation = delegation.agent.get_orientation_on( vote.proposition );
+      if( orientation ){
+        // Create a vote
+        trace( "New delegation implies vote of " + delegation.persona
+          + " thru agent " + delegation.agent
+          + ", orientation: " + orientation
+        );
+        Vote.create( {
+          persona:     delegation.persona,
+          delegation:  delegation,
+          proposition: proposition,
+          orientation: orientation
+        });
+      }
+    });
+    return tags;
+  }
+  
 }
+
+Delegation.prototype.add_tag = function( tag, loop ){
+  var tags = this.tags() || [];
+  if( tags.indexOf( tag ) !== -1 )return this;
+  var now = tags.slice();
+  now.push( tag );
+  this.tags( now );
+  if( !loop ){
+    tag.add_delegation( this, true );
+  }
+  return this;
+};
+
+
+// Called when a persona vote is created due to the agent voting
+Delegation.prototype.add_vote = function( vote ){
+  var votes = this.votes();
+  if( votes.indexOf( vote ) !== -1 )return this;
+  // Note: no clone for the array, not needed
+  votes.push( vote );
+  this.votes( votes );
+  return this;
+};
 
 // ToDo: handle expiration, should deactivate delegation
 
@@ -1945,7 +2172,7 @@ function Membership( options ){
   
   this.member = options.member;
   this.group  = options.leader;
-  this.active = water( options.active || true, pa, [] );
+  this.active = water( options.active === true || options.active === _, pa, [] );
   
   if( this.is_update() ){
     membership.active( this.active );
@@ -1999,7 +2226,7 @@ function bootstrap(){
   //function tag( n, l ){ t[n] = c( "Topic", { label: n, children: l } ); }
   function tag( n ){ t[n] = c( "Topic", { label: n } ); }
   function v( p, t, o ){
-    v[ v.n++ ] = c( "Vote", { persona: p, topic: t, orientation: o } );
+    v[ v.n++ ] = c( "Vote", { persona: p, proposition: t, orientation: o } );
   }
   v.n = 0;
   function d( p, t, a ){ 
@@ -2008,7 +2235,7 @@ function bootstrap(){
   d.n = 0;
   function r( t, a, d, p, b, n, dir ){
     c( "Result",
-      { topic: t, agree: a, disagree: d, protest: p, blank: b, neutral: n, direct: dir
+      { proposition: t, agree: a, disagree: d, protest: p, blank: b, neutral: n, direct: dir
     } );
   }
   function mark(){ mark.id = Ephemeral.get_next_id(); }
@@ -2041,13 +2268,14 @@ function bootstrap(){
     function(){ t( "Hulot president",     [ t["#President"] ] ); },
     //function(){ collect(); },
     // Delegations
-    function(){ d( p["@jhr"], [t.President], p["@N_Hulot"] ); },
+    function(){ d( p["@jhr"], [ t["#President"] ], p["@N_Hulot"] ); },
     // Votes
-    function(){ v( p["@peter"],   t["Hulot president"], "agree"    ); },
-    function(){ v( p["@N_Hulot"], t["Hulot president"], "agree"    ); },
-    function(){ v( p["@peter"],   t["Hulot president"], "neutral"  ); },
-    function(){ v( p["@N_Hulot"], t["Hulot president"], "disagree" ); },
-    function(){ r( t["Hulot president"], 102, 101, 1, 12, 1000, 99 ); }
+    function(){ v( p["@peter"],   t["Hulot president"], "disagree"  ); },
+    function(){ v( p["@N_Hulot"], t["Hulot president"], "agree"     ); },
+    function(){ v( p["@peter"],   t["Hulot president"], "neutral"   ); },
+    function(){ v( p["@N_Hulot"], t["Hulot president"], "disagree"  ); },
+    function(){ v( p["@peter"],   t["Hulot president"], "agree"     ); },
+    function(){ r( t["Hulot president"], 102, 101, 1, 12, 1000, 99  ); }
   ];
 }
 
@@ -2062,15 +2290,15 @@ function bootstrap(){
  *  the machine is restarted.
  */
  
-Persona    .fluid.inspect().log( "Log Persona"    );
-Source     .fluid.inspect().log( "Log Source"     );
-Topic      .fluid.inspect().log( "Log Topic"      );
-Delegation .fluid.inspect().log( "Log Delegation" );
-Vote       .fluid.inspect().log( "Log Vote"       );
-Result     .fluid.inspect().log( "Log Result"     );
-Transition .fluid.inspect().log( "Log Transition" );
-Visitor    .fluid.inspect().log( "Log Visitor"    );
-Action     .fluid.inspect().log( "Log Action"     );
+Persona    .fluid.inspect().log( "-->Log Persona"    );
+Source     .fluid.inspect().log( "-->Log Source"     );
+Topic      .fluid.inspect().log( "-->Log Topic"      );
+Delegation .fluid.inspect().log( "-->Log Delegation" );
+Vote       .fluid.inspect().log( "-->Log Vote"       );
+Result     .fluid.inspect().log( "-->Log Result"     );
+Transition .fluid.inspect().log( "-->Log Transition" );
+Visitor    .fluid.inspect().log( "-->Log Visitor"    );
+Action     .fluid.inspect().log( "-->Log Action"     );
 
 //Ephemeral.persist( "test/vote.trace.log", Trace.fluid );
 
