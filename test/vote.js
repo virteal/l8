@@ -39,9 +39,8 @@ function mand( b ){
 // de&&bugger() invokes the debugger only in debugging mode
 function bugger(){ if( debugging )debugger; }
 
-// safe( fn ) is like fn but with exceptions traced in debug mode
-// ToDo: rename
-var safe = function safe( f ){
+// error_traced( fn ) is like fn but with exceptions traced in debug mode
+function error_traced( f ){
   return !de ? f : function(){
     try{
       return f.apply( this, arguments );
@@ -184,7 +183,8 @@ function step( fn ){
   StepQueue.push( s );
 }
 
-// Add a push operation for an entity, done at end of current 'step'
+// Add a push operation for an entity, done at end of current 'step'.
+// During a step, multiple push operations are reduced to a single operation.
 function push( f, e ){
   var push_id = "" + f.water().id + "." + e.id;
   var state = PushMap[ push_id ];
@@ -225,7 +225,7 @@ var MainMachine = Machine.current = Machine.main = new Machine({});
  *  Ids - increasing integers
  *
  *  Ids are integers. When an entity needs one, NextId is provided and
- *  then incremented. NextId is adjusted to always be more than any previouly
+ *  then incremented. NextId is adjusted to always be more than any previously
  *  used id (stored ones typically).
  */
 
@@ -263,9 +263,9 @@ var alloc_id = function( x ){
 
 
 /*
- *  Base class for all entities
+ *  Base class for all entities.
  *
- *  From latin "ens" + "itas", is beeing (real, physical).
+ *  From latin "ens" + "itas", is being (real, physical).
  *   aka: a thing.
  *
  *  Entities have an ID, usually.
@@ -276,9 +276,9 @@ var alloc_id = function( x ){
  */
 
 function Entity( options ){
-  // Make sure the entity has an id. .register() may remove it...
+  // Make sure the entity has an id
   this.id = alloc_id( options.id );
-  // Track all entities, some of them will expire or lose their id (quickly)
+  // Track all entities, some of them will expire
   AllEntities[ this.id ] = this;
 }
 
@@ -314,10 +314,11 @@ extend( Entity.prototype, {
 } );
 
 Entity.prototype.constructor = Entity;
-Entity.type = function( ctor ){ return type( ctor, this ); }
+Entity.type = function( named_f ){ return type( named_f, this ); };
 
 var null_object = new Entity( { machine: MainMachine } );
 
+// Pretty print for debugging
 var abbreviations = {
   orientation: "orient",
   win:         "win",
@@ -344,8 +345,7 @@ function abbreviate( str ){
 }
 
 
-// ToDo: rename into pretty()
-function inspect( v, level ){
+function pretty( v, level ){
   
   if( arguments.length < 2 ){ level = 1; }
   
@@ -360,11 +360,11 @@ function inspect( v, level ){
     if( typeof v === "function" ){
       // Water, get their current value
       if( v._water ){
-        buf += "|" + inspect( v._water.current, level && level - 1 );
+        buf += "|" + pretty( v._water.current, level && level - 1 );
         return buf;
       }else if( v.rid ){
         if( v.entity ){
-          buf += "&" + inspect( v.entity, level && level - 1 );
+          buf += "&" + pretty( v.entity, level && level - 1 );
         }else{
           buf += "&" + v.rid;
         }
@@ -378,7 +378,7 @@ function inspect( v, level ){
       
     }else if( v.watered ){
       // Water errors!
-      buf += "!" + inspect( v.error, level && level - 1) + "!";
+      buf += "!" + pretty( v.error, level && level - 1) + "!";
       
     }else if( Array.isArray( v ) ){
       if( level === 0 || !v.length ){
@@ -386,7 +386,7 @@ function inspect( v, level ){
       }else{
         var abuf = [];
         v.forEach( function( v ){
-          abuf.push( inspect( v, level - 1 ) );
+          abuf.push( pretty( v, level - 1 ) );
         });
         return "[" + abuf.join( " " ) + "]";
       }
@@ -415,7 +415,7 @@ function inspect( v, level ){
           continue;
         // Show "timestamp" relative to time now versus since epoch
         }else if( attr === "timestamp" ){
-          val = val - now();
+          val -= now();
         // Turn "expire" into a boolean that is false if expiration is remote
         }else if( attr === "expire" ){
           if( ( val.water && val() || val ) - now() > 2 * 24 * 60 * 60 * 1000 ){
@@ -434,7 +434,7 @@ function inspect( v, level ){
           continue;
         }
         if( typeof val !== "function" ){ attr = abbreviate( attr ); }
-        lbuf.push( "" + attr + "" + inspect( val, level && level - 1 ) );
+        lbuf.push( "" + attr + "" + pretty( val, level && level - 1 ) );
       }
     }
     if( !lbuf.length )return buf;
@@ -459,7 +459,7 @@ function inspect( v, level ){
 
 function dump_entity( x, level ){
   if( !level ){ level = 1; }
-  console.log( inspect( x, level ) );
+  console.log( pretty( x, level ) );
   //console.log( "Value", x.value() );
 }
 
@@ -491,10 +491,10 @@ function dump_entities( from, level ){
 //  'key' can be anything, including a combination of ids, "." separated.
 // After that call, this.is_update() is false for creations.
 //   this.water() returns l8 water() for entities xor idem() for updates
-var type = function( ctor, base ){
+var type = function( ctor, base, opt_name ){
   if( !base ){ base = Ephemeral; }
   var proto = base.prototype;
-  var name = ctor.name;
+  var name = opt_name || ctor.name;
   var sub = ctor.prototype = extend( {}, proto );
   sub.type = name;
   sub.constructor = ctor;
@@ -532,9 +532,9 @@ var type = function( ctor, base ){
     // ToDo: unroll for speed
     while( a_ctor = list[ ii++ ] ){
       r = a_ctor.call( obj, options );
+      if( r ){ obj = r; }
     }
-    if( r ){ obj = r; }
-    //de&&bug( "New entity", "" + inspect( obj, 2 ) );
+    //de&&bug( "New entity", "" + pretty( obj, 2 ) );
     // Push new entity on the fluid bound to the entity's type, unless proto
     if( proto_entity ){
       obj.push();
@@ -548,11 +548,13 @@ var type = function( ctor, base ){
   ctor.prototype = sub = AllEntities[ name ] = proto_entity;
   ctor.id = proto_entity.id;
   app[ name ] = ctor;
-  trace( "Create entity " + inspect( proto_entity ) );
+  trace( "Create entity " + pretty( proto_entity ) );
   // Create global table of all entities of this new type
   ctor.all = {};
   // Ease sub typing
-  ctor.type = function( sub_type ){ return type( sub_type, ctor ); };
+  ctor.type = function( sub_type, opt_name ){
+    return type( sub_type, ctor, opt_name );
+  };
   de&&mand( proto_entity === proto_entity.constructor.prototype );
   de&&mand( proto_entity.is_entity );
   de&&mand( proto_entity.id );
@@ -563,20 +565,22 @@ var type = function( ctor, base ){
 };
 
 // Ember style computed property.
-// Usage, during entities's .create() only:
+// Usage, during entity's .create() only:
 //  this.attr = function(){ this.other_attr() * 10 }.water( this.other_attr );
 Function.prototype.water = Function.prototype.when = function(){
   var transform = this;
-  // When .create() is called, Entity.created points to the beeing created obj
+  // When .create() is called, Entity.created points to the being created obj
   var that = Entity.created;
   // Bind the transform function with the target entity
   var f = function(){
+    var r;
     try{
-      return transform.apply( that, arguments );
+      r = transform.apply( that, arguments );
     }catch( err ){
       trace( "Water transform error", err, err.stack );
       de&&bugger();
     }
+    return r;
   };
   return water( water, f, arguments );
 };
@@ -751,7 +755,7 @@ function value( x, force ){
   var r;
   if( x ){
     if( x.is_entity && x.buried ){
-      return;
+      return _;
     }else if( x.is_entity && !force ){
       return x.id;
     }else if( typeof x === "function" ){
@@ -884,7 +888,7 @@ Effect.prototype.register = function( key ){
   return this;
 };
   
-Effect.prototype.is_update = function(){ return this.effect; },
+Effect.prototype.is_update = function(){ return !!this.effect; };
   
 // Changes to entities involves watering the original with an update
 Effect.prototype.water = function( other ){
@@ -903,7 +907,7 @@ Effect.prototype.water = function( other ){
  *  reaches the value of Change.version, the current version of the schema.
  */
 
-Change.version    = "1"
+Change.version    = "1";
 Change.versioning = "";
 
 Entity.type( Version );
@@ -943,7 +947,7 @@ Ephemeral.prototype.bury = function(){
   if( this.buried )return;
   this.buried = true;
   this.expiration();
-  // Clear object if not resurrected, this enables some garbadge collection
+  // Clear object if not resurrected, this enables some garbage collection
   if( this.buried ){
     for( var attr in this ){
       if( attr !== "is_entity" && attr !== "buried" ){
@@ -1208,11 +1212,11 @@ Change.prototype.process = function(){
  *  Dataflow processing. TBD
  */
  
-fluid.method( "inspect", function(){
-  return fluid.it.map( function( it ){ return inspect( it ); } );
+fluid.method( "pretty", function(){
+  return fluid.it.map( function( it ){ return pretty( it ); } );
 } );
 
-de&&Expiration.fluid.inspect().log( "Log Expiration" );
+de&&Expiration.fluid.pretty().log( "Log Expiration" );
 
 // Start the "change processor".
 // It replays logged changes and then plays new ones.
@@ -1225,7 +1229,7 @@ function start( bootstrap, cb ){
   .map( function( change ){
     return Change.prototype.process.call( deref( change ) ); }
   ).failure( function( err ){ trace( "Change process error", err ); } )
-  ;//.inspect().log();
+  ;//.pretty().log();
   // It replays old changes and log new ones
   persist(
     app.store || "ephemeral.json.log",
@@ -1276,18 +1280,18 @@ Ephemeral.get_next_id = function(){ return NextId; };
 Ephemeral.ref = ref;
 
 // Debug related
-app.trace    = trace;
-app.assert   = mand;
-app.bugger   = bugger;
-app.inspect  = inspect;
-app.safe     = safe;
+app.trace  = trace;
+app.assert = mand;
+app.bugger = bugger;
+app.pretty = pretty;
+app.error_traced = error_traced;
 
 // More exports
-app._        = _;
-app.value    = value;
-app.idem     = idem;
-app.now      = now;
-app.diff     = array_diff;
+app._      = _;
+app.value  = value;
+app.idem   = idem;
+app.now    = now;
+app.diff   = array_diff;
 
 return app;
 
@@ -1315,11 +1319,11 @@ var Ephemeral = vote.Ephemeral;
 var de = true;
 var bug     = vote.trace;
 var bugger  = vote.bugger;
-var safe    = vote.safe;
+var error_traced = vote.error_traced;
 var mand    = vote.assert;
 var trace   = vote.trace;
 var value   = vote.value;
-var inspect = vote.inspect;
+var pretty  = vote.pretty;
 var water   = vote.water;
 var diff    = vote.diff;
 var _       = vote._;
@@ -1340,7 +1344,7 @@ function Persona( options ){
   
   this.label            = options.label;
   this.role             = options.role || "individual";
-  this.friends          = water( [] ); // Individual's friends or group's members
+  this.members          = water( [] ); // Individual's friends or group's members
   this.memberships      = water( [] ); // To groups
   this.delegations      = water( [] ); // To personas, about topics
   this.delegations_from = water( [] ); // From personas
@@ -1361,7 +1365,7 @@ Persona.prototype.update = function( other ){ return this; };
 
 Persona.prototype.get_orientation_on = function( proposition ){
   var votes = this.votes();
-  var orientation;
+  var orientation = null;
   votes.forEach( function( vote ){
     if( vote.proposition === proposition ){
       orientation = vote.orientation();
@@ -1385,7 +1389,7 @@ Persona.prototype.add_delegation = function( delegation, loop ){
   now.push( delegation );
   trace( "Add delegation " + delegation
    + " for persona " + this 
-   + " for topics tagged " + inspect( delegation.tags() )
+   + " for topics tagged " + pretty( delegation.tags() )
    + " to agent " + delegation.agent
   ); 
   this.delegations( now );
@@ -1408,7 +1412,7 @@ Persona.prototype.add_delegation_from = function( delegation, loop ){
   now.push( delegation );
   trace( "Add delegation " + delegation
    + " by agent " + this 
-   + " for topics tagged " + inspect( delegation.tags() )
+   + " for topics tagged " + pretty( delegation.tags() )
    + " from persona " + delegation.persona
   ); 
   this.delegations_from( now );
@@ -1479,7 +1483,7 @@ function Source( options ){
  *    they don't have a source.
  *    they can be voted on too, like propositions.
  *
- *  ToDo: split in two types, tags and propositions?
+ *  ToDo: split in Topic plus two sub types, tags and propositions?
  */
  
 Ephemeral.type( Topic );
@@ -1538,7 +1542,7 @@ function Topic( options ){
 Topic.prototype.update = function( other ){
   // ToDo: handle .tags and .propositions changes
   if( other.source ){ this.source( other.source ); }
-  if( other.result      ){ this.update_result(      other.result );      }
+  if( other.result      ){ this.result( other.result ); }
   if( other.delegations ){ this.update_delegations( other.delegations ); }
   return this;
 };
@@ -1575,7 +1579,7 @@ Topic.prototype.add_tag = function( tag, loop ){
   new_list.push( tag );
   this.tags( new_list );
   if( !loop ){
-    tag.add_topic( this, true );
+    tag.add_proposition( this, true );
     this.update_votes();
   }
   return this;
@@ -1592,7 +1596,7 @@ Topic.prototype.remove_tag = function( tag, loop ){
   new_list = list.splice( idx, 1 );
   this.tags( new_list );
   if( !loop ){
-    tag.remove_topic( this, true );
+    tag.remove_proposition( this, true );
     this.update_votes();
   }
   return this;
@@ -1611,7 +1615,7 @@ Topic.prototype.add_proposition = function( proposition, loop ){
     this.update_votes();
   }
   return this;
-}
+};
 
 Topic.prototype.remove_proposition = function( proposition, loop ){
   var list = this.propositions()|| [];
@@ -1732,7 +1736,7 @@ function Vote( options ){
   function po( o ){
     try{
       var prev = water.current.current || Vote.neutral;
-      if( o === prev )return;
+      if( o === prev )return _;
       // Orientation changed
       vote.remove( prev );
       if( !options.label ){
@@ -1781,12 +1785,15 @@ Vote.prototype.expiration = function(){
     this.orientation( Vote.neutral );
     this.delegation(  Vote.direct  );
     this.privacy(     Vote.private );
+  }else{
+    this.super.expiration.call( this );
   }
+  return this;
 };
 
 Vote.prototype.add = function( o ){
   if( o === Vote.neutral )return;
-  // Indirect votes are processed at delegatee's level
+  // Indirect votes are processed at agent's level
   if( o === Vote.indirect )return;
   var vote = this;
   de&&mand( this.proposition );
@@ -1807,7 +1814,7 @@ Vote.prototype.remove = function( o ){
   //debugger;
   this.previously( o );
   if( o === Vote.neutral )return;
-  // Indirect votes are processed at delegatee's level
+  // Indirect votes are processed at agent's level
   if( o === Vote.indirect )return;
   var vote = this;
   // ToDo: is the .effect required?
@@ -1852,19 +1859,16 @@ function Result( options ){
   // This is handy to import bulk results from an external system or to
   // compact the persistent log of changes.
   if( this.is_update() ){
-    debugger;
-    trace( "+++++++++++++++++++++++++++++++++++++++++++++++" );
     result.neutral(  this.neutral  );
     result.blank(    this.blank    );
     result.protest(  this.protest  );
     result.agree(    this.agree    );
     result.disagree( this.disagree );
     result.direct(   this.direct   );
-    trace( "-----------------------------------------------" );
     return;
   }
   
-  // Computed attributes, including transition detection
+  // Computed attributes, including orientation transition detection
   
   this.total = function(){
     var old = this.total();
@@ -1970,6 +1974,7 @@ Result.prototype.add_vote = function( o, v ){
   if( v.delegation === Vote.direct ){
     this.direct( this.direct() + 1 );
   }
+  return this;
 };
 
 Result.prototype.remove_vote = function( o, v ){
@@ -2030,14 +2035,26 @@ function Delegation( options ){
   this.persona = options.persona;
   this.agent   = options.agent;
   this.label   = this.agent.label;
-  this.active  = water( act ); 
+  this.active  = water( act, update_active, [] );
   this.votes   = water( [] ); // Due to the delegation
-  this.tags    = water( water, safe( update_tags ), [] );
+  this.tags    = water( water, error_traced( update_tags ), [] );
   
   de&&mand( !this.is_update() );
   
   delegation.tags( options.tags );
   this.persona.add_delegation( this );
+
+  function update_active( active ){
+    var old = water.current.current;
+    if( old == active )return _;
+    // Delegation becomes active
+    if( active ){
+      trace( "ToDo: activate a delegation" );
+    // Delegation becomes inactive
+    }else{
+      trace( "ToDo: deactivate a delegation" );
+    }
+  }
   
   // ToDo: handle change in list of tags
   // ie: removal and additions
@@ -2047,6 +2064,7 @@ function Delegation( options ){
   function update_tags( tags ){
     //debugger;
     var old     = water.current.current;
+    var active  = delegation.active();
     var delta   = diff( old, tags );
     var added   = delta.added;
     var removed = delta.removed;
@@ -2060,7 +2078,7 @@ function Delegation( options ){
       added.forEach( function( tag ){
         trace( "Add tag " + tag + " for fresh delegation " + delegation );
         tag.add_delegation( delegation, true ); 
-        // true => don't add tag to delegation, it's beeing done here
+        // true => don't add tag back to delegation, it's being done here
       });
     // If sets with some commonality
     }else{
@@ -2073,47 +2091,61 @@ function Delegation( options ){
       
       });
     }
-    // ToDo: update existing votes
+    // Update existing votes
     var votes = delegation.votes() || [];
     votes.forEach( function( vote ){
-      var new_orientation = delegation.agent.get_orientation_on( vote.proposition );
+      var new_orientation = active
+      ? delegation.agent.get_orientation_on( vote.proposition )
+      : Vote.neutral;
       if( new_orientation ){
         vote.orientation( new_orientation );
       }
     });
     // Discover new delegated votes for tagged propositions
-    var all_propositions = [];
-    var first = true;
-    // ToDo: should sort tags by increasing number of topics
-    tags.forEach( function( tag ){
-      // Start with a set of topics
-      if( first ){
-        first = false;
-        all_propositions = all_propositions.concat( tag.propositions() );
-      // Remove all topics that are not tagged
-      }else{
-        var propositions = tags.propositions();
-        all_propositions.forEach( function( proposition, idx ){
-          // If a proposition is not tagged, flag it for removal
-          if( propositions.indexOf( proposition ) === -1 ){
-            all_propositions[ idx ] = null;
-          }
-        });
-      }
+    delegation.vote_on_tags( tags, active );
+    return tags;
+  }
+  
+}
+
+Delegation.prototype.vote_on_tags = function( tags, active ){
+  var delegation = this;
+  if( !active )return this;
+  var candidate_propositions;
+  // Sort tags by increasing number of topics, it speeds up the 'and' logic
+  var sorted_tags = tags.slice();
+  sorted_tags.sort( function( a, b ){
+    return a.propositions().length - b.propositions().length; }
+  );
+  sorted_tags.forEach( function( tag ){
+    // Start with a set of topics, the smaller one
+    if( !candidate_propositions ){
+      candidate_propositions = tag.propositions().slice();
+      // Keep topics that are also tagged with the other tags
+    }else{
+      var propositions = tag.propositions();
+      candidate_propositions.forEach( function( proposition, idx ){
+        // If a proposition is not tagged, flag it for removal
+        if( propositions.indexOf( proposition ) === -1 ){
+          candidate_propositions[ idx ] = null;
+        }
+      });
+    }
+  });
+  // Collect kept propositions, they match the tags
+  if( candidate_propositions ){
+    var all_tagged_propositions = [];
+    candidate_propositions.forEach( function( proposition ){
+      if( proposition ){ all_tagged_propositions.push( proposition ); }
     });
-    var tmp = all_propositions;
-    all_propositions = [];
-    tmp.forEach( function( proposition ){
-      if( proposition ){ all_propositions.push( proposition ); }
-    });
-    // Vote on propositions based on agent's orientation
-    all_propositions.forEach( function( proposition ){
-      var orientation = delegation.agent.get_orientation_on( vote.proposition );
+    // Vote on these propositions, based on agent's orientation
+    all_tagged_propositions.forEach( function( proposition ){
+      var orientation = delegation.agent.get_orientation_on( proposition );
       if( orientation ){
         // Create a vote
         trace( "New delegation implies vote of " + delegation.persona
-          + " thru agent " + delegation.agent
-          + ", orientation: " + orientation
+            + " thru agent " + delegation.agent
+            + ", orientation: " + orientation
         );
         Vote.create( {
           persona:     delegation.persona,
@@ -2123,10 +2155,9 @@ function Delegation( options ){
         });
       }
     });
-    return tags;
   }
-  
-}
+  return this;
+};
 
 Delegation.prototype.add_tag = function( tag, loop ){
   var tags = this.tags() || [];
@@ -2151,7 +2182,19 @@ Delegation.prototype.add_vote = function( vote ){
   return this;
 };
 
-// ToDo: handle expiration, should deactivate delegation
+
+// At expiration, the delegation becomes inactive for a while
+Delegation.prototype.expiration = function(){
+  if( this.active() ){
+    this.resurrect();
+    this.renew();
+    this.active( false );
+  }else{
+    this.super.expiration.call( this );
+  }
+  return this;
+};
+
 
 
 /*
@@ -2164,19 +2207,19 @@ Ephemeral.type( Membership );
 function Membership( options ){
   
   de&&mand( options.member ); // a persona
-  de&&mand( options.leader ); // a group typically
+  de&&mand( options.group  ); // a group typically
   
-  var key = "" + options.leader.id + "." + options.member.id;
+  var key = "" + options.group.id + "." + options.member.id;
   var membership = this.register( key );
   var water      = this.water( membership );
   
   this.member = options.member;
-  this.group  = options.leader;
+  this.group  = options.group;
   this.active = water( options.active === true || options.active === _, pa, [] );
   
   if( this.is_update() ){
     membership.active( this.active );
-    return;
+    return membership;
   }
   
   // ToDo: handle change in membership activation
@@ -2239,7 +2282,7 @@ function bootstrap(){
     } );
   }
   function mark(){ mark.id = Ephemeral.get_next_id(); }
-  function collect( n ){
+  function collect(){
     collect.list = [];
     for( var ii = mark.id ; ii < Ephemeral.get_next_id() ; ii++ ){
       collect.list.push( Ephemeral.ref( ii ) );
@@ -2284,21 +2327,21 @@ function bootstrap(){
  *  Dataflow processing. TBD
  *  Each fluid is fed whenever an entity is created or updated.
  *  The only valid action is to inject a change in the machine:
- *    ephemeral.push( "type", {...named paramers...} ); or
+ *    ephemeral.push( "type", {...named parameters...} ); or
  *    type.push( {...named parameters...} );
  *  That change gets logged in a persistent store and will be replayed whenever
  *  the machine is restarted.
  */
  
-Persona    .fluid.inspect().log( "-->Log Persona"    );
-Source     .fluid.inspect().log( "-->Log Source"     );
-Topic      .fluid.inspect().log( "-->Log Topic"      );
-Delegation .fluid.inspect().log( "-->Log Delegation" );
-Vote       .fluid.inspect().log( "-->Log Vote"       );
-Result     .fluid.inspect().log( "-->Log Result"     );
-Transition .fluid.inspect().log( "-->Log Transition" );
-Visitor    .fluid.inspect().log( "-->Log Visitor"    );
-Action     .fluid.inspect().log( "-->Log Action"     );
+Persona    .fluid.pretty().log( "-->Log Persona"    );
+Source     .fluid.pretty().log( "-->Log Source"     );
+Topic      .fluid.pretty().log( "-->Log Topic"      );
+Delegation .fluid.pretty().log( "-->Log Delegation" );
+Vote       .fluid.pretty().log( "-->Log Vote"       );
+Result     .fluid.pretty().log( "-->Log Result"     );
+Transition .fluid.pretty().log( "-->Log Transition" );
+Visitor    .fluid.pretty().log( "-->Log Visitor"    );
+Action     .fluid.pretty().log( "-->Log Action"     );
 
 //Ephemeral.persist( "test/vote.trace.log", Trace.fluid );
 
