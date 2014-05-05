@@ -29,9 +29,14 @@ var trace     = l8.trace;
 var bug       = trace;
 
 // de&&mand() is like assert()
-function mand( b ){
+function mand( b, msg ){
   if( b )return;
-  bug( "l8/test/vote.js, assert error" );
+  if( msg ){
+    msg = ": " + msg;
+  }else{
+    msg = "";
+  }
+  bug( "l8/test/vote.js, assert error" + msg );
   if( debugging )debugger;
   if( !debugging )throw new Error( "vote.js assert" );
 }
@@ -1321,6 +1326,7 @@ var bug     = vote.trace;
 var bugger  = vote.bugger;
 var error_traced = vote.error_traced;
 var mand    = vote.assert;
+var assert  = vote.assert;
 var trace   = vote.trace;
 var value   = vote.value;
 var pretty  = vote.pretty;
@@ -1971,7 +1977,7 @@ Result.prototype.add_vote = function( o, v ){
   de&&mand( v.proposition === this.proposition );
   if( o === Vote.neutral )return this;
   this[ o ]( this[ o ]() + 1 );
-  if( v.delegation === Vote.direct ){
+  if( v.delegation() === Vote.direct ){
     this.direct( this.direct() + 1 );
   }
   return this;
@@ -1983,7 +1989,7 @@ Result.prototype.remove_vote = function( o, v ){
   var old = this[ o ]();
   de&&mand( old > 0 );
   this[ o ]( old - 1 );
-  if( v.delegation === Vote.direct ){
+  if( v.delegation() === Vote.direct ){
     old = this.direct();
     de&&mand( old > 0 );
     this.direct( old - 1 );
@@ -2036,7 +2042,7 @@ function Delegation( options ){
   this.agent   = options.agent;
   this.label   = this.agent.label;
   this.active  = water( act, update_active, [] );
-  this.votes   = water( [] ); // Due to the delegation
+  this.votes   = water( [] ); // Votes done because of the delegation
   this.tags    = water( water, error_traced( update_tags ), [] );
   
   de&&mand( !this.is_update() );
@@ -2094,6 +2100,8 @@ function Delegation( options ){
     // Update existing votes
     var votes = delegation.votes() || [];
     votes.forEach( function( vote ){
+      // Check that vote is still delegated as it was when last updated
+      if( vote.delegation() !== delegation )return;
       var new_orientation = active
       ? delegation.agent.get_orientation_on( vote.proposition )
       : Vote.neutral;
@@ -2289,10 +2297,39 @@ function bootstrap(){
     }
   }
   
+  // Retrieve an entity by key. Usage: e( type, entity or type, key, ... )
+  //   ex: e( Persona, "@jhr" )
+  //   ex: e( Vote, Persona, "@jhr", Topic, "Hulot president" );
+  //   ex: e( Vote, e( Persona, "@jhr"), Topic, "Hulot president" );
+  //   ex: e( Vote, Persona, @jhr, e( Topic, "Hulot president" ) );
+
+  var entity;
+  function e( type, key ){
+    if( arguments.length === 2 )return entity = type.all[ key ];
+    var id = "";
+    for( var ii = 1 ; ii < arguments.length ; ii += 2 ){
+      if( arguments[ ii ].is_entity ){
+        id += "." + arguments[ ii ].id;
+        ii--;
+      }else{
+        id += "." + (arguments[ ii ].all)[ arguments[ ii + 1 ] ].id;
+      }
+    }
+    return entity = type.all[ id.substring( 1 ) ];
+  }
+  
+  function a( prop, msg ){
+    if( prop )return;
+    trace( "Error on entity " + pretty( entity, 2 ) );
+    assert( false, msg );
+  }
+
+  
   trace( "Bootstrap" );
   return [
     // *** Personas ***
     function(){ p( "@jhr" ); },
+    function(){ a( e( Persona, "@jhr" ), "persona @jhr exists" ); },
     function(){ p( "@N_Hulot" ); },
     function(){ g( "Hulot's fans"); },
     function(){ p( "@john"); },
@@ -2301,9 +2338,13 @@ function bootstrap(){
     function(){ p( "@peter"); },
     // *** Tags ***
     function(){ tag( "#President" ); },
+    function(){ a(  e( Topic, "#President" ), "Topic #President exists" ); },
+    function(){ a(  e( Topic, "#President" ).is_tag(), "Topic #President is a tag" ); },
+    function(){ a( !e( Topic, "#President" ).is_proposition(), "Topic #President is not a proposition" ); },
     // *** Propositions ***
     //function(){ mark(); },
     function(){ t( "Hollande president",  [ t["#President"] ] ); },
+    function(){ a( e( Topic, "Hollande president").is_proposition(), "is a proposition" ); },
     function(){ t( "Marine presidente",   [ t["#President"] ] ); },
     function(){ t( "Sarkozy president",   [ t["#President"] ] ); },
     function(){ t( "Valls president",     [ t["#President"] ] ); },
@@ -2314,6 +2355,10 @@ function bootstrap(){
     function(){ d( p["@jhr"], [ t["#President"] ], p["@N_Hulot"] ); },
     // Votes
     function(){ v( p["@peter"],   t["Hulot president"], "disagree"  ); },
+    function(){ a( e( Vote, Persona, "@peter", Topic, "Hulot president" ).orientation() === "disagree" ) },
+    function(){ a( e( Topic, "Hulot president" ).result.disagree() === 1 ) },
+    function(){ a( e( Topic, "Hulot president" ).result.total() === 1 ) },
+    function(){ a( e( Topic, "Hulot president" ).result.direct() === 1 ) },
     function(){ v( p["@N_Hulot"], t["Hulot president"], "agree"     ); },
     function(){ v( p["@peter"],   t["Hulot president"], "neutral"   ); },
     function(){ v( p["@N_Hulot"], t["Hulot president"], "disagree"  ); },
@@ -2348,7 +2393,7 @@ Action     .fluid.pretty().log( "-->Log Action"     );
 
 function main(){
   console.log( "Welcome to l8/test/vote.js -- Liquid demo...cracy" );
-  de&&bugger();
+  //de&&bugger();
   Ephemeral.start( bootstrap, function( err ){
     if( err ){
       console.log( "Cannot proceed", err, err.stack );
@@ -2357,9 +2402,9 @@ function main(){
     }
     // Let's provide a frontend...
     console.log( "READY!" );
-    de&&bugger();
+    //de&&bugger();
   } );
 }
 
 l8.begin.step( main ).end;
-l8.countdown( 10 );
+l8.countdown( 5 );
