@@ -14,6 +14,8 @@ npm install l8
 cd node_modules/l8; npm test
 ```
 
+l8 provides the foundation control flow tools for its currently unique application: [Kudocracy, when liquid democracy meets twitter](https://github.com/virteal/kudocracy).
+
 Introduction
 ============
 
