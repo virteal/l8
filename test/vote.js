@@ -27,13 +27,14 @@ var fluid = app.fluid = water.fluid;
 
 // My de&&bug() darling, traces that can be disabled with low overhead
 var de        = false;
-var debugging = de && true;
+var debugging = de && false;
 var trace     = l8.trace;
 var bug       = trace;
 if( debugging ){
   var puts = console.error;
   l8.logger = trace = bug = function(){ return puts.apply( console, arguments ); };
 }
+var debug_entity = 10029;
 
 
 function mand( b, msg ){
@@ -303,6 +304,12 @@ var alloc_id = function( x ){
     return x;
   }
   // de&&bug( "New UID", NextId );
+
+  if( NextId === debug_entity ){
+    trace( "Start debugging for entity " + NextId );
+    de = true;
+    debugging = true;
+  }
   return NextId++;
 };
 
@@ -1027,14 +1034,13 @@ function Effect( options ){
   de&&mand( change );
   // Effect is due to a change, link change to effects, linked list
   this.change = change;
-  // If effect is most probably the result of a Change entity processing
-  if( change.p.id === this.id ){
+  // If first effect
+  if( !change.to ){
     change.to = this;
     change.last_effect = this;
     this.next_effect = null;
   // Else effect is an indirect effect of the initial change, link them
   }else{
-    de&&mand( change.to );
     de&&mand( change.last_effect );
     change.last_effect.next_effect = this;
     change.last_effect = this;
@@ -1594,7 +1600,7 @@ var Effect    = vote.Effect;
 var Ephemeral = vote.Ephemeral;
 
 // My de&&bug() and de&&mand() darlings
-var de = false;
+var de = true;
 var trace   = vote.trace;
 var bug     = trace;
 var bugger  = vote.bugger;
@@ -1824,6 +1830,7 @@ Persona.prototype.find_vote_on_proposition = function( proposition, all ){
 };
 
 Persona.prototype.track_vote = function( vote ){
+// Called by Vote constructor
   de&&mand( vote.persona === this );
   var votes = this.votes();
   if( votes.indexOf( vote ) !== -1 )return this;
@@ -2009,20 +2016,50 @@ Topic.prototype.add_vote = function( v ){
 };
 
 
-Topic.prototype.remove_vote    = function( v ){ this.result.remove_vote( v ); };
+Topic.prototype.remove_vote = function( was ){
+// Called by vote.remove()
+  this.log_anti_vote( was );
+  this.result.remove_vote( was );
+};
 
 Topic.prototype.log_vote = function( v ){
+// Called by .add_vote()
 // There is a log of all votes. It is a snapshot copy of the vote value that is
 // kept because a persona's vote can change over time.
   var val = v.value();
-  v.snaptime = vote.now();
-  v.entity = v;
+  val.snaptime = vote.now();
+  val.entity = v;
   var votes = this.votes();
   if( !votes ){ votes = []; }
   votes.push( val );
   this.votes( votes );
   return this;
 };
+
+Topic.prototype.log_anti_vote = function( was ){
+// Called by remove_vote()
+// When a vote is removed (erased), it is removed from the log of all the votes
+// on the proposition.
+  var votes = this.votes();
+  // Look for the logged vote
+  var found_idx;
+  var ii = votes.length;
+  while( ii-- ){
+    if( votes[ ii ].entity.id === was.id ){
+      found_idx = ii;
+      break;
+    }
+  }
+  // The vote must be there, ie log_vote() was called before
+  de&&mand( typeof found_idx !== "undefined" );
+  // No clone, votes contains the valid votes, ie not the removed ones
+  // ToDo: this is rather slow, maybe nullification would be better, with
+  // some eventual compaction
+  votes.splice( found_idx, 1 );
+  this.votes( votes );
+  return this;
+};
+
 
 Topic.prototype.add_tag = function( tag, loop ){
   var list = this.tags() || [];
@@ -2035,7 +2072,7 @@ Topic.prototype.add_tag = function( tag, loop ){
   this.tags( new_list );
   if( !loop ){
     tag.add_proposition( this, true );
-    this.update_votes();
+    tag.update_votes();
   }
   return this;
 };
@@ -2046,18 +2083,19 @@ Topic.prototype.remove_tag = function( tag, loop ){
   // Done if already not there
   if( idx === -1 )return this;
   // ToDo: avoid clone?
-  var new_list;
+  var new_list = list;
   de&&mand( idx !== - 1 );
-  new_list = list.splice( idx, 1 );
+  new_list.splice( idx, 1 );
   this.tags( new_list );
   if( !loop ){
     tag.remove_proposition( this, true );
-    this.update_votes();
+    tag.update_votes();
   }
   return this;
 };
 
 Topic.prototype.add_proposition = function( proposition, loop ){
+// Each tag has a list of all the propositions that are tagged with it
   var list = this.propositions() || [];
   // Done if already there
   if( list.indexOf( proposition ) !== - 1 )return this;
@@ -2078,9 +2116,9 @@ Topic.prototype.remove_proposition = function( proposition, loop ){
   // Done if already not there
   if( idx === -1 )return this;
   // ToDo: avoid clone
-  var new_list;
+  var new_list = list;
   de&&mand( idx !== - 1 );
-  new_list = list.splice( idx, 1 );
+  new_list.splice( idx, 1 );
   this.propositions( new_list );
   if( !loop ){
     proposition.remove_tag( this, true );
@@ -2115,6 +2153,7 @@ function is_tagged( tags, other_tags ){
 }
 
 Topic.prototype.add_delegation = function( delegation, loop ){
+// Each tag has a list of all the delegations that involve it
   var delegations = this.delegations() || [];
   if( delegations.indexOf( delegation ) === -1 ){
     delegations.push( delegation );
@@ -2129,12 +2168,12 @@ Topic.prototype.add_delegation = function( delegation, loop ){
 Topic.prototype.update_votes = function(){
   // Something changed, this may have an impact on delegated votes
   var delegations = this.delegations() || [];
-  var delegation;
-  for( delegation in delegations ){
+  delegations.forEach( function( delegation ){
     // ToDo: hum... complex!
-    trace( "ToDo: handle delegation " + delegation );
-    de&&bugger();
-  }
+    trace( "ToDo: handle delegation " + delegation + " in update_votes()" );
+    delegation.update_votes();
+  });
+  return this;
 };
 
 
@@ -2146,24 +2185,49 @@ Topic.prototype.update_votes = function(){
  *  Potential huge side effects...
  *  Only the owner of the proposition is supposed to have such a power!
  *  It is expected that the owner may change tags in order to favor the
- *  the proposition, by adding tags that brings lots of positive votes but are
+ *  the proposition, by using tags that brings lots of positive votes but are
  *  either too general or not well related to the topic at hand. Voters can
  *  fight abusive tagging using Vote.protest.
+ *
+ *  ToDo: this should be an Action, not an Event
  */
 
 Event.type( Tagging );
 function Tagging( options ){
   de&&mand( options.proposition );
   this.proposition = options.proposition;
-  this.detags      = options.detags || [];
+  // Tags/Detags are either #str or Tag entities, this gets normalized
   this.tags        = options.tags   || [];
-  var tag;
-  for( tag in this.detags ){
-    this.proposition.remove_tag( tag );
-  }
-  for( tag in this.tags ){
-    this.proposition.add_tag( tag );
-  }
+  this.detags      = options.detags || [];
+  var that = this;
+  // Remove tags first, this will restrict the delegations that apply
+  var detag_entities = [];
+  this.detags.forEach( function( tag ){
+    de&&mand( tag.substring( 0, 1 ) === '#' );
+    var tag_entity = ( tag.is_entity && tag ) || Topic.all[ tag ];
+    if( !tag_entity ){
+      trace( "Cannot detag, inexistent tag " + tag );
+    }else{
+      detag_entities.push( tag_entity );
+      that.proposition.remove_tag( tag_entity );
+    }
+  });
+  // Then add tags, this will expand the delegations that apply
+  var tag_entities = [];
+  this.tags.forEach( function( tag ){
+    de&&mand( tag.substring( 0, 1 ) === '#' );
+    var tag_entity = ( tag.is_entity && tag ) || Topic.all[ tag ];
+    if( !tag_entity ){
+      trace( "On the fly creation of first seen tag " + tag );
+      de&&mand( tag.substring( 1 ) === '#' );
+      tag_entity = Topic.create( { label: tag } );
+    }
+    tag_entities.push( tag_entity );
+    that.proposition.add_tag( tag_entity );
+  });
+  // Normalizes, keep entities only, not #strings
+  this.detags = tag_entities;
+  this.tags   = tag_entities;
 }
 
 
@@ -2205,8 +2269,8 @@ function Vote( options ){
     this.orientation = water();
     var w = water( _, error_traced( update ), [ this.delegation, this.orientation ] );
     w.vote = this;
-    this.orientation( options.orientation || Vote.neutral );
     this.persona.track_vote( this );
+    this.orientation( options.orientation || Vote.neutral );
   }else{
     vote.update( this, options );
   }
@@ -2233,9 +2297,9 @@ function Vote( options ){
       // Push updated entity
       vote.push();
       // Handle delegated votes
-      water.effect( function(){
+      //water.effect( function(){
         vote.persona.vote_for_others( vote );
-      });
+      //});
     }catch( err ){
       trace( "Could not process vote " + vote, err, err.stack );
       console.trace( err );
@@ -2306,18 +2370,22 @@ Vote.prototype.add = function(){
     // Direct neutral vote enables delegated votes
     if( this.delegation() === Vote.direct ){
       this.delegate();
+      if( this.delegation() !== Vote.direct ){
+        return this;
+      }
+    }else{
+      return this;
     }
-    return this;
   }
   // Indirect votes are processed at agent's level
-  if( this.orientation() === Vote.indirect )return;
+  //if( this.orientation() === Vote.indirect )return;
   var vote = this;
   // Votes of groups have no impacts on results
   if( vote.persona.is_group() )return this;
   de&&mand( this.proposition );
   // ToDo: is the .effect required?
-  water.effect(
-    function(){
+  //water.effect(
+  //  function(){
       de&&bug( "Add vote " + vote 
         + " now " + vote.orientation()
         + " of " + vote.persona
@@ -2325,8 +2393,8 @@ Vote.prototype.add = function(){
         + " for proposition " + vote.proposition
       );
       vote.proposition.add_vote( vote );
-    }
-  );
+  //  }
+  //);
   return this;
 };
 
@@ -2336,13 +2404,13 @@ Vote.prototype.remove = function( was ){
   this.previously( was.orientation );
   if( was.orientation === Vote.neutral )return this;
   // Indirect votes are processed at agent's level
-  if( was.orientation === Vote.indirect )return;
+  //if( was.orientation === Vote.indirect )return;
   var vote = this;
   // Votes of groups have no impacts on results
   if( vote.persona.is_group() )return this;
   // ToDo: is the .effect required?
-  water.effect(
-    function(){
+  //water.effect(
+  //  function(){
       de&&bug( "Remove vote " + vote 
         + " previously " + was.orientation
         + " of " + vote.persona
@@ -2351,14 +2419,14 @@ Vote.prototype.remove = function( was ){
       );
       //de&&bugger();
       vote.proposition.remove_vote( was );
-    }
-  );
+  //  }
+  //);
   return this;
 };
 
 Vote.prototype.delegate = function(){
 // Direct neutral vote triggers delegations
-  de&&mand( this.orientation() === Vote.neutral );
+  //de&&mand( this.orientation() === Vote.neutral );
   de&&mand( this.delegation()  === Vote.direct  );
   var delegations = this.find_applicable_delegations();
   if( !delegations.length )return this;
@@ -2537,6 +2605,7 @@ function Result( options ){
 }
 
 Result.prototype.add_vote = function( vote ){
+// Called by topic.add_vote()
   de&&mand( vote.proposition === this.proposition );
   // Neutral votes have no impacts at all
   if( vote.orientation() === Vote.neutral )return this;
@@ -2548,6 +2617,7 @@ Result.prototype.add_vote = function( vote ){
 };
 
 Result.prototype.remove_vote = function( was ){
+// Called by topic.remove_vote()
   de&&mand( was.proposition === this.proposition.id );
   // Nothing was done when neutral vote was added, nothing needed now either
   if( was.orientation === Vote.neutral )return this;
@@ -2619,8 +2689,8 @@ function Delegation( options ){
   this.agent    = options.agent;
   this.label    = this.agent.label;
   this.votes    = water( [] ); // Votes done because of the delegation
-  this.tags     = water( options.tags );
-  this.inactive = water( !!options.inactive );
+  this.tags     = water( [] );
+  this.inactive = water();
 
    if( this.is_update() ){
     // If change to list of tags
@@ -2630,6 +2700,7 @@ function Delegation( options ){
       delegation.inactive( true );
       delegation.tags( options.tags );
       // Activate delegated votes
+      // ToDo: is water.effect() needed?
       if( !this.inactive ){
         water.effect( function(){ delegation.inactive( false ); } );
       }
@@ -2645,6 +2716,12 @@ function Delegation( options ){
   var w = water( _,  error_traced( update ), [ this.inactive, this.tags ] );
   w.delegation = this;
 
+  // Fire initial update
+  this.inactive( true );
+  this.tags( options.tags );
+  water.effect( function(){
+    delegation.inactive( !!options.inactive );
+  });
   this.persona.add_delegation( this );
   return this;
 
@@ -2660,7 +2737,7 @@ function Delegation( options ){
       delegation.was_inactive = inactive;
       // Delegation became active
       if( !inactive ){
-        trace( "ToDo: activate a delegation" );
+        trace( "Activate delegation" );
         // Refuse to activate a delegation that loops
         if( delegation.agent.delegates_to( delegation.persona, delta.now ) ){
           trace( "Looping delegation is deactivated ", pretty( delegation ) );
@@ -2723,11 +2800,33 @@ Delegation.prototype.update_votes = function(){
   votes.forEach( function( vote ){
     // Check that vote is still delegated as it was when last updated
     if( vote.delegation() !== delegation )return;
-    var new_orientation = !inactive
+    // Does the delegation still include the voted proposition?
+    var included = delegation.includes_proposition( vote.proposition );
+    // If tags changed (now excludes the proposition) or agent's mind change
+    var new_orientation = !inactive && included
       ? delegation.agent.get_orientation_on( vote.proposition )
       : Vote.neutral;
     if( new_orientation && new_orientation !== vote.orientation() ){
-      vote.orientation( new_orientation );
+      // If vote becomes neutral, maybe another delegation thinks otherwise?
+      if( false && new_orientation === Vote.neutral && !included ){
+        vote.delegate();
+        // If no other agent, true neutral
+        if( vote.delegation() === delegation ){
+          Vote.create({
+            persona: vote.persona,
+            delegation: Vote.direct,
+            proposition: vote.proposition,
+            orientation: Vote.neutral
+          });
+        }
+      }else{
+        Vote.create({
+          persona: vote.persona,
+          delegation: Vote.direct,
+          proposition: vote.proposition,
+          orientation: new_orientation
+        });
+      }
     }
   });
   // Discover new delegated votes for tagged propositions
@@ -2958,6 +3057,7 @@ function bootstrap(){
 
   function c( t, p ){
   // Inject a change
+    trace( "INJECT " + t.name + " " + pretty( p ) );
     return Ephemeral.ref( Ephemeral.inject( t.name, p ).id );
   }
 
@@ -2979,6 +3079,10 @@ function bootstrap(){
   function tag( n ){
   // Create a tag topic
     return t[n] = c( Topic, { label: n } );
+  }
+
+  function tagging( p, d, t ){
+    return c( Tagging, { proposition: p, detags: d, tags: t } );
   }
 
   function v( p, t, o ){
@@ -3029,11 +3133,28 @@ function bootstrap(){
   }
 
   // This bootstrap is also the test suite...., a() is assert()
+  var test_description = "none";
   function a( prop, msg ){
     if( prop )return;
+    trace( "DESCRIPTION: " + test_description );
     trace( "Test, error on entity " + pretty( entity, 2 ) );
     console.trace();
     !debugging && assert( false, msg );
+  }
+
+  var test_count = 0;
+  var test_list  = [];
+  function describe( text ){
+    return function(){
+      test_count++;
+      test_description = text;
+      test_list.push( text );
+    }
+  }
+
+  function summary(){
+    trace( "TEST SUMMARY\n" + test_list.join( "\n" ) );
+    trace( "TESTS, " + test_count + " successes"                )
   }
 
   // Test entities
@@ -3049,6 +3170,7 @@ function bootstrap(){
 
     //                          *** Personas ***
 
+    describe( "Personas creation " ),
     function(){ p( "@jhr"                                                   )},
     function(){ a( jhr = e( Persona, "@jhr" ), "persona @jhr exists"        )},
     function(){ a( jhr.is_individual() && !jhr.is_group()                   )},
@@ -3062,12 +3184,14 @@ function bootstrap(){
 
     //                          *** Groups ***
 
+    describe( "Groups creation" ),
     function(){ g( "Hulot friends"                                          )},
     function(){ g_hulot = e( Persona, "Hulot friends"                       )},
     function(){ a( g_hulot.is_group() && !g_hulot.is_individual()           )},
 
     //                        *** Membership ***
 
+    describe( "Membership creation" ),
     function(){ m( jhr, g_hulot                                             )},
     function(){ a(  jhr.is_member_of( g_hulot)                              )},
     function(){ a(  g_hulot.has_member( jhr )                               )},
@@ -3080,6 +3204,7 @@ function bootstrap(){
 
     //                          *** Tags ***
 
+    describe( "Tags creation" ),
     function(){ tag( "#President"                                           )},
     function(){ t_president = e( Topic, "#President"                        )},
     function(){ a(  t_president, "Topic #President exists"                  )},
@@ -3088,6 +3213,7 @@ function bootstrap(){
 
     //                     *** Propositions ***
 
+    describe( "Propositions creation" ),
     function(){ t( "Hollande president",  [ t_president ]                   )},
     function(){ a( e( Topic, "Hollande president").is_proposition()         )},
     function(){ t( "Hulot president",     [ t_president ]                   )},
@@ -3101,7 +3227,7 @@ function bootstrap(){
 
     //                        *** Votes ***
 
-    // Peter first disagrees, about the "Hulot president" proposition
+    describe( "Peter first disagrees, about the 'Hulot president' prop" ),
     function(){ v( peter, p_hulot, "disagree"                               )},
     function(){ v_peter = e( Vote, peter, p_hulot                           )},
     function(){ a( r_hulot.orientation() === "disagree"                     )},
@@ -3111,7 +3237,7 @@ function bootstrap(){
     function(){ a( r_hulot.total()    === 1                                 )},
     function(){ a( r_hulot.direct()   === 1                                 )},
 
-    // Then he agrees
+    describe( "Then Peter agrees" ),
     function(){ v( peter, p_hulot, "agree"                                  )},
     function(){ a( r_hulot.orientation() === "agree"                        )},
     function(){ a( r_hulot.win()                                            )},
@@ -3120,7 +3246,7 @@ function bootstrap(){
     function(){ a( r_hulot.total()    === 1                                 )},
     function(){ a( r_hulot.direct()   === 1                                 )},
 
-    // Then he votes "blank"
+    describe( "Then Peter votes blank" ),
     function(){ v( peter, p_hulot, "blank"                                  )},
     function(){ a( r_hulot.orientation() === "blank"                        )},
     function(){ a( !r_hulot.win()                                           )},
@@ -3130,7 +3256,7 @@ function bootstrap(){
     function(){ a( r_hulot.total()    === 1                                 )},
     function(){ a( r_hulot.direct()   === 1                                 )},
 
-    // Then he protests
+    describe( "Then Peter protests" ),
     function(){ v( peter, p_hulot, "protest"                                )},
     function(){ a( r_hulot.orientation() === "protest"                      )},
     function(){ a( !r_hulot.win()                                           )},
@@ -3141,7 +3267,7 @@ function bootstrap(){
     function(){ a( r_hulot.total()    === 1                                 )},
     function(){ a( r_hulot.direct()   === 1                                 )},
 
-    // Then he gets to neutral, equivalent to "not voting"
+    describe( "Then Peters gets to neutral, equivalent to 'not voting'" ),
     function(){ v( peter, p_hulot, "neutral"                                )},
     function(){ a( r_hulot.orientation() === "neutral"                      )},
     function(){ a( !r_hulot.win()                                           )},
@@ -3152,7 +3278,7 @@ function bootstrap(){
     function(){ a( r_hulot.total()    === 0                                 )},
     function(){ a( r_hulot.direct()   === 0                                 )},
 
-    // Hulot votes, jhr too because of a delegation
+    describe( "Hulot votes, jhr too because of a delegation" ),
     function(){ v( hulot, p_hulot, "agree"                                  )},
     function(){ a( r_hulot.orientation() === "agree"                        )},
     function(){ a( r_hulot.win()                                            )},
@@ -3161,7 +3287,7 @@ function bootstrap(){
     function(){ a( r_hulot.total()    === 2                                 )},
     function(){ a( r_hulot.direct()   === 1                                 )},
 
-    // Then he gets to neutral
+    describe( "Then Hulot gets to neutral" ),
     function(){ v( hulot, p_hulot, "neutral"                                )},
     function(){ a( r_hulot.orientation() === "neutral"                      )},
     function(){ a( !r_hulot.win()                                           )},
@@ -3172,7 +3298,7 @@ function bootstrap(){
     function(){ a( r_hulot.total()    === 0                                 )},
     function(){ a( r_hulot.direct()   === 0                                 )},
 
-    // Hulot votes and then jhr decides to vote directly against his delegation
+    describe( "Hulot votes but jhr decides to vote directly" ),
     function(){ v( hulot, p_hulot, "agree"                                  )},
     function(){ a(  r_hulot.win()                                           )},
     function(){ a( r_hulot.total()    === 2                                 )},
@@ -3182,24 +3308,45 @@ function bootstrap(){
     function(){ a( r_hulot.total()    === 2                                 )},
     function(){ a( r_hulot.direct()   === 2                                 )},
 
-    // Hulot votes but jhr decided to vote directly
+    describe( "Hulot votes but jhr decided to vote directly, respect" ),
     function(){ v( hulot, p_hulot, "blank"                                  )},
     function(){ a( r_hulot.total()    === 2                                 )},
     function(){ a( r_hulot.blank()    === 1                                 )},
     function(){ a( r_hulot.direct()   === 2                                 )},
 
-    // jhr erases his vote and consequently relies on his delegation
+    describe( "jhr erases his vote and so relies again on his delegation"),
     function(){ v( jhr, p_hulot, "neutral"                                  )},
     function(){ a( r_hulot.total()    === 2                                 )},
     function(){ a( r_hulot.blank()    === 2                                 )},
     function(){ a( r_hulot.direct()   === 1                                 )},
 
-    function(){ trace( "**************************************************" )},
+    describe( "Detag p_hulot, so that jhr's delegation does not apply" ),
+    function(){ tagging( p_hulot, [ "#President" ], []                      )},
+    function(){ a( r_hulot.total()    === 1                                 )},
+    function(){ a( r_hulot.blank()    === 1                                 )},
+    function(){ a( r_hulot.direct()   === 1                                 )},
+
+    describe( "Restore that tag, jhr delegation applies" ),
+    function(){ tagging( p_hulot, [], [ "#President" ]                      )},
+    function(){ a( r_hulot.total()    === 2                                 )},
+    function(){ a( r_hulot.blank()    === 2                                 )},
+    function(){ a( r_hulot.direct()   === 1                                 )},
+
+    describe( "Hulot votes, agree count includes jhr's delegated vote" ),
     function(){ v( hulot, p_hulot, "agree"                                  )},
+
+
+    function(){ a( r_hulot.total()    === 2                                 )},
+    function(){ a( r_hulot.blank()    === 0                                 )},
+    function(){ a( r_hulot.agree()    === 2                                 )},
+    function(){ a( r_hulot.direct()   === 1                                 )},
+
+    function(){ trace( "**************************************************" )},
     function(){ v( peter, p_hulot, "neutral"                                )},
     function(){ v( hulot, p_hulot, "disagree"                               )},
     function(){ v( peter, p_hulot, "agree"                                  )},
     function(){ r( p_hulot, 102, 101, 1, 12, 1000, 99                       )},
+    function(){ summary(                                                    )},
 
   function(){} ];
 }
@@ -3244,6 +3391,17 @@ function main(){
     trace( "READY!" );
   } );
 }
+
+// Hack to get synch traces
+if( de ){
+  var fs = require('fs');
+  var oldWrite = process.stdout.write;
+
+  process.stdout.write = function (d) {
+    fs.appendFileSync('./trace.out', d);
+    return oldWrite.apply(this, arguments);
+  }
+};
 
 l8.begin.step( main ).end;
 l8.countdown( 2 );
