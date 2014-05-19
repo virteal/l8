@@ -9,6 +9,8 @@
 
 function ephemeral( app ){
 
+app.version = "0.1";
+
 /*
  *  First, let's create an "ephemeral" reactive dataflow framework.
  *  Application specific code comes next.
@@ -27,15 +29,9 @@ var fluid = app.fluid = water.fluid;
 
 // My de&&bug() darling, traces that can be disabled with low overhead
 var de        = false;
-var debugging = de && false;
-var trace     = l8.trace;
-var bug       = trace;
-if( debugging ){
-  var puts = console.error;
-  l8.logger = trace = bug = function(){ return puts.apply( console, arguments ); };
-}
-var debug_entity = 10029;
-
+var debugging = de && true;
+var trace     = app.trace = l8.trace;
+var bug       = app.bug   = trace;
 
 function mand( b, msg ){
 // de&&mand() is like assert()
@@ -45,9 +41,11 @@ function mand( b, msg ){
   if( debugging )debugger;
   if( !debugging )throw new Error( "vote.js assert" );
 }
+app.assert = mand;
 
 // de&&bugger() invokes the debugger only in debugging mode
 function bugger(){ if( debugging )debugger; }
+app.bugger = bugger;
 
 function error_traced( f ){
 // error_traced( fn ) is like fn but with exceptions traced in debug mode
@@ -64,6 +62,7 @@ function error_traced( f ){
     }
   };
 }
+app.error_traced = error_traced;
 
 
 // Misc. util
@@ -71,7 +70,7 @@ function error_traced( f ){
 function noop(){}
 function idem( x ){ return x; }
 
-var _ = noop();      // _ === undefined
+var _ = app._ = noop();      // _ === undefined
 
 var no_opts = {};
 
@@ -85,6 +84,7 @@ var extend = function( to, from ){
   for( var ii in from ){ to[ ii ] = from[ ii ]; }
   return to;
 };
+app.extend = extend;
 
 // Cool to load all vocabulary at once in some scope.
 // Usage: require( "ephemeral.js" ).into( global )
@@ -146,6 +146,7 @@ function array_diff( old, now, no_cache ){
     changes: added.length + removed.length
   };
 }
+app.diff = array_diff;
 
 
 /*
@@ -156,7 +157,8 @@ function array_diff( old, now, no_cache ){
 
 var epoch = 0; // 1397247088461; // 2034 is too soon
 function now(){ return l8.now - epoch; }
-var ONE_YEAR = 365 * 24 * 60 * 60 * 1000;
+app.now = now;
+var ONE_YEAR = app.ONE_YEAR = 365 * 24 * 60 * 60 * 1000;
 
 
 /*
@@ -292,6 +294,12 @@ var lookup = function( id ){
   return AllEntities[ id ];
 };
 
+var debug_entity = 10029;
+app.set_debug_entity = function( x ){
+// Helper to start traces, before failing test cases typically
+  debug_entity = x || NextId;
+};
+
 var alloc_id = function( x ){
 // Entities have an unique id. This function checks if a provided id is
 // a forward reference id and adjusts NextId accordingly. If no id is
@@ -305,6 +313,7 @@ var alloc_id = function( x ){
   }
   // de&&bug( "New UID", NextId );
 
+  // debug_entity, when met, starts debug mode, useful for failing test cases
   if( NextId === debug_entity ){
     trace( "Start debugging for entity " + NextId );
     de = true;
@@ -336,9 +345,9 @@ function Entity( options ){
   // Track all entities, some of them will expire
   AllEntities[ this.id ] = this;
 }
-
 app.Entity = Entity;
 
+// Define __proto__ for Entity instances
 extend( Entity.prototype, {
   
   // To enable "duck" typing
@@ -375,6 +384,7 @@ extend( Entity.prototype, {
   
 } );
 
+// ToDo: is this OK?
 Entity.prototype.constructor = Entity;
 Entity.type = function( named_f ){ return type( named_f, this ); };
 
@@ -535,6 +545,7 @@ function pretty( v, level ){
     return buf + "" + v;
   }
 }
+app.pretty = pretty;
 
 function dump_entity( x, level ){
   if( !level ){ level = 1; }
@@ -628,14 +639,14 @@ var type = function( ctor, base, opt_name ){
   var sub = ctor.prototype = extend( {}, proto );
   sub.type = name;
   sub.constructor = ctor;
-  ctor.super = base;
-  ctor.ctors = [];
+  sub.super  = proto;  // Access to super instance stuff, like instance methods
+  ctor.super = base;   // Access to super static stuff, like class methods
+  ctor.ctors = [];     // All constructors, from Entity, down to this new type
   var a_ctor = ctor;
   while( a_ctor ){
     ctor.ctors.unshift( a_ctor );
     a_ctor = a_ctor.super;
   }
-  sub.super  = proto;
   var entity_fluid = ctor.fluid = fluid();
   sub.push = function( f ){
     if( f ){
@@ -657,11 +668,12 @@ var type = function( ctor, base, opt_name ){
     var obj = Entity.created = Object.create( sub );
     //if( !options ){ obj.machine = Machine.current; }
      // Call all constructors, including super, super's super, etc
-    var ii = 0;
+    var ii = 1;
     var list = ctor.ctors;
     var a_ctor;
     var r;
     // ToDo: unroll for speed
+    Entity.call( obj, options );
     while( a_ctor = list[ ii++ ] ){
       r = a_ctor.call( obj, options );
       if( r ){ obj = r; }
@@ -674,6 +686,11 @@ var type = function( ctor, base, opt_name ){
       }
     }
     return obj;
+  };
+  // ToDo: improve create/update syntax
+  sub.update = function( options ){
+    options.key = this.key;
+    return this.create( options );
   };
   // Create the prototypal instance. It will will create new instances
   var proto_entity = Object.create( sub );
@@ -938,6 +955,7 @@ function value( x, force ){
     return x;
   }
 }
+app.value = value;
 
 Entity.prototype.value = function(){
 // The "value" of an entity is a snapshot copy of the current value of all
@@ -1051,7 +1069,7 @@ function Effect( options ){
   this.was     = null;
   // Some effects are about a pre existing entity, ie they are updates.
   // .register( key ) will detect such cases
-  this.key    = _;
+  this.key    = options.key;
   this.effect = _;
 }
 
@@ -1063,7 +1081,9 @@ Effect.prototype.update = function( other ){
     // Skip inherited attributes
     if( attr in Effect.prototype )continue;
     // If target attribute is a function, call it, ie update water sources
-    if( typeof this[ attr ] === "function" ){
+    if( typeof this[ attr ] === "function" && this[ attr ]._water ){
+      // Updates are values, no water in them
+      de&&mand( typeof other[ attr ] !== "function" );
       this[ attr ]( other[ attr ] );
       continue;
     }
@@ -1074,8 +1094,11 @@ Effect.prototype.update = function( other ){
   return this;
 };
 
-// Called by .register(), when there is an update
-Effect.prototype.touch = function(){};
+Effect.prototype.touch = function(){
+// Called by .register(), when there is an update.
+// To be redefined by sub types
+  return this;
+};
 
 Effect.prototype.register = function( key ){
 // Register entity and detect updates about pre-existing entities
@@ -1113,12 +1136,14 @@ Effect.prototype.register = function( key ){
 Effect.prototype.is_update = function(){ return !!this.effect; };
   
 Effect.prototype.water = function( other ){
-// Changes to entities involves watering the original with an update
+// Changes to entities involves watering the original with an update.
   // There must be actual water only in the original, not in the updates
   return other === this
   ? water
   : function water_update( init_val ){
+    // x = water( init_val );
     if( typeof init_val !== "undefined" )return init_val;
+    // x = water( _, ff, [ init_val, other_deps... ] )
     return arguments[2] && arguments[2][0];
   };
 };
@@ -1560,21 +1585,9 @@ Ephemeral.inject = function( t, p ){
 Ephemeral.get_next_id = function(){ return NextId; };
 Ephemeral.ref = ref;
 
-// Debug related
-app.trace  = trace;
-app.assert = mand;
-app.bugger = bugger;
-app.pretty = pretty;
-app.error_traced = error_traced;
-
-// More exports
-app._      = _;
-app.value  = value;
-app.idem   = idem;
-app.now    = now;
-app.diff   = array_diff;
+// Exports
 app.ice    = function ice( v ){  // Uniform access water/constant
-  return function(){ return v; }
+  return function(){ return v; } // Unused, yet
 };
 
 return app;
@@ -1656,19 +1669,22 @@ var _       = vote._;
 Ephemeral.type( Persona );
 function Persona( options ){
   
-  var persona = this.register( options.label );
+  var persona = this.register( options.label || options.key );
   var water   = this.water( persona );
   
-  this.label            = options.label;
+  this.label            = options.label || options.key;
   this.role             = options.role || Persona.individual;
   this.members          = water( [] );
   this.memberships      = water( [] );
   this.delegations      = water( [] );
   this.delegations_from = water( [] );
   this.votes            = water( [] );
-  
-  return this.is_update() ? persona.update( this ) : this;
-  
+
+  // ToDo: test update()
+  if( this.is_update() )return persona.update( this );
+
+  // Indexes, for faster access
+  this.votes_indexed_by_proposition = {};
 }
 
 // Persona roles
@@ -1679,18 +1695,19 @@ Persona.prototype.is_group      = function(){ return this.role === "group"; };
 Persona.prototype.is_individual = function(){ return !this.is_group();      };
 
 Persona.prototype.get_vote_on = function( proposition ){
-// If there is a vote by persona on said topic, return it.
+// If there is a vote by persona on said topic, return it, or null/undef
   de&&mand( proposition.is_a( Topic ) );
-  var votes = this.votes();
-  var found_vote = null;
-  // ToDo: add index to fast retrieve vote based on proposition's key
-  votes.every( function( vote ){
+  var found_vote = this.votes_indexed_by_proposition[ proposition.key ];
+  if( typeof found_vote !== "undefined" )return found_vote;
+  this.votes().every( function( vote ){
     if( vote.proposition === proposition ){
       found_vote = vote;
       return false;
     }
     return true;
   });
+  trace( "BUG? unexpected vote on " + proposition + " of " + this );
+  this.votes_indexed_by_proposition[ proposition.key ] = found_vote || null;
   return found_vote;
 };
 
@@ -1816,32 +1833,20 @@ Persona.prototype.find_applicable_delegations = function( proposition ){
   return found_delegations;
 };
 
-Persona.prototype.find_vote_on_proposition = function( proposition, all ){
-// Returns null if that personas has no vote on that proposition.
-// If 'all' parameter is true, neutral vote is a possible match.
-  var votes = this.votes();
-  var found = null;
-  votes.every( function( vote ){
-    if( vote.proposition !== proposition )return true;
-    found = ( all || !vote.is_neutral() ) && vote;
-    return false;
-  });
-  return found;
-};
-
 Persona.prototype.track_vote = function( vote ){
 // Called by Vote constructor
   de&&mand( vote.persona === this );
   var votes = this.votes();
-  if( votes.indexOf( vote ) !== -1 )return this;
+  de&&mand( votes.indexOf( vote ) === -1 );
   votes.push( vote );
   this.votes( votes );
+  this.votes_indexed_by_proposition[ vote.proposition.key ] = vote;
   return this;
 };
 
 Persona.prototype.add_member = function( member ){
   var members = this.members();
-  if( members.indexOf( member ) !== -1 )return this;
+  de&&mand( members.indexOf( member ) === -1 );
   members.push( member );
   this.members( members );
   return this;
@@ -1857,6 +1862,8 @@ Persona.prototype.remove_member = function( member ){
 };
 
 Persona.prototype.is_member_of = function( group ){
+  // ToDo: add index to speed things up
+  // return group.members_indexed_by_persona( this.key );
   return group.members().indexOf( this ) !== -1;
 };
 
@@ -1866,7 +1873,10 @@ Persona.prototype.has_member = function( persona ){
 
 Persona.prototype.add_membership = function( membership ){
   var memberships = this.memberships();
-  if( memberships.indexOf( membership ) !== -1 )return this;
+  de&&mand( memberships.indexOf( membership ) === -1 );
+  // Remember index inside persona's .memberships[], to speed up removal
+  // ToDo: use an hashmap?
+  membership.insert_index = memberships.length;
   memberships.push( membership );
   this.memberships( memberships );
   return this;
@@ -1874,9 +1884,12 @@ Persona.prototype.add_membership = function( membership ){
 
 Persona.prototype.remove_membership = function( membership ){
   var memberships = this.memberships();
-  var idx     = memberships.indexOf( membership );
-  if( idx === -1 )return this;
-  memberships.splice( idx, 1 );
+  var idx = membership.insert_index;
+  de&&mand( typeof idx !== "undefined" );
+  memberships[ idx ] = _;
+  membership.insert_index = _;
+  // memberships.splice( idx, 1 );
+  // Not cloned, not needed
   this.memberships( memberships );
   return this;
 };
@@ -1994,8 +2007,8 @@ function Topic( options ){
 
 Topic.prototype.update = function( other ){
   // ToDo: handle .tags and .propositions changes
-  if( other.source      ){ this.source( other.source ); }
-  if( other.result      ){ this.result( other.result ); }
+  this.source( other.source );
+  this.result( other.result );
   if( other.delegations ){ this.update_delegations( other.delegations ); }
   return this;
 };
@@ -2449,7 +2462,7 @@ Vote.prototype.find_applicable_delegations = function(){
 
 Vote.prototype.delegate_using = function( delegation ){
   var agent = delegation.agent;
-  var agent_vote = agent.find_vote_on_proposition( this.proposition );
+  var agent_vote = agent.get_vote_on( this.proposition );
   if( !agent_vote )return this;
   var agent_orientation = agent_vote.orientation();
   if( agent_orientation === Vote.neutral )return this;
@@ -3334,8 +3347,6 @@ function bootstrap(){
 
     describe( "Hulot votes, agree count includes jhr's delegated vote" ),
     function(){ v( hulot, p_hulot, "agree"                                  )},
-
-
     function(){ a( r_hulot.total()    === 2                                 )},
     function(){ a( r_hulot.blank()    === 0                                 )},
     function(){ a( r_hulot.agree()    === 2                                 )},
@@ -3375,6 +3386,103 @@ if( de ){
 }
 //Ephemeral.persist( "test/vote.trace.log", Trace.fluid );
 
+/*
+ *  The http REPL (Read, Eval, Print, Loop) is a very simple UI
+ *  to test interactively the Vote engine.
+ *
+ *  The BASIC style verbs were first introduced in test/input.coffee
+ */
+
+require( "l8/lib/queue" );
+var http = require( "http" );
+var url  = require( "url" );
+
+// IO tools. BASIC style
+
+var screen    = [];
+var cls       = function(){ screen = []; };
+var print     = function( msg ){
+  msg.split( "\n" ).forEach( function( m ){ if( m ){ screen.push( m ); } } );
+};
+var printnl   = function( msg ){ print( msg ); print( "\n" ); };
+
+var PendingResponse = null;
+var respond = function( question ){
+  if( !PendingResponse )return;
+  PendingResponse.writeHead( 200, { 'Content-Type': 'text/html' } );
+  PendingResponse.end( [
+    '<html><pre>',
+    screen.join( "<br\>" ),
+    '</pre><form url="/">',
+    question,
+    '<input type="text" name="input">',
+    '<input type="submit">',
+    '</form>',
+    '</html>'
+  ].join( '\n' ) );
+  PendingResponse = null;
+};
+
+var HttpQueue = l8.queue( 1000 );
+var input = l8.Task( function( question ){ this
+  .step( function(){
+    respond( question );
+    HttpQueue.get() } )
+  .step( function( req, res ){
+    this.trace( "Handling new http request, " + req.method + ", " + req.url );
+    if( req.method !== "GET" || !( req.url === "/" || req.url[1] == "?" ) ){
+      res.writeHead( 404, { "Content-Type": "text/plain" } );
+      res.end( "404 Not Found\n" );
+      return input( question );
+    }
+    PendingResponse = res
+    var data = url.parse( req.url, true).query.input
+    if( data )return data;
+    input( question );
+  } );
+} );
+
+var http_repl_commands = {
+
+  cls: function(){ cls(); },
+
+  help: function(){ print( [
+    "cls -- clear screen",
+    "version -- display version",
+    "Kudocracy. Welcome!"
+  ].join( "\n" ) ); },
+
+  version: function(){ printnl( "Kudocracy Version: " + vote.version ); }
+};
+
+
+function start_http_repl(){
+  var port = process.env.PORT || "8080"
+  http.createServer( HttpQueue.put.bind( HttpQueue ) ).listen( port );
+  l8.task( function(){ this
+    .step( function(){ trace( "Web test UI is running on port " + port ); })
+    .repeat( function(){ this
+      .step( function(){ input( ">" ); } )
+      .step( function( r ){
+        try{
+          var tokens = r.split( " " );
+          var cmd = tokens[0];
+          var args = tokens.slice( 1 );
+          var code = http_repl_commands[ cmd ];
+          if( code ){
+            code.apply( cmd, args );
+          }else{
+            printnl( "Enter 'help'" );
+          }
+        }catch( err ){
+          printnl( "Error " + err );
+          trace( "Http REPL error: ", err, err.stack );
+        }
+      });
+    })
+  });
+}
+
 
 function main(){
 
@@ -3389,19 +3497,21 @@ function main(){
     }
     // Let's provide a frontend...
     trace( "READY!" );
+    start_http_repl();
   } );
 }
 
-// Hack to get synch traces
+// Hack to get sync traces
 if( de ){
   var fs = require('fs');
   var oldWrite = process.stdout.write;
 
   process.stdout.write = function (d) {
     fs.appendFileSync('./trace.out', d);
+    print( d );
     return oldWrite.apply(this, arguments);
   }
 };
 
 l8.begin.step( main ).end;
-l8.countdown( 2 );
+l8.countdown( 200 );
