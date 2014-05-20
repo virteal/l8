@@ -29,17 +29,25 @@ var fluid = app.fluid = water.fluid;
 
 // My de&&bug() darling, traces that can be disabled with low overhead
 var de        = false;
-var debugging = de && true;
+var debugging = true; // Interactive mode, useful to debug test cases
 var trace     = app.trace = l8.trace;
 var bug       = app.bug   = trace;
+
+app.debug_mode = function( x ){
+// Get/set debug mode
+  if( arguments.length ){
+    de = !!x;
+  }
+  return de;
+}
 
 function mand( b, msg ){
 // de&&mand() is like assert()
   if( b )return;
   var tmp = msg ? ": " + msg : msg;
   bug( "l8/test/vote.js, assert error" + tmp );
-  if( debugging )debugger;
-  if( !debugging )throw new Error( "vote.js assert" );
+  if( de && debugging )debugger;
+  if( ! (de && debugging ) )throw new Error( "vote.js assert" );
 }
 app.assert = mand;
 
@@ -55,7 +63,7 @@ function error_traced( f ){
     }catch( err ){
       trace( "Error", err, err.stack );
       if( debugging ){
-        de&&bugger();
+        debugger;
       }else{
         throw err;
       }
@@ -68,16 +76,8 @@ app.error_traced = error_traced;
 // Misc. util
 
 function noop(){}
-function idem( x ){ return x; }
 
 var _ = app._ = noop();      // _ === undefined
-
-var no_opts = {};
-
-// Never changing undefined & empty array waters
-var _emptiness_ = water();
-var emptiness   = water( [] );
-
 
 var extend = function( to, from ){
 // Fast inject of properties. Note: not just owned ones, prototype's too
@@ -169,12 +169,15 @@ var ONE_YEAR = app.ONE_YEAR = 365 * 24 * 60 * 60 * 1000;
  *  If the same entity is pushed multiple times into the same fluid, only
  *  the first push is actually performed.
  */
- 
+
+var Stepping  = 0;
 var StepQueue = [];
 var PushQueue = [];
 var PushMap   = {};
 
 function steps( list ){
+  de&&mand( !Stepping );
+  Stepping++;
   //debugger;
   if( list ){
     list.forEach( function( item ){
@@ -188,13 +191,17 @@ function steps( list ){
     if( err ){
       // Get rid of potential new steps, cancelled
       StepQueue = [];
+      Stepping--;
       box( err );
       return;
     }
     // If new steps where created, perform them now
     if( StepQueue.length ){
-      steps().boxon( function( err ){ box( err ); } );
+      steps().boxon( function( err ){
+        Stepping--;
+        box( err ); } );
     }else{
+      Stepping--;
       box();
     }
   } );
@@ -278,6 +285,7 @@ var MainMachine = Machine.current = Machine.main = new Machine({});
 var NextId      = 0;
 var MaxSharedId = 9999;
 var AllEntities = [];
+app.AllEntities = AllEntities;
 
 var lookup = function( id ){
 // Look for an existing entity based on id, xor undefined.
@@ -315,7 +323,7 @@ var alloc_id = function( x ){
 
   // debug_entity, when met, starts debug mode, useful for failing test cases
   if( NextId === debug_entity ){
-    trace( "Start debugging for entity " + NextId );
+    trace( "Start interactive debugging for entity " + NextId );
     de = true;
     debugging = true;
   }
@@ -387,8 +395,6 @@ extend( Entity.prototype, {
 // ToDo: is this OK?
 Entity.prototype.constructor = Entity;
 Entity.type = function( named_f ){ return type( named_f, this ); };
-
-var null_object = new Entity( { machine: MainMachine } );
 
 // Pretty print for debugging
 var abbreviations = {
@@ -495,8 +501,8 @@ function pretty( v, level ){
     for( var attr in v ){
       if( attr !== "id" && v.hasOwnProperty( attr ) ){
         val = v[ attr ];
-        // Skip label, already displayed
-        if( attr === "label" )continue;
+        // Skip label, if already displayed
+        if( v.is_entity && attr === "label" )continue;
         // Skip "buried" unless actually buried
         if( attr === "buried" ){
           if( val ){ lbuf.push( "buried" ) }
@@ -512,9 +518,13 @@ function pretty( v, level ){
         // Skip "effect" when there is none
         }else if( attr === "effect" ){
           if( val === _ )continue;
+          // Skip "next_effect" when there is none
+        }else if( attr === "next_effect" ){
+          if( !val )continue;
         // Skip "updates" when only the initial create update is there
         }else if( attr === "updates" ){
-          if( val.water && val() && val().length === 1 )continue;
+          if( val._water && val() && val().length === 1 )continue;
+          if( Array.isArray( val ) && val.length === 1 )continue;
         // Skip "now" and "was" attributes, too much noise
         }else if( attr === "now" || attr === "was" )continue;
         // For booleans, show the flag name, with a ! prefix if false
@@ -552,6 +562,7 @@ function dump_entity( x, level ){
   trace( pretty( x, level ) );
   //console.log( "Value", x.value() );
 }
+app.dump_entity = dump_entity;
 
 function dump_entities( from, level ){
 // This is a debugging tool at the moment.
@@ -609,6 +620,7 @@ function dump_entities( from, level ){
   //console.log( "RootTopic:", value( RootTopic, true ) );
   trace( "--- END DUMP ---" );
 }
+app.dump_entities = dump_entities;
 
 
 /*
@@ -1149,6 +1161,20 @@ Effect.prototype.water = function( other ){
 };
 
 
+ /*
+  *  Immutable entities are one shot effects, no updates
+  */
+
+Effect.type( Immutable );
+function Immutable(){};
+
+Immutable.prototype.register = function(){
+  var target = Effect.prototype.register.apply( this, arguments );
+  de&&mand( target === this );
+  return target;
+};
+
+
 /*
  *  Version entity
  *
@@ -1172,6 +1198,7 @@ function Version( options ){
 
 /*
  *  The rest is ephemeral. It will expire and be buried, unless resurrected.
+ *  Abstract type.
  *
  *  Lifecycle: create(), [renew()], expiration(), [resurrect() + renew()]...
  *
@@ -1284,7 +1311,7 @@ Ephemeral.prototype.touch = function(){
  *  - Entity/id
  */
 
-Entity.type( Event );
+Immutable.type( Event );
 function Event(){}
 
 
@@ -1351,8 +1378,6 @@ app.CRITICAL = CRITICAL;
 /*
  *  Persistent changes processor
  */
-
-var force_bootstrap;
 
 function persist( fn, a_fluid, filter ){
   // At some point changes will have to be stored
@@ -1579,7 +1604,15 @@ Ephemeral.inject = function( t, p ){
       }
     }
   }
-  return Change.create( { t: t, o: "create", p: p } );
+  if( Stepping ){
+    return Change.create( { t: t, o: "create", p: p } );
+  }else{
+    return steps( [
+      function(){
+        Change.create( { t: t, o: "create", p: p } )
+      }
+    ]);
+  }
 };
 
 Ephemeral.get_next_id = function(){ return NextId; };
@@ -1587,7 +1620,7 @@ Ephemeral.ref = ref;
 
 // Exports
 app.ice    = function ice( v ){  // Uniform access water/constant
-  return function(){ return v; } // Unused, yet
+  return function(){ return v; }; // Unused, yet
 };
 
 return app;
@@ -1886,6 +1919,7 @@ Persona.prototype.remove_membership = function( membership ){
   var memberships = this.memberships();
   var idx = membership.insert_index;
   de&&mand( typeof idx !== "undefined" );
+  // ToDo: quid of compaction?
   memberships[ idx ] = _;
   membership.insert_index = _;
   // memberships.splice( idx, 1 );
@@ -2267,8 +2301,9 @@ function Vote( options ){
   var key = options.persona.id + "." + options.proposition.id;
   var vote = this.register( key );
 
+  var orientation  = options.orientation || Vote.neutral;
   this.persona     = options.persona;
-  this.label       = options.label || this.persona.label;
+  this.label       = options.label || (this.persona.label + "/" + orientation );
   this.proposition = options.proposition;
   if( this.is_create() ){
     this.analyst     = water( options.analyst );
@@ -2283,7 +2318,7 @@ function Vote( options ){
     var w = water( _, error_traced( update ), [ this.delegation, this.orientation ] );
     w.vote = this;
     this.persona.track_vote( this );
-    this.orientation( options.orientation || Vote.neutral );
+    this.orientation( orientation );
   }else{
     vote.update( this, options );
   }
@@ -3057,6 +3092,9 @@ function Action( options ){
 }
 
 
+var replized_verbs = {};
+var replized_verbs_help = {};
+
 function bootstrap(){
 // This function returns a list of functions that when called can use
 // Ephemeral.inject() to inject changes into the machine. The next function
@@ -3068,35 +3106,52 @@ function bootstrap(){
 
   var debugging = true;
 
+  function def( f, help ){
+    replized_verbs[ f.name ] = f;
+    replized_verbs_help[ f.name ] = help;
+  }
+
   function c( t, p ){
-  // Inject a change
     trace( "INJECT " + t.name + " " + pretty( p ) );
     return Ephemeral.ref( Ephemeral.inject( t.name, p ).id );
   }
+  def( c, "type +opt1:v1 +opt2:v2 ... -- inject a Change" );
 
   function p( n ){
-  // Create a person
     return p[n] = c( Persona, { label: n } );
   }
+  def( p, "@name -- create a person" );
 
   function g( n ){
-  // Create a group
     return p[n] = c( Persona, { label: n, role: "group" } );
   }
+  def( g,"@name -- create a group" );
 
   function t( n, l ){
   // Create a proposition topic, tagged
+    if( !Array.isArray( l ) ){
+      l = [ l ];
+    }
     return t[n] = c( Topic, { label: n, source: "bootstrap", tags: l } );
   }
+  def( t, "name +#tag1 +#tag2 ... -- create proposition topic, tagged" );
 
   function tag( n ){
-  // Create a tag topic
     return t[n] = c( Topic, { label: n } );
   }
+  def( tag, "#name -- create a tag topic" );
 
   function tagging( p, d, t ){
+    if( !Array.isArray( d ) ){
+      d = [ d ];
+    }
+    if( !Array.isArray( t ) ){
+      t = [ t ];
+    }
     return c( Tagging, { proposition: p, detags: d, tags: t } );
   }
+  def( tagging, "&proposition +#detag1 ... , +#tag1 ... -- create a tagging" );
+
 
   function v( p, t, o ){
   // Create/Update a vote
@@ -3105,23 +3160,32 @@ function bootstrap(){
     = c( Vote, { persona: p, proposition: t, orientation: o } );
   }
   v.n = 0;
+  def( v, "&persona &proposition orientation -- create/update a vote" );
 
   function d( p, t, a ){
-  // Create a delegation
+    if( !Array.isArray( t ) ){
+      t = [ t ];
+    }
     return d[ d.n++ ] = c( Delegation, { persona: p, tags: t, agent: a } );
   }
   d.n = 0;
+  def( d, "&persona +#tag1 ... &agent -- create/update a delegation" );
 
   function r( t, a, d, p, b, n, dir ){
   // Update a result
-    return c( Result,
-      { proposition: t, agree: a, disagree: d, protest: p, blank: b, neutral: n, direct: dir
+    return c( Result, { proposition: t,
+      agree: a, disagree: d, protest: p, blank: b, neutral: n, direct: dir
     } );
   }
 
   function m( p, g, i ){
   // Create/Update a membership
     return c( Membership, { member: p, group: g, inactive: i } );
+  }
+  def( m, "&member &group +inactive:? -- create/update a membership" );
+
+  for( var verb in replized_verbs ){
+    http_repl_commands[ verb ] = replized_verbs[ verb ];
   }
 
   var entity;
@@ -3134,12 +3198,14 @@ function bootstrap(){
     if( arguments.length === 1 && type && type.is_entity )return entity = type;
     if( arguments.length === 2 )return entity = type.all[ key ];
     var id = "";
-    for( var ii = 1 ; ii < arguments.length ; ii += 2 ){
+    var ii = 1;
+    while( ii < arguments.length ){
       if( arguments[ ii ].is_entity ){
         id += "." + arguments[ ii ].id;
-        ii--;
+        ii += 1;
       }else{
         id += "." + (arguments[ ii ].all)[ arguments[ ii + 1 ] ].id;
+        ii += 2;
       }
     }
     return entity = type.all[ id.substring( 1 ) ];
@@ -3152,7 +3218,8 @@ function bootstrap(){
     trace( "DESCRIPTION: " + test_description );
     trace( "Test, error on entity " + pretty( entity, 2 ) );
     console.trace();
-    !debugging && assert( false, msg );
+    !( de && debugging ) && assert( false, msg );
+    de&&bugger;
   }
 
   var test_count = 0;
@@ -3402,7 +3469,7 @@ var url  = require( "url" );
 var screen    = [];
 var cls       = function(){ screen = []; };
 var print     = function( msg ){
-  msg.split( "\n" ).forEach( function( m ){ if( m ){ screen.push( m ); } } );
+  ("" + msg).split( "\n" ).forEach( function( m ){ if( m ){ screen.push( m ); } } );
 };
 var printnl   = function( msg ){ print( msg ); print( "\n" ); };
 
@@ -3413,11 +3480,14 @@ var respond = function( question ){
   PendingResponse.end( [
     '<html><pre>',
     screen.join( "<br\>" ),
-    '</pre><form url="/">',
+    '</pre><form name="question" url="/" style="width:99%">',
     question,
-    '<input type="text" name="input">',
+    '<input type="text" name="input" style="width:99%">',
     '<input type="submit">',
     '</form>',
+    '<script type="text/javascript" language="JavaScript">',
+      'document.question.input.focus();',
+    '</script>',
     '</html>'
   ].join( '\n' ) );
   PendingResponse = null;
@@ -3429,48 +3499,231 @@ var input = l8.Task( function( question ){ this
     respond( question );
     HttpQueue.get() } )
   .step( function( req, res ){
-    this.trace( "Handling new http request, " + req.method + ", " + req.url );
+    //this.trace( "Handling new http request, " + req.method + ", " + req.url );
     if( req.method !== "GET" || !( req.url === "/" || req.url[1] == "?" ) ){
       res.writeHead( 404, { "Content-Type": "text/plain" } );
       res.end( "404 Not Found\n" );
       return input( question );
     }
-    PendingResponse = res
-    var data = url.parse( req.url, true).query.input
+    PendingResponse = res;
+    var data = url.parse( req.url, true).query.input;
     if( data )return data;
     input( question );
   } );
 } );
 
-var http_repl_commands = {
+var http_repl_commands = {};
+
+function print_entities( list ){
+  // Chronological order
+  var sorted_list = list.sort( function( a, b ){
+    var time_a = a.time_touched || a.timestamp;
+    var time_b = b.time_touched || b.timestamp;
+    var order = a - b;
+    return order ? order : a.id - b.id;
+  });
+  sorted_list.forEach( function( entity ){
+    printnl( "&" + entity.id + " " + entity
+      + " " + pretty( entity.value() ) );
+  });
+}
+
+
+var last_http_repl_id = null;
+
+vote.extend( http_repl_commands, {
 
   cls: function(){ cls(); },
+  noop: function(){},
 
-  help: function(){ print( [
-    "cls -- clear screen",
-    "version -- display version",
-    "Kudocracy. Welcome!"
-  ].join( "\n" ) ); },
+  help: function(){
+    var tmp = [
+      "cls -- clear screen",
+      "noop -- no operation, but show traces",
+      "version -- display version",
+      "debug -- switch to debug mode",
+      "ndebug -- switch to no debug mode",
+      "dump -- dump all entities",
+      "dump type -- dump entities of specified type",
+      "dump &id -- dump specified entity",
+      "value &id -- display value of entity",
+      "debugger &id -- inspect entity in native debugger",
+      "log &id -- dump history about entity",
+      "effects &id -- dump effects of involed change",
+    ];
+    for( var v in replized_verbs ){
+      tmp.push( v + " " + replized_verbs_help[ v ] );
+    }
+    print( tmp.join( "\n" ) );
+  },
+
+  debug: function(){ de = true; vote.debug_mode( true ); },
+  ndebug: function(){ de = false; vote.debug_mode( false ); },
+
+  dump: function( entity ){
+    if( arguments.length ){
+      if( entity.is_entity ){
+        vote.dump_entity( entity, 2 );
+      }else{
+        var type = " " + entity.toLowerCase();
+        var names = " change expiration persona source topic tagging tweet"
+        + " vote result transition delegation membership visitor action ";
+        var idx = names.indexOf( type );
+        if( idx === -1  ){
+          printnl( "Valid types:" + names );
+        }else{
+          var sep = names.substring( idx + 1 ).indexOf( " " );
+          var found = names.substring( idx + 1, idx + sep + 1 );
+          found = found[ 0 ].toUpperCase() + found.substring( 1 );
+          printnl( "dump " + found );
+          var entities = vote[ found ].all;
+          var list = [];
+          for( var item in entities ){
+            list.push( entities[ item ] );
+          }
+          print_entities( list );
+        }
+      }
+    }else{
+      vote.dump_entities();
+    }
+  },
+
+  log: function( entity ){
+    if( entity.effect ){
+      entity = entity.effect;
+    }else if( entity.to ){
+      entity = entity.to;
+    }
+    var all = vote.AllEntities;
+    var list = [];
+    all.forEach( function( e ){
+      if( e === entity
+      || e.to === entity
+      || e.effect === entity
+      ){
+        list.push( e );
+      }
+    } );
+    print( "Log " + entity );
+    print_entities( list );
+  },
+
+  effects: function( entity ){
+    var change = entity.change || entity;
+    var list = [ change ];
+    var cur = change.to;
+    while( cur ){
+      list.push( cur );
+      cur = cur.next_effect;
+    }
+    print( "Effects " + entity );
+    print_entities( list );
+  },
+
+  value: function( entity ){
+    printnl( entity ? pretty( entity.value(), 3 ) : "no entity" );
+  },
+
+  debugger: function( e, e2, e3, e4 ){
+    var p  = pretty( e , 2 );
+    var p2 = pretty( e2, 2 );
+    var p3 = pretty( e3, 2 );
+    var p4 = pretty( e4, 2 );
+    var v  = value( e , 100 );
+    var v2 = value( e2, 100 );
+    var v3 = value( e3, 100 );
+    var v4 = value( e4, 100 );
+    debugger;
+  },
 
   version: function(){ printnl( "Kudocracy Version: " + vote.version ); }
-};
+} );
 
 
 function start_http_repl(){
-  var port = process.env.PORT || "8080"
+  var port = process.env.PORT || "8080";
   http.createServer( HttpQueue.put.bind( HttpQueue ) ).listen( port );
   l8.task( function(){ this
     .step( function(){ trace( "Web test UI is running on port " + port ); })
     .repeat( function(){ this
       .step( function(){ input( ">" ); } )
       .step( function( r ){
+        printnl( r );
         try{
+          // Parse command line, space delimits tokens
           var tokens = r.split( " " );
+          // First token is command name
           var cmd = tokens[0];
+          // Other tokens describe the arguments
           var args = tokens.slice( 1 );
+          var args2 = [];
+          var obj = null;
+          args.forEach( function( v, idx ){
+            var front = v[0];
+            // +something means something is added to an array or an object
+            if( front === "+" ){
+              need_push = true;
+              v = v.substring( 1 );
+            }
+            var sep = v.indexOf( ":" );
+            var key = ( sep === -1 ) && v.substring( 0, sep - 1 );
+            var val = ( sep === -1 ) && v.substring( sep + 1 );
+            if( val === "true"  ){ val = true; }
+            if( val === "false" ){ val = false; }
+            if( val === "_"     ){ val = _; }
+            if( val === "null"  ){ val = null; }
+            var need_push = false;
+            // &something is the id of an entity, & alone is last id
+            if( front === "&" ){
+              var id;
+              if( v.length === 1 ){
+                id = last_http_repl_id;
+              }else{
+                id = parseInt( v.substring( 1 ) );
+                if( id < 10000 ){
+                  id += 10000;
+                }
+                last_http_repl_id = id;
+              }
+              v = vote.AllEntities[ id ];
+            }
+            // Handle +
+            if( need_push ){
+              // If neither [] nor {} so far, start it
+              if( !obj ){
+                // start with { n: v } when +something:something is found
+                if( key ){
+                  obj = {};
+                  obj[ key ] = val;
+                  v = obj;
+                // start with [ v ] if no : was found
+                }else{
+                  v = obj = [ v ];
+                }
+              // If previous [] or {}
+              }else{
+                if( !key ){
+                  obj.push( v )
+                }else{
+                  obj[ key ] = val;
+                }
+                v = null;
+              }
+            }
+            // If [] or {} then add to that new object from now on
+            if( v === "[]" ){
+              v = obj = [];
+            }else if( v === "{}" ){
+              v = obj = {};
+            }else if( v === "," ){
+              v = obj = null;
+            }
+            if( v ){ args2.push( v ) }
+          });
           var code = http_repl_commands[ cmd ];
           if( code ){
-            code.apply( cmd, args );
+            code.apply( cmd, args2 );
           }else{
             printnl( "Enter 'help'" );
           }
@@ -3489,6 +3742,7 @@ function main(){
   trace( "Welcome to l8/test/vote.js -- Liquid demo...cracy" );
 
   Ephemeral.force_bootstrap = true;
+  vote.debug_mode( true );
   Ephemeral.start( bootstrap, function( err ){
     if( err ){
       trace( "Cannot proceed", err, err.stack );
@@ -3504,14 +3758,14 @@ function main(){
 // Hack to get sync traces
 if( de ){
   var fs = require('fs');
-  var oldWrite = process.stdout.write;
+  var old = process.stdout.write;
 
   process.stdout.write = function (d) {
-    fs.appendFileSync('./trace.out', d);
+    fs.appendFileSync( "./trace.out", d);
     print( d );
-    return oldWrite.apply(this, arguments);
+    return old.apply(this, arguments);
   }
-};
+}
 
 l8.begin.step( main ).end;
-l8.countdown( 200 );
+//l8.countdown( 200 );
