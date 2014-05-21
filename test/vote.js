@@ -302,7 +302,7 @@ var lookup = function( id ){
   return AllEntities[ id ];
 };
 
-var debug_entity = 10029;
+var debug_entity;
 app.set_debug_entity = function( x ){
 // Helper to start traces, before failing test cases typically
   debug_entity = x || NextId;
@@ -1568,7 +1568,7 @@ function start( bootstrap, cb ){
       }
     }
     ready( function( err ){
-      dump_entities();
+      de&&dump_entities();
       if( err ){
         CRITICAL( "Cannot proceed, corrupted " + app.store );
         dump_entities();
@@ -1646,7 +1646,7 @@ var Effect    = vote.Effect;
 var Ephemeral = vote.Ephemeral;
 
 // My de&&bug() and de&&mand() darlings
-var de = true;
+var de      = false;
 var trace   = vote.trace;
 var bug     = trace;
 var bugger  = vote.bugger;
@@ -1996,7 +1996,7 @@ Tweet.received = "received"; // Tweet received from twitter
  *    - propositions -- tags track the propositions they tag
  *    - delegations  -- tags track the delegations they impact, can be huge!
  *    - tags         -- propositions track the tags assigned to them
- *    - votes        -- propositions track all the votes about them
+ *    - votes_log    -- propositions track all the votes about them
  *    - result       -- the result of votes on the proposition
  */
  
@@ -2010,7 +2010,7 @@ function Topic( options ){
   
   this.label        = options.label;
   this.source       = water( options.source );
-  this.votes        = water( options.votes );
+  this.votes_log    = water( options.votes_log );
   this.propositions = water( options.propositions );
   this.tags         = water( options.tags );
   this.delegations  = water( options.delegations );
@@ -2056,6 +2056,14 @@ Topic.prototype.update_delegations = function( list ){
 Topic.prototype.is_proposition = function(){ return this.label[0] !== "#"; };
 Topic.prototype.is_tag         = function(){ return !this.is_proposition(); };
 
+Topic.prototype.filter_string = function(){
+  var buf = [];
+  this.tags().forEach( function( tag ){
+    buf.push( tag.label );
+  });
+  return buf.join( " " );
+};
+
 Topic.prototype.add_vote = function( v ){
   this.log_vote( v );
   this.result.add_vote( v );
@@ -2065,7 +2073,7 @@ Topic.prototype.add_vote = function( v ){
 
 Topic.prototype.remove_vote = function( was ){
 // Called by vote.remove()
-  this.log_anti_vote( was );
+  //this.log_anti_vote( was );
   this.result.remove_vote( was );
 };
 
@@ -2076,10 +2084,11 @@ Topic.prototype.log_vote = function( v ){
   var val = v.value();
   val.snaptime = vote.now();
   val.entity = v;
-  var votes = this.votes();
-  if( !votes ){ votes = []; }
-  votes.push( val );
-  this.votes( votes );
+  val.persona_label = v.persona.label;
+  var votes_log = this.votes_log();
+  if( !votes_log ){ votes_log = []; }
+  votes_log.push( val );
+  this.votes_log( votes_log );
   return this;
 };
 
@@ -2087,12 +2096,12 @@ Topic.prototype.log_anti_vote = function( was ){
 // Called by remove_vote()
 // When a vote is removed (erased), it is removed from the log of all the votes
 // on the proposition.
-  var votes = this.votes();
+  var votes_log = this.votes_log();
   // Look for the logged vote
   var found_idx;
-  var ii = votes.length;
+  var ii = votes_log.length;
   while( ii-- ){
-    if( votes[ ii ].entity.id === was.id ){
+    if( votes_log[ ii ].entity.id === was.id ){
       found_idx = ii;
       break;
     }
@@ -2102,8 +2111,8 @@ Topic.prototype.log_anti_vote = function( was ){
   // No clone, votes contains the valid votes, ie not the removed ones
   // ToDo: this is rather slow, maybe nullification would be better, with
   // some eventual compaction
-  votes.splice( found_idx, 1 );
-  this.votes( votes );
+  votes_log.splice( found_idx, 1 );
+  this.votes_log( votes_log );
   return this;
 };
 
@@ -2311,7 +2320,7 @@ function Vote( options ){
     this.delegation  = water( options.delegation  || Vote.direct  );
     // Analysts vote "in the open", no privacy ; otherwise defaults to private
     this.privacy     = water( (options.analyst && Vote.public )
-      || options.privacy || Vote.private
+      || options.privacy || Vote.public
     );
     this.previously  = water( options.previously  || Vote.neutral );
     this.orientation = water();
@@ -2375,6 +2384,22 @@ Vote.private = "private";
 
 Vote.prototype.is_direct = function(){
   return this.delegation() === Vote.direct;
+};
+
+Vote.prototype.is_indirect = function(){
+  return !this.is_direct();
+};
+
+Vote.prototype.is_public = function(){
+  return this.privacy() === Vote.public;
+};
+
+Vote.prototype.is_secret = function(){
+  return this.privacy() === Vote.secret;
+};
+
+Vote.prototype.is_private = function(){
+  return this.privacy() === Vote.private;
 };
 
 Vote.prototype.update = function( other, options ){
@@ -2840,6 +2865,18 @@ Delegation.prototype.is_active = function(){
   return !this.inactive();
 };
 
+Delegation.prototype.is_inactive = function(){
+  return !this.is_active();
+};
+
+Delegation.prototype.filter_string = function(){
+  var buf = [];
+  this.tags().forEach( function( tag ){
+    buf.push( tag.label );
+  });
+  return buf.join( " " );
+};
+
 Delegation.prototype.update_votes = function(){
   var delegation = this;
   var tags     = delegation.tags();
@@ -3162,11 +3199,12 @@ function bootstrap(){
   v.n = 0;
   def( v, "&persona &proposition orientation -- create/update a vote" );
 
-  function d( p, t, a ){
+  function d( p, t, a, i ){
     if( !Array.isArray( t ) ){
       t = [ t ];
     }
-    return d[ d.n++ ] = c( Delegation, { persona: p, tags: t, agent: a } );
+    return d[ d.n++ ] = c( Delegation,
+      { persona: p, tags: t, agent: a } );
   }
   d.n = 0;
   def( d, "&persona +#tag1 ... &agent -- create/update a delegation" );
@@ -3265,8 +3303,8 @@ function bootstrap(){
     //                          *** Groups ***
 
     describe( "Groups creation" ),
-    function(){ g( "Hulot friends"                                          )},
-    function(){ g_hulot = e( Persona, "Hulot friends"                       )},
+    function(){ g( "Hulot_friends"                                          )},
+    function(){ g_hulot = e( Persona, "Hulot_friends"                       )},
     function(){ a( g_hulot.is_group() && !g_hulot.is_individual()           )},
 
     //                        *** Membership ***
@@ -3294,10 +3332,10 @@ function bootstrap(){
     //                     *** Propositions ***
 
     describe( "Propositions creation" ),
-    function(){ t( "Hollande president",  [ t_president ]                   )},
-    function(){ a( e( Topic, "Hollande president").is_proposition()         )},
-    function(){ t( "Hulot president",     [ t_president ]                   )},
-    function(){ p_hulot = e( Topic, "Hulot president"                       )},
+    function(){ t( "Hollande_president",  [ t_president ]                   )},
+    function(){ a( e( Topic, "Hollande_president").is_proposition()         )},
+    function(){ t( "Hulot_president",     [ t_president ]                   )},
+    function(){ p_hulot = e( Topic, "Hulot_president"                       )},
     function(){ a( p_hulot.is_proposition()                                 )},
     function(){ a( r_hulot = p_hulot.result                                 )},
 
@@ -3461,33 +3499,70 @@ if( de ){
  */
 
 require( "l8/lib/queue" );
-var http = require( "http" );
-var url  = require( "url" );
+var http        = require( "http" );
+var url         = require( "url" );
+var querystring = require( "querystring" );
 
 // IO tools. BASIC style
 
 var screen    = [];
-var cls       = function(){ screen = []; };
+
+var cls = function(){
+  screen = [];
+  set_head( "" );
+  set_body( "" );
+};
+
 var print     = function( msg ){
   ("" + msg).split( "\n" ).forEach( function( m ){ if( m ){ screen.push( m ); } } );
 };
+
 var printnl   = function( msg ){ print( msg ); print( "\n" ); };
+
+var http_repl_head = "";
+var set_head = function( x ){
+  http_repl_head = x;
+};
+
+var http_repl_body = "";
+var set_body = function( x ){
+  http_repl_body = x;
+};
 
 var PendingResponse = null;
 var respond = function( question ){
   if( !PendingResponse )return;
   PendingResponse.writeHead( 200, { 'Content-Type': 'text/html' } );
+  var options = [];
+  http_repl_history.forEach( function( item ){
+    options.push( '<option value="' + item + '">' );
+  });
+  var head = http_repl_head;
+  var body = http_repl_body;
   PendingResponse.end( [
-    '<html><pre>',
+    '<!DOCTYPE html><html>',
+    '<head>',
+    '<meta charset="utf-8">',
+    '<title>Kudocracy test UI</title>',
+    head,
+    '</head>',
+    '<body>',
+    body,
+    '<pre>',
     screen.join( "<br\>" ),
     '</pre><form name="question" url="/" style="width:99%">',
     question,
-    '<input type="text" name="input" style="width:99%">',
+    '<input type="text" name="input" list="history" style="width:99%">',
+    '<datalist id="history">',
+      options.join( "\n" ),
+    '</datalist>',
     '<input type="submit">',
+    link_to_command( "help" ),link_to_command( "page index" ),
     '</form>',
     '<script type="text/javascript" language="JavaScript">',
       'document.question.input.focus();',
     '</script>',
+    '</body>',
     '</html>'
   ].join( '\n' ) );
   PendingResponse = null;
@@ -3512,6 +3587,229 @@ var input = l8.Task( function( question ){ this
   } );
 } );
 
+var http_repl_pages = {
+  index:       page_index,
+  visitor:     page_visitor,
+  persona:     page_persona,
+  delegations: page_delegations,
+  groups:      page_groups,
+  proposition: page_proposition
+};
+
+function link_to_command( cmd ){
+  var url_code = querystring.escape( cmd );
+  return '<a href="?input=' + url_code + '">' + cmd + '</a>';
+}
+
+function link_to_page( page, value ){
+  var url_code = querystring.escape( value );
+  return '<a href="?input=page+' + page + '+' + url_code + '">' + value + '</a>';
+}
+
+function link_to_twitter_user( user ){
+  return '<a href="https://twitter.com/' + user + '">' + user + '</a>';
+}
+
+function link_to_twitter_tags( tags ){
+  if( tags.indexOf( " " ) !== -1 ){
+    var buf = [];
+    tags.split( " " ).forEach( function( tag ){
+      buf.push( link_to_twitter_tags( tag ) );
+    });
+    return buf.join( " " );
+  }
+  return '<a href="https://twitter.com/search?f=realtime&q=%23'
+  + tags.substring( 1 )
+  + '">' + tags + '</a>';
+}
+
+function link_to_twitter_filter( query ){
+  return '<a href="https://twitter.com/search?f=realtime&q='
+  + querystring.escape( query )
+  + '">' + query + '</a>';
+}
+
+function page( name ){
+  var f = name && http_repl_pages[ name ];
+  // No name => list names
+  if( !f ){
+    for( name in http_repl_pages ){
+      printnl( name );
+    }
+    return;
+  }
+  var head = null;;
+  var body = null;
+  var result;
+  try{
+    result = f.apply( this, arguments );
+    head = result[ 0 ];
+    body = result[ 1 ];
+    if( Array.isArray( head ) ){
+      head = head.join( "" );
+    }
+    if( Array.isArray( body ) ){
+      body = body.join( "" );
+    }
+  }catch( err  ){
+    trace( "Page error", name, err, err.stack );
+  }
+  set_head( head );
+  set_body( body );
+};
+
+function page_index(){
+  return [ null, '<h1>' + link_to_twitter_tags( "#Kudocracy" ) + '</h1>'
+    + '<h2>When twitter meets liquid democracy...</h2>'
+    + link_to_twitter_tags(
+      "#democracy #vote #election #liqdem #liquiddemocracy #opengov #participation"
+    )
+  ];
+}
+
+function page_visitor( page_name, name ){
+  var r = [ null, null ];
+  var persona = Persona.all[ name ];
+  if( !persona ){
+    r[1] = "Persona not found: " + name;
+    return r;
+  }
+  r[1] = pretty( persona.value() );
+  var buf = [];
+  buf.push( "Hello " + link_to_twitter_user( persona.label ) );
+  var votes = persona.votes().reverse();
+  buf.push( '<div><h2>Votes</h2>' );
+  buf.push( '<ol>' );
+  votes.forEach( function( vote ){
+    buf.push( '<li>'
+      + vote.privacy() + " "
+      + vote.orientation() + " "
+      + ( vote.is_direct()
+        ? ""
+        :  "via " + link_to_page( "persona", vote.delegation().agent.label ) + " " )
+      + '"' + link_to_page( "proposition", vote.proposition.label ) + '" '
+      + "total: " + vote.proposition.result.orientation()
+    )
+  });
+  buf.push( "</ol></div>" );
+  var delegations = persona.delegations();
+  buf.push( "<div><h2>Delegations</h2>" );
+  buf.push( "<ol>" );
+  delegations.forEach( function( delegation ){
+    buf.push( "<li>"
+        + link_to_twitter_user( delegation.agent.label ) + " "
+        + ( delegation.is_inactive() ? "(inactive) " :  "" )
+        + link_to_twitter_filter( delegation.filter_string() )
+        + "</li>"
+    )
+  });
+  buf.push( "</ol></div>" );
+  r[1] = buf;
+  return r;
+}
+
+function page_persona( page_name, name ){
+  var r = [ null, null ];
+  var persona = Persona.all[ name ];
+  if( !persona ){
+    r[1] = "Persona not found: " + name;
+    return r;
+  }
+  r[1] = pretty( persona.value() );
+  var buf = [];
+  buf.push( "<h1>About " + link_to_twitter_user( persona.label ) + '</h1' );
+  var votes = persona.votes().reverse();
+  buf.push( '<div><h2>Votes</h2>' );
+  buf.push( "<ol>" );
+  votes.forEach( function( vote ){
+    buf.push( "<li>" );
+    if( vote.is_private() ){
+      buf.push( "private" );
+    }else{
+      buf.push(
+          ( vote.is_secret() ? "secret" : vote.orientation() ) + " "
+        + '"' + link_to_page( "proposition", vote.proposition.label ) + '" '
+        + "total: " + vote.proposition.result.orientation()
+      );
+    }
+    buf.push( "</li>" );
+  });
+  buf.push( "</ol></div>" );
+  r[1] = buf;
+  return r;
+}
+
+function page_delegations( page_name, name ){
+  var r = [ null, null ];
+  var persona = Persona.all[ name ];
+  if( !persona ){
+    r[1] = "Persona not found: " + name;
+    return r;
+  }
+  r[1] = pretty( persona.value() );
+  return r;
+}
+
+function page_groups( page_name, name ){
+  var r = [ null, null ];
+  var persona = Persona.all[ name ];
+  if( !persona ){
+    r[1] = "Persona not found: " + name;
+    return r;
+  }
+  r[1] = pretty( persona.value() );
+  return r;
+}
+
+function page_proposition( page_name, name ){
+  var r = [ null, null ];
+  var proposition = Topic.all[ name ];
+  if( !proposition ){
+    r[1] = "Proposition not found: " + name;
+    return r;
+  }
+  var result = proposition.result;
+  var buf = [];
+  buf.push( '<h1>'
+    + proposition.label + ' - '
+    + result.orientation()
+    + '</h1>'
+  );
+  buf.push( '<div>'
+    + link_to_twitter_tags( proposition.filter_string() )
+    + '</div>'
+  );
+  buf.push( '<div><h2>Summary</h2>' );
+  buf.push( 'Agree ' + result.agree() + " " );
+  buf.push( 'Against ' + result.against() + " " );
+  buf.push( '(protest ' + result.protest() + ') ' );
+  buf.push( 'Blank ' + result.blank() + ' ' );
+  buf.push( 'Total ' + result.total() + ' ' );
+  buf.push( '(direct ' + result.direct() + ' ' );
+  buf.push( 'indirect ' + (result.total() - result.direct()) + ')' );
+  var votes = proposition.votes_log();
+  buf.push( "<div><h2>Votes</h2>" );
+  buf.push( "<ol>" );
+  votes.forEach( function( vote_value ){
+    if( vote_value.delegation === Vote.direct
+    && vote_value.privacy === Vote.public
+    && vote_value.orientation !== Vote.neutral
+    ){
+      buf.push( "<li>" );
+      buf.push(
+          ( vote_value.orientation ) + " "
+          + link_to_page( "persona", vote_value.persona_label )
+      );
+      buf.push( "</li>" );
+    }
+  });
+  buf.push( "</ol></div>" );
+  buf.push( pretty( proposition.value() ) );
+  r[1] = buf;
+  return r;
+}
+
+
 var http_repl_commands = {};
 
 function print_entities( list ){
@@ -3524,10 +3822,9 @@ function print_entities( list ){
   });
   sorted_list.forEach( function( entity ){
     printnl( "&" + entity.id + " " + entity
-      + " " + pretty( entity.value() ) );
+    + " " + pretty( entity.value() ) );
   });
 }
-
 
 var last_http_repl_id = null;
 
@@ -3538,24 +3835,43 @@ vote.extend( http_repl_commands, {
 
   help: function(){
     var tmp = [
-      "cls -- clear screen",
-      "noop -- no operation, but show traces",
-      "version -- display version",
-      "debug -- switch to debug mode",
-      "ndebug -- switch to no debug mode",
-      "dump -- dump all entities",
+      "Syntax: command parameter1 p2 p3...",
+      "In parameters, &nnn is entity with specified id",
+      "  & alone is last specified entity",
+      "  +key:val adds entry in a hash object",
+      "  +something adds entry in an array",
+      "  [] and {} are empty tables/objects",
+      "  , (comma) asks for a new table/object",
+      "  true, false, _, null work as expected",
+      "!xxx cmd p1 p2 p3 -- register as macro",
+      "!xxx -- run previously registered macro",
+      "! -- repeat previous macro",
+      "Examples:",
+      " tagging & [] , +#tagX +#tagY  -- tagging with two lists",
+      " delegation &40 +#tagX &23 +inactive:true",
+      "Commands:",
+      link_to_command( "cls" ) + " -- clear screen",
+      link_to_command( "page" ) + " -- list available pages",
+      "page name p1 p2 ... -- move to said page",
+      link_to_command( "noop" ) + " -- no operation, but show traces",
+      link_to_command( "version" ) + " -- display version",
+      link_to_command( "debug" ) + " -- switch to debug mode",
+      link_to_command( "ndebug" ) + " -- switch to no debug mode",
+      link_to_command( "dump" ) + " -- dump all entities",
       "dump type -- dump entities of specified type",
-      "dump &id -- dump specified entity",
-      "value &id -- display value of entity",
-      "debugger &id -- inspect entity in native debugger",
-      "log &id -- dump history about entity",
-      "effects &id -- dump effects of involed change",
+      link_to_command( "dump &" ) + "id -- dump specified entity",
+      link_to_command( "value &" ) + "id -- display value of entity",
+      link_to_command( "debugger &" ) + "id -- inspect entity in native debugger",
+      link_to_command( "log &" ) + "id -- dump history about entity",
+      link_to_command( "effects &" ) + "id -- dump effects of involed change"
     ];
     for( var v in replized_verbs ){
       tmp.push( v + " " + replized_verbs_help[ v ] );
     }
     print( tmp.join( "\n" ) );
   },
+
+  page: page,
 
   debug: function(){ de = true; vote.debug_mode( true ); },
   ndebug: function(){ de = false; vote.debug_mode( false ); },
@@ -3580,6 +3896,13 @@ vote.extend( http_repl_commands, {
           var list = [];
           for( var item in entities ){
             list.push( entities[ item ] );
+          }
+          if( !list.all ){
+            vote.AllEntities.forEach( function( item ){
+              if( item.type === found ){
+                list.push( item );
+              }
+            })
           }
           print_entities( list );
         }
@@ -3640,6 +3963,9 @@ vote.extend( http_repl_commands, {
   version: function(){ printnl( "Kudocracy Version: " + vote.version ); }
 } );
 
+var http_repl_macros = {};
+var last_http_repl_macro = "help";
+var http_repl_history = [];
 
 function start_http_repl(){
   var port = process.env.PORT || "8080";
@@ -3647,12 +3973,31 @@ function start_http_repl(){
   l8.task( function(){ this
     .step( function(){ trace( "Web test UI is running on port " + port ); })
     .repeat( function(){ this
-      .step( function(){ input( ">" ); } )
+      .step( function(){ input( "" ); } )
       .step( function( r ){
-        printnl( r );
+        printnl( link_to_command( r ) );
+        var input = r;
+        // Handle !macros
+        if( input[0] === "!" ){
+          var idx_space = input.indexOf( " " );
+          // !macro -- run it
+          if( idx_space === -1 ){
+            if( input === "!" ){
+              input = last_http_repl_macro;
+            }else{
+              input = http_repl_macros[ input ];
+            }
+            if( !input ){ input = "help"; }
+            last_http_repl_macro = input;
+          }else{
+            http_repl_macros[ input.substring( 0, idx_space - 1 ) ]
+            = input.substring( idx_space + 1 );
+            input = input.substring( idx_space + 1 );
+          }
+        }
         try{
           // Parse command line, space delimits tokens
-          var tokens = r.split( " " );
+          var tokens = input.split( " " );
           // First token is command name
           var cmd = tokens[0];
           // Other tokens describe the arguments
@@ -3661,10 +4006,13 @@ function start_http_repl(){
           var obj = null;
           args.forEach( function( v, idx ){
             var front = v[0];
+            var need_push = false;
             // +something means something is added to an array or an object
             if( front === "+" ){
               need_push = true;
               v = v.substring( 1 );
+            }else{
+              obj = null;
             }
             var sep = v.indexOf( ":" );
             var key = ( sep === -1 ) && v.substring( 0, sep - 1 );
@@ -3673,7 +4021,6 @@ function start_http_repl(){
             if( val === "false" ){ val = false; }
             if( val === "_"     ){ val = _; }
             if( val === "null"  ){ val = null; }
-            var need_push = false;
             // &something is the id of an entity, & alone is last id
             if( front === "&" ){
               var id;
@@ -3724,6 +4071,7 @@ function start_http_repl(){
           var code = http_repl_commands[ cmd ];
           if( code ){
             code.apply( cmd, args2 );
+            http_repl_history.unshift( r );
           }else{
             printnl( "Enter 'help'" );
           }
@@ -3742,7 +4090,7 @@ function main(){
   trace( "Welcome to l8/test/vote.js -- Liquid demo...cracy" );
 
   Ephemeral.force_bootstrap = true;
-  vote.debug_mode( true );
+  vote.debug_mode( de = false );
   Ephemeral.start( bootstrap, function( err ){
     if( err ){
       trace( "Cannot proceed", err, err.stack );
@@ -3755,13 +4103,13 @@ function main(){
   } );
 }
 
-// Hack to get sync traces
-if( de ){
+// Hack to get sync traces && http REPL outputs
+if( true || de ){
   var fs = require('fs');
   var old = process.stdout.write;
 
   process.stdout.write = function (d) {
-    fs.appendFileSync( "./trace.out", d);
+    de && fs.appendFileSync( "./trace.out", d);
     print( d );
     return old.apply(this, arguments);
   }

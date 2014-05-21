@@ -2,9 +2,8 @@
   <profile version="1.0" is_locked="false">
     <option name="myName" value="Project Default" />
     <option name="myLocal" value="false" />
-    <inspection_tool class="Annotator" enabled="true" level="WARNING" enabled_by_default="true" />
+    <inspection_tool class="Annotator" enabled="true" level="INFO" enabled_by_default="true" />
     <inspection_tool class="AssignmentToForLoopParameterJS" enabled="true" level="WARNING" enabled_by_default="true" />
-    <inspection_tool class="AssignmentToFunctionParameterJS" enabled="true" level="WARNING" enabled_by_default="true" />
     <inspection_tool class="BlockStatementJS" enabled="true" level="WARNING" enabled_by_default="true" />
     <inspection_tool class="ChainedEqualityJS" enabled="true" level="WARNING" enabled_by_default="true" />
     <inspection_tool class="ConditionalExpressionWithIdenticalBranchesJS" enabled="true" level="WARNING" enabled_by_default="true" />
@@ -30,7 +29,8 @@
     <inspection_tool class="JSCommentMatchesSignature" enabled="false" level="WARNING" enabled_by_default="false" />
     <inspection_tool class="JSJQueryEfficiency" enabled="false" level="WARNING" enabled_by_default="false" />
     <inspection_tool class="JSPotentiallyInvalidUsageOfThis" enabled="false" level="WARNING" enabled_by_default="false" />
-    <inspection_tool class="LocalVariableNamingConventionJS" enabled="true" level="WARNING" enabled_by_default="true">
+    <inspection_tool class="JSUnfilteredForInLoop" enabled="false" level="WARNING" enabled_by_default="false" />
+    <inspection_tool class="LocalVariableNamingConventionJS" enabled="false" level="WARNING" enabled_by_default="false">
       <option name="m_regex" value="[a-z][a-z0-9_]*" />
       <option name="m_minLength" value="1" />
       <option name="m_maxLength" value="32" />
@@ -53,7 +53,6 @@
       <option name="processLiterals" value="false" />
       <option name="processComments" value="true" />
     </inspection_tool>
-    <inspection_tool class="StringLiteralBreaksHTMLJS" enabled="true" level="WARNING" enabled_by_default="true" />
     <inspection_tool class="TailRecursionJS" enabled="true" level="WARNING" enabled_by_default="true" />
     <inspection_tool class="TaskInspection" enabled="true" level="INFO" enabled_by_default="true">
       <option name="suppressedTasks">
