@@ -3543,14 +3543,18 @@ var respond = function( question ){
     '<!DOCTYPE html><html>',
     '<head>',
     '<meta charset="utf-8">',
-    '<title>Kudocracy test UI</title>',
-    head,
+    '<title>Kudocracy test UI, liquid democracy meets twitter...</title>',
+    '<link rel="shortcut icon" href="http://simpliwiki.com/yanugred16.png" type="image/png">',
+    head || '<link rel="stylesheet" type="text/css" href="/simpliwiki.css">',
     '</head>',
     '<body>',
     body,
-    '<pre>',
+    '<div id="container" style="background-color: white;">',
+    '<div class="content" id="content">',
     screen.join( "<br\>" ),
-    '</pre><form name="question" url="/" style="width:99%">',
+    '</div>',
+    '<div id="footer">',
+    '<form name="question" url="/" style="width:99%">',
     question,
     '<input type="text" name="input" list="history" style="width:99%">',
     '<datalist id="history">',
@@ -3562,6 +3566,8 @@ var respond = function( question ){
     '<script type="text/javascript" language="JavaScript">',
       'document.question.input.focus();',
     '</script>',
+    '</div>', // footer
+    '</div>', // container
     '</body>',
     '</html>'
   ].join( '\n' ) );
@@ -3659,12 +3665,30 @@ function page( name ){
 };
 
 function page_index(){
-  return [ null, '<h1>' + link_to_twitter_tags( "#Kudocracy" ) + '</h1>'
-    + '<h2>When twitter meets liquid democracy...</h2>'
-    + link_to_twitter_tags(
-      "#democracy #vote #election #liqdem #liquiddemocracy #opengov #participation"
-    )
-  ];
+  return [ '<link rel="stylesheet" href="http://simpliwiki.com/style.css" type="text/css">',
+  [
+    '<img src="http://simpliwiki.com/alpha.gif" type="img/gif" style="position:absolute; top:0; right:0;"></img>',
+    '<div id="background" class="background"></div>',
+    '<div id="header" class="sw_header">',
+    '  <div class="sw_header_content">',
+    '    <div style="float:left;" class="sw_logo sw_boxed">',
+    '      <div style="float:left;">',
+    '       <img src="http://simpliwiki.com/yanugred64.png" width="64" height="64" type="image/png" alt="YanUg"/>',
+    '      </div>',
+    '      <div id="slogan" style="min-height:64px; height:64px;">',
+    '        <strong>' + link_to_twitter_tags( "#Kudocracy" ) + '</strong>',
+    '        <br>liquid twitter democracy',
+    '        </div>',
+    '      </div>',
+    '  </div>',
+    '  <span id="tagline">',
+        link_to_twitter_tags(
+          "#democracy #vote #election #liqdem #liquiddemocracy #opengov #participation"
+        ),
+        '<br><br><small><i>a tribute to <a href="http://wikipedia.org">Wikipedia</a></i></small>',
+      '</span>',
+    '</div>'
+  ].join( "" ) ];
 }
 
 function page_visitor( page_name, name ){
@@ -3835,7 +3859,7 @@ vote.extend( http_repl_commands, {
 
   help: function(){
     var tmp = [
-      "Syntax: command parameter1 p2 p3...",
+      "<h2>Help, syntax</h2>command parameter1 p2 p3...",
       "In parameters, &nnn is entity with specified id",
       "  & alone is last specified entity",
       "  +key:val adds entry in a hash object",
@@ -3846,10 +3870,11 @@ vote.extend( http_repl_commands, {
       "!xxx cmd p1 p2 p3 -- register as macro",
       "!xxx -- run previously registered macro",
       "! -- repeat previous macro",
-      "Examples:",
-      " tagging & [] , +#tagX +#tagY  -- tagging with two lists",
-      " delegation &40 +#tagX &23 +inactive:true",
-      "Commands:",
+      "<h2>Examples</h2>",
+      link_to_command( "page visitor @jhr" ),
+      "tagging & [] , +#tagX +#tagY  -- tagging with two lists",
+      "delegation &40 +#tagX &23 +inactive:true",
+      "<h2>Commands</h2>",
       link_to_command( "cls" ) + " -- clear screen",
       link_to_command( "page" ) + " -- list available pages",
       "page name p1 p2 ... -- move to said page",
