@@ -3539,35 +3539,41 @@ var respond = function( question ){
   });
   var head = http_repl_head;
   var body = http_repl_body;
+  http_repl_head = http_repl_body = null;
+  if( !body ){
+    body = [
+      '<div id="container" style="background-color: white;">',
+      '<div class="content" id="content">',
+      screen.join( "<br\>" ),
+      '</div>',
+      '<div id="footer">',
+      '<form name="question" url="/" style="width:99%">',
+      question,
+      '<input type="text" name="input" list="history" style="width:99%">',
+      '<datalist id="history">',
+      options.join( "\n" ),
+      '</datalist>',
+      '<input type="submit">',
+      link_to_command( "help" ),link_to_command( "page index" ),
+      '</form>',
+      '<script type="text/javascript" language="JavaScript">',
+      'document.question.input.focus();',
+      '</script>',
+      '</div>', // footer
+      '</div>', // container
+    ].join( "\n" );
+  }
   PendingResponse.end( [
     '<!DOCTYPE html><html>',
     '<head>',
     '<meta charset="utf-8">',
+    '<meta name="viewport" content="width=device-width, initial-scale=1">',
     '<title>Kudocracy test UI, liquid democracy meets twitter...</title>',
     '<link rel="shortcut icon" href="http://simpliwiki.com/yanugred16.png" type="image/png">',
     head || '<link rel="stylesheet" type="text/css" href="/simpliwiki.css">',
     '</head>',
     '<body>',
     body,
-    '<div id="container" style="background-color: white;">',
-    '<div class="content" id="content">',
-    screen.join( "<br\>" ),
-    '</div>',
-    '<div id="footer">',
-    '<form name="question" url="/" style="width:99%">',
-    question,
-    '<input type="text" name="input" list="history" style="width:99%">',
-    '<datalist id="history">',
-      options.join( "\n" ),
-    '</datalist>',
-    '<input type="submit">',
-    link_to_command( "help" ),link_to_command( "page index" ),
-    '</form>',
-    '<script type="text/javascript" language="JavaScript">',
-      'document.question.input.focus();',
-    '</script>',
-    '</div>', // footer
-    '</div>', // container
     '</body>',
     '</html>'
   ].join( '\n' ) );
@@ -3587,6 +3593,7 @@ var input = l8.Task( function( question ){ this
       return input( question );
     }
     PendingResponse = res;
+    PendingResponse.request = req;
     var data = url.parse( req.url, true).query.input;
     if( data )return data;
     input( question );
@@ -3608,7 +3615,10 @@ function link_to_command( cmd ){
 }
 
 function link_to_page( page, value ){
-  var url_code = querystring.escape( value );
+  var url_code = querystring.escape( value || "" );
+  if( page === "index"){
+    value = '<strong>Kudo<em>c</em>racy</strong>';
+  }
   return '<a href="?input=page+' + page + '+' + url_code + '">' + value + '</a>';
 }
 
@@ -3664,43 +3674,81 @@ function page( name ){
   set_body( body );
 };
 
+function page_style(){
+  return '<link rel="stylesheet" href="http://simpliwiki.com/simpliwiki.css" type="text/css">';
+}
+
+function page_header( left, center, right ){
+  if( !left ){
+    left = link_to_page( "index" );
+  }
+  return [
+    '<div class="header fade" id="header"><div id="header_content">',
+    '<div class="top_left">',
+    left || "",
+    '</div>',
+    '<div class="top_center" id="top_center">',
+    center || "",
+    '</div>',
+    '<div class="top_right">',
+    right || "",
+    link_to_command( "help" ),
+    '</div></div></div><br><br>'
+  ].join( "\n" );
+}
+
+function page_footer(){
+  return [
+    '<div class="fade" id="footer"><div id="footer_content">',
+    link_to_command( "help" ),
+    '<div id="powered"><a href="https://github.com/virteal/kudocracy">',
+    '<img src="http://simpliwiki.com/yanugred16.png"/>',
+    '<strong>kudo<em>c</em>racy</strong>',
+    '</a></div>',
+    '</div></div>'
+  ].join( "" );
+}
+
 function page_index(){
   return [ '<link rel="stylesheet" href="http://simpliwiki.com/style.css" type="text/css">',
   [
     '<img src="http://simpliwiki.com/alpha.gif" type="img/gif" style="position:absolute; top:0; right:0;"></img>',
     '<div id="background" class="background"></div>',
     '<div id="header" class="sw_header">',
-    '  <div class="sw_header_content">',
-    '    <div style="float:left;" class="sw_logo sw_boxed">',
-    '      <div style="float:left;">',
-    '       <img src="http://simpliwiki.com/yanugred64.png" width="64" height="64" type="image/png" alt="YanUg"/>',
-    '      </div>',
-    '      <div id="slogan" style="min-height:64px; height:64px;">',
-    '        <strong>' + link_to_twitter_tags( "#Kudocracy" ) + '</strong>',
-    '        <br>liquid twitter democracy',
-    '        </div>',
-    '      </div>',
-    '  </div>',
-    '  <span id="tagline">',
-        link_to_twitter_tags(
-          "#democracy #vote #election #liqdem #liquiddemocracy #opengov #participation"
-        ),
-        '<br><br><small><i>a tribute to <a href="http://wikipedia.org">Wikipedia</a></i></small>',
-      '</span>',
+      '<div class="sw_header_content">',
+        '<div style="float:left;" class="sw_logo sw_boxed">',
+          '<div style="float:left;">',
+          '<img src="http://simpliwiki.com/yanugred64.png" width="64" height="64" type="image/png" alt="YanUg"/>',
+          '</div>',
+          '<div id="slogan" style="min-height:64px; height:64px;">',
+          '<strong>' + link_to_twitter_tags( "#kudocracy" ) + '</strong>',
+          '<br>new democracy',
+          '</div>',
+        '</div>',
+        '<span id="tagline">',
+        '<h3 id="tagline">',
+          link_to_twitter_tags(
+            "#democracy #vote #election #liqdem #liquiddemocracy #participation"
+          ),
+        '</h3>',
+        //'<small><i>a tribute to <a href="http://wikipedia.org">Wikipedia</a></i></small>',
+        '</span>',
+      '</div>',
+    '</div><br><br>',
+    '<div id="footer" class="sw_footer sw_boxed">',
+    page_footer(),
     '</div>'
   ].join( "" ) ];
 }
 
 function page_visitor( page_name, name ){
-  var r = [ null, null ];
   var persona = Persona.all[ name ];
-  if( !persona ){
-    r[1] = "Persona not found: " + name;
-    return r;
-  }
-  r[1] = pretty( persona.value() );
+  if( !persona )return [ _, "Persona not found: " + name ];
+  var r = [
+    page_style(),
+    [ page_header( _, link_to_twitter_user( persona.label ) ) ]
+  ];
   var buf = [];
-  buf.push( "Hello " + link_to_twitter_user( persona.label ) );
   var votes = persona.votes().reverse();
   buf.push( '<div><h2>Votes</h2>' );
   buf.push( '<ol>' );
@@ -3727,21 +3775,20 @@ function page_visitor( page_name, name ){
         + "</li>"
     )
   });
-  buf.push( "</ol></div>" );
-  r[1] = buf;
+  buf.push( "</ol></div><br>" );
+  buf.push( page_footer() );
+  r[1] = r[1].concat( buf );
   return r;
 }
 
 function page_persona( page_name, name ){
-  var r = [ null, null ];
   var persona = Persona.all[ name ];
-  if( !persona ){
-    r[1] = "Persona not found: " + name;
-    return r;
-  }
-  r[1] = pretty( persona.value() );
+  if( !persona )return [ _, "Persona not found: " + name ];
+  var r = [
+    page_style(),
+    [ page_header( _, "About " + link_to_twitter_user( persona.label ) ) ]
+  ];
   var buf = [];
-  buf.push( "<h1>About " + link_to_twitter_user( persona.label ) + '</h1' );
   var votes = persona.votes().reverse();
   buf.push( '<div><h2>Votes</h2>' );
   buf.push( "<ol>" );
@@ -3758,13 +3805,14 @@ function page_persona( page_name, name ){
     }
     buf.push( "</li>" );
   });
-  buf.push( "</ol></div>" );
-  r[1] = buf;
+  buf.push( "</ol></div><br>" );
+  buf.push( page_footer() );
+  r[1] = r[1].concat( buf );
   return r;
 }
 
 function page_delegations( page_name, name ){
-  var r = [ null, null ];
+  var r = [ page_style(), null ];
   var persona = Persona.all[ name ];
   if( !persona ){
     r[1] = "Persona not found: " + name;
@@ -3775,7 +3823,7 @@ function page_delegations( page_name, name ){
 }
 
 function page_groups( page_name, name ){
-  var r = [ null, null ];
+  var r = [ page_style(), null ];
   var persona = Persona.all[ name ];
   if( !persona ){
     r[1] = "Persona not found: " + name;
@@ -3786,24 +3834,19 @@ function page_groups( page_name, name ){
 }
 
 function page_proposition( page_name, name ){
-  var r = [ null, null ];
   var proposition = Topic.all[ name ];
-  if( !proposition ){
-    r[1] = "Proposition not found: " + name;
-    return r;
-  }
+  if( !proposition )return [ _, "Proposition not found: " + name ];
   var result = proposition.result;
+  var r = [
+    page_style(),
+    [ page_header( _, proposition.label + ' - ' + result.orientation() ) ]
+  ];
   var buf = [];
-  buf.push( '<h1>'
-    + proposition.label + ' - '
-    + result.orientation()
-    + '</h1>'
-  );
   buf.push( '<div>'
     + link_to_twitter_tags( proposition.filter_string() )
     + '</div>'
   );
-  buf.push( '<div><h2>Summary</h2>' );
+  buf.push( '<div><h2>Summary</h2><br>' );
   buf.push( 'Agree ' + result.agree() + " " );
   buf.push( 'Against ' + result.against() + " " );
   buf.push( '(protest ' + result.protest() + ') ' );
@@ -3829,7 +3872,8 @@ function page_proposition( page_name, name ){
   });
   buf.push( "</ol></div>" );
   buf.push( pretty( proposition.value() ) );
-  r[1] = buf;
+  buf.push( page_footer() );
+  r[1] = r[1].concat( buf );
   return r;
 }
 
