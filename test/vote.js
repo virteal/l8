@@ -3294,8 +3294,8 @@ function bootstrap(){
     function(){ p( "@marc"                                                  )},
     function(){ p( "@peter"                                                 )},
     function(){ peter = e( Persona, "@peter"                                )},
-    function(){ p( "@N_Hulot"                                               )},
-    function(){ hulot = e( Persona, "@N_Hulot"                              )},
+    function(){ p( "@n_hulot"                                               )},
+    function(){ hulot = e( Persona, "@n_hulot"                              )},
 
     //                          *** Groups ***
 
@@ -3740,7 +3740,7 @@ function page_header( left, center, right ){
     '</div>',
     '<div class="top_right">',
     ( (right && (right + " ")) || "" ) + link_to_command( "help" ),
-    '</div></div></div><br><br>\n'
+    '</div></div></div><br><br><br><br>\n'
   ].join( "\n" );
 }
 
@@ -3801,19 +3801,13 @@ function vote_menu( vote, proposition ){
     '\n<form name="vote" url="/">',
     '<input type="hidden" name="input" value="change_vote"/>',
     '<input type="hidden" name="vote_id" value="' + vote_id + '"/>',
-    '<input type="text" name="privacy" list="privacy_options"/>',
-    '<datalist id="privacy_options">',
     '<select name="privacy">',
     o( "idem" ), o( "public"), o( "secret" ), o( "private" ),
     '</select>',
-    '\n</datalist>',
-    '<input type="text" name="orientation" list="orientation_options"/>',
-    '<datalist id="orientation_options">',
     '<select name="orientation">',
     o( "idem" ), o( "agree"), o( "disagree" ), o( "protest" ), o( "blank" ), o( "delete" ),
     '</select>',
-    '\n</datalist>',
-    '<input type="submit"/>',
+    '<input type="submit" value="Vote"/>',
     '</form>\n'
   ].join( "" );
 }
@@ -3836,13 +3830,13 @@ function page_visitor( page_name, name ){
   buf.push( '<ol>' );
   votes.forEach( function( vote ){
     buf.push( '<li>'
-      + vote.privacy() + " "
-      + vote.orientation() + " "
+      + ' ' + link_to_page( "proposition", vote.proposition.label ) + ' '
+      + "<dfn>" + vote.proposition.result.orientation() + '</dfn>'
+      + '. ' + vote.privacy() + " "
+      + '<em>' + vote.orientation() + "</em> "
       + ( vote.is_direct()
         ? ""
-        :  "via " + link_to_page( "persona", vote.delegation().agent.label ) + " " )
-      + '"' + link_to_page( "proposition", vote.proposition.label ) + '" '
-      + " " + vote.proposition.result.orientation()
+        :  "<dfn>(via " + link_to_page( "persona", vote.delegation().agent.label ) + ")</dfn> " )
       + vote_menu( vote )
     )
   });
@@ -3887,9 +3881,9 @@ function page_persona( page_name, name ){
       buf.push( "private" );
     }else{
       buf.push(
-          ( vote.is_secret() ? "secret" : vote.orientation() ) + " "
-        + '"' + link_to_page( "proposition", vote.proposition.label ) + '" '
-        + " " + vote.proposition.result.orientation()
+          ( vote.is_secret() ? "secret" : "<em>" + vote.orientation() ) + "</em> "
+        + '' + link_to_page( "proposition", vote.proposition.label ) + ' '
+        + " <dfn>" + vote.proposition.result.orientation() + "</dfn>"
       );
     }
     buf.push( "</li>" );
@@ -3957,11 +3951,10 @@ function page_propositions( page_name ){
   });
   // Query to create a proposition
   buf.push( [
-    '\n<br><form name="proposition" url="/" style="width:50%">',
-    '<label> New</label> ',
+    '\n<br><form name="proposition" url="/" style="width:99%">',
     '<input type="hidden" name="input" maxlength="140" value="change_proposition"/>',
-    '<input type="text" name="input2" style="width:50%"/>',
-    '<input type="submit"/>',
+    '<input type="text" name="input2" style="width:99%"/>',
+    '<input type="submit" value="Propose"/>',
     '</form>\n'
   ].join( "" ) );
   buf.push(  "<br>" + page_footer() );
@@ -3982,11 +3975,11 @@ function page_login( page_name ){
   var buf = [];
   // Query for name
   buf.push( [
-    '\n<form name="login" url="/" style="width:25%">',
+    '\n<form name="login" url="/">',
     '<label>Your twitter @name</label> ',
     '<input type="hidden" name="input" maxlength="30" value="login"/>',
-    '<input type="text" name="input2" style="width:25%"/>',
-    '<input type="submit"/>',
+    '<input type="text" name="input2"/>',
+    '<input type="submit" value="Login"/>',
     '</form>\n'
   ].join( "" ) );
   buf.push(  "<br>" + page_footer() );
@@ -3996,19 +3989,21 @@ function page_login( page_name ){
 
 function proposition_summary( result, div ){
   var buf = [];
+  var orientation = result.orientation();
+  if( !orientation ){ orientation = "";  }
   if( div ){
-    buf.push( '<div><h2>Summary' + ' - ' + result.orientation() + '</h2><br>' );
+    buf.push( '<div><h2>Summary' + ' <em>' + orientation + '</em></h2><br>' );
   }else{
-    buf.push( result.orientation() + ". " );
+    buf.push( "<em>" + orientation + "</em>. " );
   }
   buf.push( 'agree ' + result.agree() + " " );
   buf.push( 'against ' + result.against() + " " );
-  buf.push( '(protest ' + result.protest() + ') ' );
   buf.push( 'blank ' + result.blank() + ' ' );
-  buf.push( 'total ' + result.total() + ' ' );
+  buf.push( '<dfn>protest ' + result.protest() + '</dfn> ' );
+  buf.push( '<dfn>total ' + result.total() + ' ' );
   buf.push( '(direct ' + result.direct() + ' ' );
   buf.push( 'indirect ' + (result.total() - result.direct()) + ') ' );
-  buf.push( 'changes ' + result.count() );
+  buf.push( 'changes ' + result.count() + '</dfn>' );
   return buf.join( "" );
 }
 
