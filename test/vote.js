@@ -1595,21 +1595,7 @@ Ephemeral.start = function( bootstrap, cb ){
 };
 
 Ephemeral.inject = function( t, p ){
-  // Turn entities into references, that is what Change.create() expects
-  // ToDo: that is not needed because .value() does it when change is stored
-  if( 0 ){
-    var p_refs = {};
-    var attr;
-    var val;
-    for( attr in p ){
-      val = p[ attr ];
-      if( p && p.is_entity ){
-        p_refs[ attr ] = ref( p );
-      }else{
-        p_refs[ attr ] = p;
-      }
-    }
-  }
+  if( Array.isArray( t ) )return steps( t );
   if( Stepping ){
     return Change.create( { t: t, o: "create", p: p } );
   }else{
@@ -2564,7 +2550,8 @@ function Result( options ){
   this.agree       = water( options.agree     || 0 );
   this.disagree    = water( options.disagree  || 0 );
   this.direct      = water( options.direct    || 0 );
-  
+  this.count       = water( 0 );
+
   // If this is an update, it simply supersedes the so far known result.
   // This is handy to import bulk results from an external system or to
   // compact the persistent log of changes.
@@ -2581,6 +2568,7 @@ function Result( options ){
   // Computed attributes, including orientation transition detection
   
   this.total = function(){
+    this.count( this.count() + 1 );
     var old = this.total();
     var r = this.neutral()
     + this.blank()
@@ -3283,10 +3271,10 @@ function bootstrap(){
   }
 
   // Test entities
-  var /* individuals */ jhr, hulot, peter;
+  var /* individuals */ kudocracy, jhr, hulot, peter;
   var /* groups */ g_hulot;
-  var /* tags */ t_president;
-  var /* propositions */ p_hulot;
+  var /* tags */ t_president, t_kudocracy;
+  var /* propositions */ p_kudocracy, p_hulot;
   var /* votes */ v_jhr, v_peter, v_hulot;
   var /* Results */ r_hulot;
 
@@ -3296,9 +3284,11 @@ function bootstrap(){
     //                          *** Personas ***
 
     describe( "Personas creation " ),
+    function(){ p( "@kudocracy"                                             )},
+    function(){ kudocracy = e( Persona, "@kudocracy"                        )},
+    function(){ a( kudocracy, "persona @kudocracy exists"                   )},
     function(){ p( "@jhr"                                                   )},
-    function(){ a( jhr = e( Persona, "@jhr" ), "persona @jhr exists"        )},
-    function(){ a( jhr.is_individual() && !jhr.is_group()                   )},
+    function(){ jhr = e( Persona, "@jhr"                                    )},
     function(){ p( "@john"                                                  )},
     function(){ p( "@luke"                                                  )},
     function(){ p( "@marc"                                                  )},
@@ -3330,19 +3320,24 @@ function bootstrap(){
     //                          *** Tags ***
 
     describe( "Tags creation" ),
-    function(){ tag( "#President"                                           )},
-    function(){ t_president = e( Topic, "#President"                        )},
-    function(){ a(  t_president, "Topic #President exists"                  )},
+    function(){ tag( "#kudocracy"                                           )},
+    function(){ t_kudocracy = e( Topic, "#kudocracy"                        )},
+    function(){ tag( "#president"                                           )},
+    function(){ t_president = e( Topic, "#president"                        )},
+    function(){ a(  t_president, "Topic #president exists"                  )},
     function(){ a(  t_president.is_tag()                                    )},
     function(){ a( !t_president.is_proposition()                            )},
+
 
     //                     *** Propositions ***
 
     describe( "Propositions creation" ),
-    function(){ t( "Hollande_president",  [ t_president ]                   )},
-    function(){ a( e( Topic, "Hollande_president").is_proposition()         )},
-    function(){ t( "Hulot_president",     [ t_president ]                   )},
-    function(){ p_hulot = e( Topic, "Hulot_president"                       )},
+    function(){ t( "kudocracy", [ t_kudocracy ]                             )},
+    function(){ p_kudocracy = e( Topic, "kudocracy"                         )},
+    function(){ t( "hollande_president",  [ t_president ]                   )},
+    function(){ a( e( Topic, "hollande_president").is_proposition()         )},
+    function(){ t( "hulot_president",     [ t_president ]                   )},
+    function(){ p_hulot = e( Topic, "hulot_president"                       )},
     function(){ a( p_hulot.is_proposition()                                 )},
     function(){ a( r_hulot = p_hulot.result                                 )},
 
@@ -3352,6 +3347,7 @@ function bootstrap(){
 
     //                        *** Votes ***
 
+    describe( "@kudocray wants kudocracy" ),
     describe( "Peter first disagrees, about the 'Hulot president' prop" ),
     function(){ v( peter, p_hulot, "disagree"                               )},
     function(){ v_peter = e( Vote, peter, p_hulot                           )},
@@ -3446,13 +3442,13 @@ function bootstrap(){
     function(){ a( r_hulot.direct()   === 1                                 )},
 
     describe( "Detag p_hulot, so that jhr's delegation does not apply" ),
-    function(){ tagging( p_hulot, [ "#President" ], []                      )},
+    function(){ tagging( p_hulot, [ "#president" ], []                      )},
     function(){ a( r_hulot.total()    === 1                                 )},
     function(){ a( r_hulot.blank()    === 1                                 )},
     function(){ a( r_hulot.direct()   === 1                                 )},
 
     describe( "Restore that tag, jhr delegation applies" ),
-    function(){ tagging( p_hulot, [], [ "#President" ]                      )},
+    function(){ tagging( p_hulot, [], [ "#president" ]                      )},
     function(){ a( r_hulot.total()    === 2                                 )},
     function(){ a( r_hulot.blank()    === 2                                 )},
     function(){ a( r_hulot.direct()   === 1                                 )},
@@ -3540,6 +3536,12 @@ var set_body = function( x ){
 var PendingResponse = null;
 var respond = function( question ){
   if( !PendingResponse )return;
+  if( PendingResponse.redirect ){
+    PendingResponse.writeHead( 302, { Location: PendingResponse.redirect } );
+    PendingResponse.end();
+    PendingResponse = null;
+    return;
+  }
   PendingResponse.writeHead( 200, { 'Content-Type': 'text/html' } );
   var options = [];
   http_repl_history.forEach( function( item ){
@@ -3555,7 +3557,7 @@ var respond = function( question ){
       screen.join( "<br\>" ),
       '</div>',
       '<div id="footer">',
-      '<form name="question" url="/" style="width:99%">',
+      '<form name="question" url="/" style="width:50%">',
       question,
       '<input type="text" name="input" placeholder="a command or help" autofocus list="history" style="width:99%">',
       '<datalist id="history">',
@@ -3604,13 +3606,24 @@ var input = l8.Task( function( question ){ this
     PendingResponse.request = req;
     PendingResponse.query = url.parse( req.url, true).query
     var data = PendingResponse.query.input;
-    if( data )return data;
+    var more = PendingResponse.query.input2;
+    if( data ){
+      if( more ){ data += " " + more; }
+      more = PendingResponse.query3;
+      if( more ){ data += " " + more; }
+      more = PendingResponse.query4;
+      if( more ){ data += " " + more; }
+      more = PendingResponse.query5;
+      if( more ){ data += " " + more; }
+      return data;
+    }
     input( question );
   } );
 } );
 
 var http_repl_pages = {
   index:        page_index,
+  login:        page_login,
   visitor:      page_visitor,
   persona:      page_persona,
   delegations:  page_delegations,
@@ -3618,6 +3631,12 @@ var http_repl_pages = {
   proposition:  page_proposition,
   propositions: page_propositions
 };
+
+function redirect( page ){
+  if( !PendingResponse )return;
+  if( !page ){ page = "index"; }
+  PendingResponse.redirect = "?input=page%20" + page;
+}
 
 var http_repl_visitor = null;
 
@@ -3707,6 +3726,9 @@ function page_header( left, center, right ){
   if( http_repl_visitor ){
     right = ( (right && (right + " ")) || "" )
     + link_to_page( http_repl_visitor.label, "visitor",  http_repl_visitor.label );
+  }else{
+    right = ( (right && (right + " ")) || "" )
+      + link_to_page( "login" );
   }
   return [
     '<div class="header fade" id="header"><div id="header_content">',
@@ -3771,6 +3793,7 @@ function vote_menu( vote, proposition ){
   function o( v, l ){v
     return '\n<option value="' + v + '">' + (v || l) + '</option>';
   }
+  // vote is either a vote or a persona
   var vote_id = ( vote.type === "Vote" )
   ? vote.id
   : "" + vote.id + "." + proposition.id;
@@ -3780,11 +3803,15 @@ function vote_menu( vote, proposition ){
     '<input type="hidden" name="vote_id" value="' + vote_id + '"/>',
     '<input type="text" name="privacy" list="privacy_options"/>',
     '<datalist id="privacy_options">',
+    '<select name="privacy">',
     o( "idem" ), o( "public"), o( "secret" ), o( "private" ),
+    '</select>',
     '\n</datalist>',
     '<input type="text" name="orientation" list="orientation_options"/>',
     '<datalist id="orientation_options">',
+    '<select name="orientation">',
     o( "idem" ), o( "agree"), o( "disagree" ), o( "protest" ), o( "blank" ), o( "delete" ),
+    '</select>',
     '\n</datalist>',
     '<input type="submit"/>',
     '</form>\n'
@@ -3845,7 +3872,9 @@ function page_persona( page_name, name ){
     [ page_header(
       _,
       link_to_twitter_user( persona.label ),
-      link_to_page( persona.label, "visitor", "vote!" )
+      http_repl_visitor
+      ? link_to_page( persona.label, "visitor", "vote!" )
+      : ""
     ) ]
   ];
   var buf = [];
@@ -3924,7 +3953,42 @@ function page_propositions( page_name ){
     if( http_repl_visitor ){
      buf.push( vote_menu( http_repl_visitor, proposition ) );
     }
+    buf.push( '<br>' );
   });
+  // Query to create a proposition
+  buf.push( [
+    '\n<br><form name="proposition" url="/" style="width:50%">',
+    '<label> New</label> ',
+    '<input type="hidden" name="input" maxlength="140" value="change_proposition"/>',
+    '<input type="text" name="input2" style="width:50%"/>',
+    '<input type="submit"/>',
+    '</form>\n'
+  ].join( "" ) );
+  buf.push(  "<br>" + page_footer() );
+  r[1] = r[1].concat( buf );
+  return r;
+}
+
+function page_login( page_name ){
+  var r = [
+    page_style(),
+    [ page_header(
+      _,
+      link_to_twitter_tags(
+        "#login #kudocracy"
+      ),
+      _ ) ]
+  ];
+  var buf = [];
+  // Query for name
+  buf.push( [
+    '\n<form name="login" url="/" style="width:25%">',
+    '<label>Your twitter @name</label> ',
+    '<input type="hidden" name="input" maxlength="30" value="login"/>',
+    '<input type="text" name="input2" style="width:25%"/>',
+    '<input type="submit"/>',
+    '</form>\n'
+  ].join( "" ) );
   buf.push(  "<br>" + page_footer() );
   r[1] = r[1].concat( buf );
   return r;
@@ -3943,7 +4007,8 @@ function proposition_summary( result, div ){
   buf.push( 'blank ' + result.blank() + ' ' );
   buf.push( 'total ' + result.total() + ' ' );
   buf.push( '(direct ' + result.direct() + ' ' );
-  buf.push( 'indirect ' + (result.total() - result.direct()) + ')' );
+  buf.push( 'indirect ' + (result.total() - result.direct()) + ') ' );
+  buf.push( 'changes ' + result.count() );
   return buf.join( "" );
 }
 
@@ -3956,7 +4021,7 @@ function page_proposition( page_name, name ){
     page_style(),
     [ page_header(
       _,
-      link_to_twitter_filter( proposition.label ),
+      link_to_twitter_filter( "#" + proposition.label ),
       link_to_page( "propositions" )
     ) ]
   ];
@@ -3969,9 +4034,11 @@ function page_proposition( page_name, name ){
   buf.push( "<div><h2>Votes</h2>" );
   buf.push( "<ol>" );
   votes.forEach( function( vote_value ){
-    if( vote_value.delegation === Vote.direct
-    && vote_value.privacy === Vote.public
-    && vote_value.orientation !== Vote.neutral
+    if( vote_value.delegation          === Vote.direct
+    && vote_value.privacy              === Vote.public
+    && vote_value.orientation          !== Vote.neutral
+    && vote_value.entity.privacy()     === Vote.public
+    && vote_value.entity.orientation() !== Vote.neutral
     ){
       buf.push( "<li>" );
       buf.push(
@@ -3982,6 +4049,10 @@ function page_proposition( page_name, name ){
     }
   });
   buf.push( "</ol></div><br>" );
+  if( http_repl_visitor ){
+    buf.push( vote_menu( http_repl_visitor, proposition ) );
+    buf.push( "<br>" );
+  }
   //buf.push( pretty( proposition.value() ) );
   buf.push( page_footer() );
   r[1] = r[1].concat( buf );
@@ -4044,7 +4115,9 @@ vote.extend( http_repl_commands, {
       link_to_command( "debugger &" ) + "id -- inspect entity in native debugger",
       link_to_command( "log &" ) + "id -- dump history about entity",
       link_to_command( "effects &" ) + "id -- dump effects of involed change",
-      "change_vote &id privacy orientation -- change existing vote"
+      "login -- create user if needed and set current",
+      "change_vote &id privacy orientation -- change existing vote",
+      "change_proposition text #tag text #tag... -- change proposition"
     ];
     for( var v in replized_verbs ){
       tmp.push( v + " " + replized_verbs_help[ v ] );
@@ -4130,11 +4203,18 @@ vote.extend( http_repl_commands, {
   },
 
   change_vote: function( entity, privacy, orientation ){
+    redirect( "propositions" );
     var proposition = null;
     var query = PendingResponse.query;
     var vote_id = query.vote_id;
     privacy = privacy || query.privacy;
+    if( Array.isArray( privacy ) ){
+      privacy = privacy[0];
+    }
     orientation = orientation || query.orientation;
+    if( Array.isArray( orientation ) ){
+      orientation = orientation[0];
+    }
     if( privacy === "idem" ){ privacy = null; }
     if( privacy
     && " public secret private ".indexOf( " " + privacy + " " ) === -1
@@ -4185,16 +4265,70 @@ vote.extend( http_repl_commands, {
         privacy:     ( privacy || _ ),
         orientation: ( orientation || _ )
       });
+      //redirect( "proposition%20" + proposition.label );
     }else{
       Ephemeral.inject( "Vote", {
         id_key:      entity.id,
         privacy:     ( privacy || _ ),
         orientation: ( orientation || _ )
       });
+      //redirect( "proposition%20" + entity.proposition.label );
     }
     printnl( "Changed vote " + pretty( entity ) );
     return;
+  },
 
+  login: function( name ){
+    if( name.length < 3 )return redirect( "login" );
+    name = name.toLowerCase().trim().replace( /[^a-z0-9_]/g, "" );
+    if( name[0] !== "@" ){ name = "@" + name };
+    if( !( http_repl_visitor = Persona.all[ name ] ) ){
+      Ephemeral.inject( "Persona", { label: name } );
+      http_repl_visitor = Persona.all[ name ];
+    }
+    return redirect( "visitor" );
+  },
+
+
+  change_proposition: function(){
+    redirect( "propositions" );
+    // Sanitize, extract tags, turn whole text into valid potential tag itself
+    var text = Array.prototype.slice.call( arguments ).join( " " ).toLowerCase();
+    var tags = [];
+    text = text.replace( /#[A-Za-z][_0A-Za-z]*/g, function( tag ){
+      tags.push( tag.toLowerCase() );
+      return ""
+    } ).replace( /  /g, " " ).trim()
+    .replace( /[^a-z0-9_]/g, "_" );
+    // if nothing remains, use first tag to name the proposition
+    if( text.length < 3 ){
+      if( ( text = tags[0] ).length < 3 ){
+        printnl( "Not a valid proposition name" );
+        return;
+      }
+      // Remove #
+      text = text.substring( 1 );
+    }
+    var changes = [];
+    var tag_entities = [];
+    tags.forEach( function( tag ){
+      if( tag.length < 3 )return;
+      var entity = Topic.all[ tag ];
+      if( entity ){
+        tag_entities.push( entity );
+      }else{
+        changes.push( function(){
+          Ephemeral.inject( "Topic", { label: tag } );
+        });
+        changes.push( function(){
+          tag_entities.push( Topic.all[ tag ] );
+        })
+      }
+    });
+    changes.push( function(){
+      Ephemeral.inject( "Topic", { label: text, tags: tag_entities } );
+    } );
+    Ephemeral.inject( changes );
   },
 
   debugger: function( e, e2, e3, e4 ){
