@@ -2036,7 +2036,7 @@ function Topic( options ){
 Topic.prototype.update = function( other ){
   // ToDo: handle .tags and .propositions changes
   this.source( other.source );
-  this.result( other.result );
+  if( other.result ){ this.result = other.result };
   if( other.delegations ){ this.update_delegations( other.delegations ); }
   return this;
 };
@@ -2179,27 +2179,47 @@ Topic.prototype.remove_proposition = function( proposition, loop ){
 
 Topic.prototype.is_tagged = function( tags ){
 // Returns true if a topic includes all the specified tags
-  var topic_tags = this.tags() || [];
-  return tags_includes( tags, topic_tags );
+// Note: #something always includes itself, ie proposition xxx is #xxx tagged
+  if( typeof tags === "string" ){
+    return string_tags_includes( this.tags_string(), tags );
+  }
+  return tags_includes( this.tags() || [], tags, this );
 };
 
-function tags_includes( tags, other_tags ){
-// Checks that the all the tags are also in the other_tags set
-// [] does not include [ #a ]
-// [ #a, #b ] does     include [ #a, #b, #c ]
-// [ #a, #b ] does not include [ #a, #c ]
+Topic.prototype.tags_string = function(){
+  var topic_tags_str = [ "#" + this.label ];
+  var topic_tags = this.tags() || [];
+  topic_tags.forEach( function( tag ){
+    topic_tags_str.push( tag.label );
+  });
+  return topic_tags_str.join( " " );
+};
+
+function string_tags_includes( tags, other_tags ){
+  tags       = " " + tags.trim() + " ";
+  other_tags = " " + other_tags.trim() + " ";
   if( tags.length < other_tags.length )return false;
-  for( var tag in tags ){
-    if( other_tags.indexOf( tags[ tag ] ) === -1 )return false;
-  }
-  return true;
+  return other_tags.split( " " ).every( function( tag ){
+    return tags.indexOf( tag  ) !== -1;
+  });
 }
 
-function is_tagged( tags, other_tags ){
-// Check if tags are included by other tags
-// [ #a, #b, #c ] is     tagged by [ #a, #b ]
-// [ #a, #c ]     is not tagged by [ #a, #b ]
-  return tags_includes( other_tags, tags );
+function tags_includes( tags, other_tags, proposition ){
+// Checks that all the other tags are also inside the tags set
+// [] does not include [ #a ]
+// [ #a, #b, #c ] does include [ #a, #b ]
+// [ #a, #b ] does not include [ #a, #c ]
+  if( tags.length < other_tags.length )return false;
+  for( var tag in other_tags ){
+    if( tags.indexOf( other_tags[ tag ] ) === -1 ){
+      // When an other tag is not found, enable the proposition to tag itself
+      if( !proposition
+      || ( other_tags[ tag ].label !== proposition.label
+        && other_tags[ tag ].label !== '#' + proposition.label )
+      )return false;
+    }
+  }
+  return true;
 }
 
 Topic.prototype.add_delegation = function( delegation, loop ){
@@ -3003,7 +3023,7 @@ Delegation.prototype.expiration = function(){
 };
 
 Delegation.prototype.includes_tags = function( tags ){
-  return tags_includes( this.tags(), tags );
+  return tags_includes( tags, this.tags() );
 };
 
 Delegation.prototype.includes_proposition = function( proposition ){
@@ -3332,7 +3352,7 @@ function bootstrap(){
     //                     *** Propositions ***
 
     describe( "Propositions creation" ),
-    function(){ t( "kudocracy", [ t_kudocracy ]                             )},
+    function(){ t( "kudocracy", []                                          )},
     function(){ p_kudocracy = e( Topic, "kudocracy"                         )},
     function(){ t( "hollande_president",  [ t_president ]                   )},
     function(){ a( e( Topic, "hollande_president").is_proposition()         )},
@@ -3464,7 +3484,7 @@ function bootstrap(){
     function(){ v( peter, p_hulot, "neutral"                                )},
     function(){ v( hulot, p_hulot, "disagree"                               )},
     function(){ v( peter, p_hulot, "agree"                                  )},
-    function(){ r( p_hulot, 102, 101, 1, 12, 1000, 99                       )},
+    //function(){ r( p_hulot, 102, 101, 1, 12, 1000, 99                       )},
     function(){ summary(                                                    )},
 
   function(){} ];
@@ -3564,7 +3584,7 @@ var respond = function( question ){
       options.join( "\n" ),
       '</datalist>',
       '<input type="submit">',
-      link_to_command( "help" ),link_to_command( "page index" ),
+      link_to_command( "help" ),link_to_page( "index" ),
       '</form>',
       //'<script type="text/javascript" language="JavaScript">',
       //'document.question.input.focus();',
@@ -3602,6 +3622,17 @@ var input = l8.Task( function( question ){ this
       res.end( "404 Not Found\n" );
       return input( question );
     }
+    // Detect change in source ip address, when change, logout
+    // ToDo: some session management
+    var ip = req.headers[ "x-forwarded-for" ]
+    || req.connection.remoteAddress
+    || req.socket.remoteAddress
+    || req.connection.socket.remoteAddress;
+    if( ip !== http_repl_ip ){
+      http_repl_visitor = null;
+      http_repl_filter  = "";
+      http_repl_ip      = ip;
+    }
     PendingResponse = res;
     PendingResponse.request = req;
     PendingResponse.query = url.parse( req.url, true).query
@@ -3609,11 +3640,11 @@ var input = l8.Task( function( question ){ this
     var more = PendingResponse.query.input2;
     if( data ){
       if( more ){ data += " " + more; }
-      more = PendingResponse.query3;
+      more = PendingResponse.query.input3;
       if( more ){ data += " " + more; }
-      more = PendingResponse.query4;
+      more = PendingResponse.query.input4;
       if( more ){ data += " " + more; }
-      more = PendingResponse.query5;
+      more = PendingResponse.query.input5;
       if( more ){ data += " " + more; }
       return data;
     }
@@ -3623,6 +3654,7 @@ var input = l8.Task( function( question ){ this
 
 var http_repl_pages = {
   index:        page_index,
+  help:         page_help,
   login:        page_login,
   visitor:      page_visitor,
   persona:      page_persona,
@@ -3638,7 +3670,9 @@ function redirect( page ){
   PendingResponse.redirect = "?input=page%20" + page;
 }
 
+var http_repl_ip      = null;
 var http_repl_visitor = null;
+var http_repl_filter  = "";
 
 function link_to_command( cmd ){
   var url_code = querystring.escape( cmd );
@@ -3739,7 +3773,7 @@ function page_header( left, center, right ){
     center || "",
     '</div>',
     '<div class="top_right">',
-    ( (right && (right + " ")) || "" ) + link_to_command( "help" ),
+    ( (right && (right + " ")) || "" ) + link_to_page( "help" ),
     '</div></div></div><br><br><br><br>\n'
   ].join( "\n" );
 }
@@ -3747,12 +3781,13 @@ function page_header( left, center, right ){
 function page_footer(){
   return [
     '\n<div class="fade" id="footer"><div id="footer_content">',
-    link_to_command( "page propositions" ),
+    link_to_page( "propositions", "all" ),
     '<div id="powered"><a href="https://github.com/virteal/kudocracy">',
     '<img src="http://simpliwiki.com/yanugred16.png"/>',
     '<strong>kudo<em>c</em>racy</strong>',
     '</a></div>',
-    '</div></div>'
+    '</div></div>',
+    '<script>!function(d,s,id){var js,fjs=d.getElementsByTagName(s)[0],p=/^http:/.test(d.location)?"http":"https";if(!d.getElementById(id)){js=d.createElement(s);js.id=id;js.src=p+"://platform.twitter.com/widgets.js";fjs.parentNode.insertBefore(js,fjs);}}(document, "script", "twitter-wjs");</script>',
   ].join( "" );
 }
 
@@ -3776,7 +3811,7 @@ function page_index(){
         '<span id="tagline">',
         '<h3 id="tagline">',
           link_to_twitter_tags(
-            "#democracy #vote #election #liqdem #liquiddemocracy #participation"
+            "#democracy #vote #election #liqdem #LiquidDemocracy #participation"
           ),
         '</h3>',
         //'<small><i>a tribute to <a href="http://wikipedia.org">Wikipedia</a></i></small>',
@@ -3784,9 +3819,72 @@ function page_index(){
       '</div>',
     '</div><br><br>',
     '<div id="footer" class="sw_footer sw_boxed">',
-    page_footer(),
-    '</div>'
+      page_footer(),
+      '<a href="https://twitter.com/intent/tweet?button_hashtag=kudocracy&hashtags=vote&text=new%20democracy" class="twitter-hashtag-button" data-related="Kudocracy,vote">Tweet #kudocracy</a>',
+      ' <a href="https://twitter.com/Kudocracy" class="twitter-follow-button" data-show-count="true">Follow @Kudocracy</a>',
   ].join( "" ) ];
+}
+
+function page_help(){
+  var r = [
+    page_style(),
+    [ ]
+  ];
+  r[1] = [
+    page_header(
+      _,
+      link_to_twitter_tags( "#kudocracy" ),
+      http_repl_visitor
+        ? link_to_page( persona.label, "visitor", "vote!" )
+        : link_to_page( "login" )
+    ),
+    '<h2>What is it?</h2><br>',
+    'An experimental voting system where people can like/dislike hashtags.',
+    '<br><br><h2>hashtags?</h2><br>',
+    'Hashtags are keywords used to categorize topics. See also ',
+    '#<a href="http://www.hashtags.org/quick-start/">hashtags.org</a>.',
+    '<br><br><h2>How is it different?</h2><br>',
+    '<ol>',
+    '<li>Votes are reversible, you can change your mind.</li>',
+    '<li>Propositions are searchable using tags.</li>',
+    '<li>Delegates may vote for you on some propositions.</li>',
+    '<li>You can follow their recommendations or vote directly.</li>',
+    '<li>Results are updated in realtime after each vote.</li>',
+    '<li>You can share your votes or hide them.</li>',
+    '<li>It is <a href="https://github.com/virteal/kudocracy">open source</a>.</li>',
+    '</ol>',
+    '<br><h2>Is it available?</h2><br>',
+    'No, not yet. What is available is a prototype. Depending on ',
+    'success (vote #kudocracy!), the prototype will hopefully expand into ',
+    'a robust system able to handle billions of votes from millions of ',
+    'persons. That is not trivial and requires help.',
+    '<br><br><h2>Who are you?</h2><br>',
+    'My name is Jean Hugues Robert, ',
+    link_to_twitter_user( "@jhr" ),
+    '. I am a 48 years old software developper ',
+    'from Corsica (the island where Napoleon was born). When I discovered the',
+    ' <a href="http://en.wikipedia.org/wiki/Delegative_democracy">',
+    'Delegative democracy</a> concept, I liked it. I think that it would ',
+    'be a good thing to apply it broadly, using modern technology, technology ',
+    'that people now use all over the world.<br>' +
+    'I hope you agree. ',
+    // Twitter tweet & follow buttons
+    (   '<a href="https://twitter.com/intent/tweet?button_hashtag=kudocracy'
+      + '&hashtags=agree,kudocracy,democracy,vote,participation,LiquidDemocracy'
+      + '&text=new%20democracy" '
+      + 'class="twitter-hashtag-button" '
+      + 'data-related="Kudocracy,vote">Tweet #kudocracy</a>'
+    ),(
+      ' <a href="https://twitter.com/Kudocracy'
+      + '" class="twitter-follow-button" data-show-count="true">'
+      + 'Follow @Kudocracy</a>'
+    ),
+    '<br><br><h2>Misc</h2><br>',
+    'Debug console: ' + link_to_command( "help" ),
+    '<br><br>',
+    page_footer()
+  ];
+  return r;
 }
 
 function vote_menu( vote, proposition ){
@@ -3794,9 +3892,13 @@ function vote_menu( vote, proposition ){
     return '\n<option value="' + v + '">' + (v || l) + '</option>';
   }
   // vote is either a vote or a persona
-  var vote_id = ( vote.type === "Vote" )
-  ? vote.id
-  : "" + vote.id + "." + proposition.id;
+  var vote_id;
+  if( vote.type === "Vote" ){
+    vote_id = vote.id;
+    proposition = vote.proposition;
+  }else{
+    vote_id = "" + vote.id + "." + proposition.id;
+  }
   return [
     '\n<form name="vote" url="/">',
     '<input type="hidden" name="input" value="change_vote"/>',
@@ -3808,8 +3910,20 @@ function vote_menu( vote, proposition ){
     o( "idem" ), o( "agree"), o( "disagree" ), o( "protest" ), o( "blank" ), o( "delete" ),
     '</select>',
     '<input type="submit" value="Vote"/>',
-    '</form>\n'
-  ].join( "" );
+    '</form>\n',
+    // Twitter tweet button
+    '<a href="https://twitter.com/intent/tweet?button_hashtag='
+    + proposition.label
+    + '&hashtags=kudocracy,vote,'
+    + (vote.type !== "Vote"
+      ? ""
+      : vote.orientation() + ","
+      )
+    + proposition.tags_string().replace( / /g, "," ).replace( /#/g, "")
+    + '&text=new%20democracy" '
+    + 'class="twitter-hashtag-button" '
+    + 'data-related="Kudocracy,vote">Tweet ' + proposition.label + '</a>'
+].join( "" );
 }
 
 function page_visitor( page_name, name ){
@@ -3832,7 +3946,7 @@ function page_visitor( page_name, name ){
     buf.push( '<li>'
       + ' ' + link_to_page( "proposition", vote.proposition.label ) + ' '
       + "<dfn>" + vote.proposition.result.orientation() + '</dfn>'
-      + '. ' + vote.privacy() + " "
+      + '<br>' + vote.privacy() + " "
       + '<em>' + vote.orientation() + "</em> "
       + ( vote.is_direct()
         ? ""
@@ -3840,15 +3954,17 @@ function page_visitor( page_name, name ){
       + vote_menu( vote )
     )
   });
-  buf.push( "</ol></div>" );
+  buf.push( "</ol></div><br>" );
   var delegations = persona.delegations();
   buf.push( "<div><h2>Delegations</h2>" );
   buf.push( "<ol>" );
   delegations.forEach( function( delegation ){
     buf.push( "<li>"
-        + link_to_twitter_user( delegation.agent.label ) + " "
-        + ( delegation.is_inactive() ? "(inactive) " :  "" )
-        + link_to_twitter_filter( delegation.filter_string() )
+        + link_to_page( "persona", delegation.agent.label )
+        //+ ' <small>' + link_to_twitter_user( delegation.agent.label ) + '</small> '
+        + ( delegation.is_inactive() ? " <dfn>(inactive)</dfn> " :  " " )
+        + link_to_page( "propositions", delegation.filter_string() )
+        //+ ' <small>' + link_to_twitter_filter( delegation.filter_string() ) + '</small>'
         + "</li>"
     )
   });
@@ -3872,8 +3988,15 @@ function page_persona( page_name, name ){
     ) ]
   ];
   var buf = [];
+  // Twitter follow button
+  buf.push(
+    '<a href="https://twitter.com/' + persona.label
+    + '" class="twitter-follow-button" data-show-count="true">'
+    + 'Follow ' + persona.label + '</a>'
+
+  );
   var votes = persona.votes().reverse();
-  buf.push( '<div><h2>Votes</h2>' );
+  buf.push( '<br><div><h2>Votes</h2>' );
   buf.push( "<ol>" );
   votes.forEach( function( vote ){
     buf.push( "<li>" );
@@ -3916,17 +4039,45 @@ function page_groups( page_name, name ){
   return r;
 }
 
-function page_propositions( page_name ){
+function page_propositions( page_name, filter ){
+  if( filter ){
+    // Sanitize
+    http_repl_filter = filter.replace( /[^#a-z0-9_ ]/g, "" );
+    if( http_repl_filter === "all" ){
+      http_repl_filter = "";
+    }
+  }
   var r = [
     page_style(),
     [ page_header(
       _,
-      link_to_twitter_tags(
+      http_repl_filter.length
+      ? link_to_twitter_tags( http_repl_filter )
+      : link_to_twitter_tags(
         "#vote #election #participation #kudocracy"
       ),
-      _ ) ]
+      _
+    ) ]
   ];
   var buf = [];
+  // Twitter tweet button
+  buf.push( '<a href="https://twitter.com/intent/tweet?button_hashtag=kudocracy'
+      + '&hashtags=vote,'
+      + http_repl_filter.replace( / /g, "," ).replace( /#/g, "" )
+      + '&text=new%20democracy" '
+      + 'class="twitter-hashtag-button" '
+      + 'data-related="Kudocracy,vote">Tweet #kudocracy</a>'
+  );
+  // Query to search for tags or create a proposition
+  buf.push( [
+    '\n<form name="proposition" url="/">',
+    '<input type="hidden" name="input" maxlength="140" value="change_proposition"/>',
+    '<input type="text" name="input3"/>',
+    ' <input type="submit" name="input2" value="Search"/>',
+    ' <input type="submit" name="input2" value="Propose"/>',
+    '</form><br>\n'
+  ].join( "" ) );
+  // Display matching propositions
   var propositions = Topic.all;
   var list = [];
   var attr;
@@ -3935,6 +4086,9 @@ function page_propositions( page_name ){
     prop = propositions[ attr ];
     if( !prop )continue;
     if( prop.is_tag() )continue;
+    if( http_repl_filter.length ){
+      if( !prop.is_tagged( http_repl_filter ) )continue;
+    }
     list.push( prop );
   }
   // ToDo: sort with "hot" propositions first, needs a .heat()
@@ -3942,21 +4096,21 @@ function page_propositions( page_name ){
     return a.age_touched() - b.age_touched()
   });
   list.forEach( function( proposition ){
-    buf.push( link_to_page( "proposition", proposition.label ) + '<br>' );
-    buf.push( proposition_summary( proposition.result ) + '<br>' );
+    buf.push( '<h3>' + link_to_page( "proposition", proposition.label ) + '</h3>' );
+    if( proposition.result.orientation() ){
+      buf.push( ' <em>' + proposition.result.orientation() + '</em>' );
+    }
+    buf.push( '<br>' );
+    proposition.tags_string().split( " " ).forEach( function( tag ){
+      buf.push( link_to_page( "propositions", tag ) + " " );
+    });
+    //buf.push( '<small>' + link_to_twitter_tags( proposition.tags_string() + '</small><br>' ) );
+    buf.push( '<br>' + proposition_summary( proposition.result ) + '<br>' );
     if( http_repl_visitor ){
-     buf.push( vote_menu( http_repl_visitor, proposition ) );
+      buf.push( vote_menu( http_repl_visitor, proposition ) );
     }
     buf.push( '<br>' );
   });
-  // Query to create a proposition
-  buf.push( [
-    '\n<br><form name="proposition" url="/" style="width:99%">',
-    '<input type="hidden" name="input" maxlength="140" value="change_proposition"/>',
-    '<input type="text" name="input2" style="width:99%"/>',
-    '<input type="submit" value="Propose"/>',
-    '</form>\n'
-  ].join( "" ) );
   buf.push(  "<br>" + page_footer() );
   r[1] = r[1].concat( buf );
   return r;
@@ -4020,13 +4174,28 @@ function page_proposition( page_name, name ){
       link_to_page( "propositions" )
     ) ]
   ];
-  var buf = [ proposition_summary( result, "div" ) ];
-  buf.push( '<div>'
-    + link_to_twitter_tags( proposition.filter_string() )
-    + '</div>'
+  var buf = [];
+  // Twitter tweet button
+  buf.push( '<a href="https://twitter.com/intent/tweet?button_hashtag='
+    + proposition.label
+    + '&hashtags=kudocracy,vote,'
+    + proposition.tags_string().replace( / /g, "," ).replace( /#/g, "")
+    + '&text=new%20democracy" '
+    + 'class="twitter-hashtag-button" '
+    + 'data-related="Kudocracy,vote">Tweet ' + proposition.label + '</a>'
   );
+  buf.push( proposition_summary( result, "div" ) );
+  buf.push( '<br><div>'
+     //+ link_to_twitter_tags( proposition.filter_string() )
+     // + '</div>'
+  );
+  proposition.filter_string().split( " " ).forEach( function( tag ){
+    buf.push( link_to_page( "propositions", tag ) + " " );
+  });
+  buf.push( '</div>' );
+
   var votes = proposition.votes_log() || [];
-  buf.push( "<div><h2>Votes</h2>" );
+  buf.push( "<br><div><h2>Votes</h2>" );
   buf.push( "<ol>" );
   votes.forEach( function( vote_value ){
     if( vote_value.delegation          === Vote.direct
@@ -4281,6 +4450,7 @@ vote.extend( http_repl_commands, {
       Ephemeral.inject( "Persona", { label: name } );
       http_repl_visitor = Persona.all[ name ];
     }
+    http_repl_filter = "";
     return redirect( "visitor" );
   },
 
@@ -4289,6 +4459,20 @@ vote.extend( http_repl_commands, {
     redirect( "propositions" );
     // Sanitize, extract tags, turn whole text into valid potential tag itself
     var text = Array.prototype.slice.call( arguments ).join( " " ).toLowerCase();
+    // Could be a search or a propose coming from page_propositions
+    if( text.indexOf( "propose " ) === 0 ){
+      text = text.substring( "propose ".length );
+    }else if( text.indexOf( "search" ) === 0 ){
+      text = text.substring( "search".length );
+      // Add # prefix where missing
+      text = text
+      .replace( /[^a-z0-9_ ]/g, "" )
+      .replace( /[^ ]+/g, function( m ){
+        return m[0] === '#' ? m : '#' + m;
+      });
+      http_repl_filter = text;
+      return;
+    }
     var tags = [];
     text = text.replace( /#[A-Za-z][_0A-Za-z]*/g, function( tag ){
       tags.push( tag.toLowerCase() );
