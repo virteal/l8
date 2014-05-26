@@ -158,7 +158,12 @@ app.diff = array_diff;
 var epoch = 0; // 1397247088461; // 2034 is too soon
 function now(){ return l8.now - epoch; }
 app.now = now;
-var ONE_YEAR = app.ONE_YEAR = 365 * 24 * 60 * 60 * 1000;
+var ONE_YEAR   = app.ONE_YEAR   = 365 * 24 * 60 * 60 * 1000;
+var ONE_MONTH  = app.ONE_MONTH  =  31 * 24 * 60 * 60 * 1000;
+var ONE_WEEK   = app.ONE_WEEK   =   7 * 24 * 60 * 60 * 1000;
+var ONE_DAY    = app.ONE_DAY    =       24 * 60 * 60 * 1000;
+var ONE_HOUR   = app.ONE_HOUR   =            60 * 60 * 1000;
+var ONE_MINUTE = app.ONE_MINUTE =                 60 * 1000;
 
 
 /*
@@ -2050,6 +2055,17 @@ Topic.prototype.update_delegations = function( list ){
 Topic.prototype.is_proposition = function(){ return this.label[0] !== "#"; };
 Topic.prototype.is_tag         = function(){ return !this.is_proposition(); };
 
+Topic.prototype.heat = function(){
+// Compute the "heat" of a topic. "Hot topics" should come first.
+  var touched = this.result.time_touched || this.time_touched;
+  // Recently touched are hot
+  var age = vote.now() - touched;
+  if( age < vote.ONE_MINUTE )return touched;
+  if( age < vote.ONE_HOUR   )return touched;
+  // Less recently touched topics are hot depending on number of direct votes
+  return this.result.direct();
+};
+
 Topic.prototype.filter_string = function(){
   var buf = [];
   this.tags().forEach( function( tag ){
@@ -2200,6 +2216,7 @@ function string_tags_includes( tags, other_tags ){
   other_tags = " " + other_tags.trim() + " ";
   if( tags.length < other_tags.length )return false;
   return other_tags.split( " " ).every( function( tag ){
+    if( !tag )return true;
     return tags.indexOf( tag  ) !== -1;
   });
 }
@@ -2254,6 +2271,7 @@ Topic.prototype.update_votes = function(){
  *  proposition/topic.
  *  Potential huge side effects...
  *  Only the owner of the proposition is supposed to have such a power!
+ *  Specially when tags are removed.
  *  It is expected that the owner may change tags in order to favor the
  *  the proposition, by using tags that brings lots of positive votes but are
  *  either too general or not well related to the topic at hand. Voters can
@@ -2570,6 +2588,8 @@ function Result( options ){
   this.agree       = water( options.agree     || 0 );
   this.disagree    = water( options.disagree  || 0 );
   this.direct      = water( options.direct    || 0 );
+  this.secret      = water( options.secret    || 0 );
+  this.private     = water( options.private   || 0 ),
   this.count       = water( 0 );
 
   // If this is an update, it simply supersedes the so far known result.
@@ -2582,6 +2602,9 @@ function Result( options ){
     result.agree(    this.agree    );
     result.disagree( this.disagree );
     result.direct(   this.direct   );
+    result.secret(   this.secret   );
+    result.private(  this.private  );
+    result.count(    this.count    );
     return result;
   }
   
@@ -2589,6 +2612,7 @@ function Result( options ){
   
   this.total = function(){
     this.count( this.count() + 1 );
+    this.time_touched = vote.now();
     var old = this.total();
     var r = this.neutral()
     + this.blank()
@@ -3667,12 +3691,20 @@ var http_repl_pages = {
 function redirect( page ){
   if( !PendingResponse )return;
   if( !page ){ page = "index"; }
+  page = page.replace( / /g, "%20" );
   PendingResponse.redirect = "?input=page%20" + page;
+}
+
+function redirect_back(){
+  if( !http_repl_current_page )return redirect( "propositions" );
+  redirect( http_repl_current_page.join( "%20" ) );
 }
 
 var http_repl_ip      = null;
 var http_repl_visitor = null;
 var http_repl_filter  = "";
+var http_repl_current_page; // arguments to function page()
+var http_repl_previous_page;
 
 function link_to_command( cmd ){
   var url_code = querystring.escape( cmd );
@@ -3705,6 +3737,7 @@ function link_to_twitter_tags( tags ){
   if( tags.indexOf( " " ) !== -1 ){
     var buf = [];
     tags.split( " " ).forEach( function( tag ){
+      if( !tag )return;
       buf.push( link_to_twitter_tags( tag ) );
     });
     return buf.join( " " );
@@ -3742,6 +3775,8 @@ function page( name ){
     if( Array.isArray( body ) ){
       body = body.join( "" );
     }
+    http_repl_previous_page = http_repl_current_page;
+    http_repl_current_page  = Array.prototype.slice.call( arguments );
   }catch( err  ){
     trace( "Page error", name, err, err.stack );
   }
@@ -3766,21 +3801,24 @@ function page_header( left, center, right ){
   }
   return [
     '<div class="header fade" id="header"><div id="header_content">',
-    '<div class="top_left">',
-    left || "",
-    '</div>',
-    '<div class="top_center" id="top_center">',
-    center || "",
-    '</div>',
-    '<div class="top_right">',
-    ( (right && (right + " ")) || "" ) + link_to_page( "help" ),
-    '</div></div></div><br><br><br><br>\n'
+      '<div class="top_left">',
+        left || "",
+      '</div>',
+      '<div class="top_center" id="top_center">',
+        center || "",
+      '</div>',
+      '<div class="top_right">',
+        ( (right && (right + " ")) || "" ) + link_to_page( "help" ),
+      '</div>',
+    '</div></div><br><br>',
+    '<div id="container" style="margin:0.5em;"><div id="content" ><div id="content_text">',
+    ''
   ].join( "\n" );
 }
 
 function page_footer(){
   return [
-    '\n<div class="fade" id="footer"><div id="footer_content">',
+    '\n</div></div></div><div class="fade" id="footer"><div id="footer_content">',
     link_to_page( "propositions", "all" ),
     '<div id="powered"><a href="https://github.com/virteal/kudocracy">',
     '<img src="http://simpliwiki.com/yanugred16.png"/>',
@@ -3819,9 +3857,15 @@ function page_index(){
       '</div>',
     '</div><br><br>',
     '<div id="footer" class="sw_footer sw_boxed">',
-      page_footer(),
-      '<a href="https://twitter.com/intent/tweet?button_hashtag=kudocracy&hashtags=vote&text=new%20democracy" class="twitter-hashtag-button" data-related="Kudocracy,vote">Tweet #kudocracy</a>',
-      ' <a href="https://twitter.com/Kudocracy" class="twitter-follow-button" data-show-count="true">Follow @Kudocracy</a>',
+    '\n<form name="proposition" url="/">',
+    '<input type="hidden" name="input" maxlength="140" value="page propositions"/>',
+    '<input type="text" placeholder="all" name="input2"/>',
+    ' <input type="submit" value="propositions?"/>',
+    '</form>\n',
+    '</div>',
+    '<br><a href="https://twitter.com/intent/tweet?button_hashtag=kudocracy&hashtags=vote&text=new%20democracy" class="twitter-hashtag-button" data-related="Kudocracy,vote">Tweet #kudocracy</a>',
+    ' <a href="https://twitter.com/Kudocracy" class="twitter-follow-button" data-show-count="true">Follow @Kudocracy</a>',
+    '<div><div><div>' + page_footer()
   ].join( "" ) ];
 }
 
@@ -3835,7 +3879,7 @@ function page_help(){
       _,
       link_to_twitter_tags( "#kudocracy" ),
       http_repl_visitor
-        ? link_to_page( persona.label, "visitor", "vote!" )
+        ? link_to_page( http_repl_visitor.label, "visitor", "vote!" )
         : link_to_page( "login" )
     ),
     '<h2>What is it?</h2><br>',
@@ -3887,7 +3931,7 @@ function page_help(){
   return r;
 }
 
-function vote_menu( vote, proposition ){
+function vote_menu( vote, proposition, orientation ){
   function o( v, l ){v
     return '\n<option value="' + v + '">' + (v || l) + '</option>';
   }
@@ -3904,10 +3948,10 @@ function vote_menu( vote, proposition ){
     '<input type="hidden" name="input" value="change_vote"/>',
     '<input type="hidden" name="vote_id" value="' + vote_id + '"/>',
     '<select name="privacy">',
-    o( "idem" ), o( "public"), o( "secret" ), o( "private" ),
+    o( "privacy" ), o( "public"), o( "secret" ), o( "private" ),
     '</select>',
     '<select name="orientation">',
-    o( "idem" ), o( "agree"), o( "disagree" ), o( "protest" ), o( "blank" ), o( "delete" ),
+    o( "orientation" ), o( "agree"), o( "disagree" ), o( "protest" ), o( "blank" ), o( "delete" ),
     '</select>',
     '<input type="submit" value="Vote"/>',
     '</form>\n',
@@ -3916,7 +3960,7 @@ function vote_menu( vote, proposition ){
     + proposition.label
     + '&hashtags=kudocracy,vote,'
     + (vote.type !== "Vote"
-      ? ""
+      ? (orientation && orientation + "," || "")
       : vote.orientation() + ","
       )
     + proposition.tags_string().replace( / /g, "," ).replace( /#/g, "")
@@ -3926,10 +3970,16 @@ function vote_menu( vote, proposition ){
 ].join( "" );
 }
 
-function page_visitor( page_name, name ){
+function page_visitor( page_name, name, verb, filter ){
+// The private page of a persona
   var persona = (name && Persona.all[ name ] ) || http_repl_visitor;
   if( !persona )return [ _, "Persona not found: " + name ];
-  http_repl_visitor = persona;
+
+  if( verb === "Search" ){
+    filter = sanitize_filter( filter );
+  }
+
+  // Header
   var r = [
     page_style(),
     [ page_header(
@@ -3939,11 +3989,24 @@ function page_visitor( page_name, name ){
     ) ]
   ];
   var buf = [];
+
+  buf.push( '<h1>' + persona.label + '</h1><br><br>' );
+
+  // Query to filter for tags
+  buf.push( filter_label( filter ) );
+  buf.push( [
+    '\n<form name="proposition" url="/">',
+    '<input type="hidden" name="input" maxlength="140" value="page visitor ' + persona.label + '"/>',
+    '<input type="text" placeholder="all" name="input3"/>',
+    '<input type="submit" name="input2" value="Search"/>',
+    '</form><br>\n'
+  ].join( "" ) );
+
+  // Votes
   var votes = persona.votes().reverse();
   buf.push( '<div><h2>Votes</h2>' );
-  buf.push( '<ol>' );
   votes.forEach( function( vote ){
-    buf.push( '<li>'
+    buf.push( '<br><br>'
       + ' ' + link_to_page( "proposition", vote.proposition.label ) + ' '
       + "<dfn>" + vote.proposition.result.orientation() + '</dfn>'
       + '<br>' + vote.privacy() + " "
@@ -3954,12 +4017,14 @@ function page_visitor( page_name, name ){
       + vote_menu( vote )
     )
   });
-  buf.push( "</ol></div><br>" );
+  buf.push( "</div><br>" );
+
+  // Delegations
   var delegations = persona.delegations();
-  buf.push( "<div><h2>Delegations</h2>" );
-  buf.push( "<ol>" );
+  buf.push( "<div><h2>Delegations</h2><br>" );
+  //buf.push( "<ol>" );
   delegations.forEach( function( delegation ){
-    buf.push( "<li>"
+    buf.push( '<br>' // "<li>"
         + link_to_page( "persona", delegation.agent.label )
         //+ ' <small>' + link_to_twitter_user( delegation.agent.label ) + '</small> '
         + ( delegation.is_inactive() ? " <dfn>(inactive)</dfn> " :  " " )
@@ -3968,15 +4033,25 @@ function page_visitor( page_name, name ){
         + "</li>"
     )
   });
-  buf.push( "</ol></div><br>" );
+
+  // Footer
+  buf.push( "</div><br>" );
   buf.push( page_footer() );
   r[1] = r[1].concat( buf );
   return r;
 }
 
-function page_persona( page_name, name ){
+
+function page_persona( page_name, name, verb, filter ){
+// This is the "public" aspect of a persona
   var persona = Persona.all[ name ];
   if( !persona )return [ _, "Persona not found: " + name ];
+
+  if( verb === "Search" ){
+    sanitize_filter( filter );
+  }
+
+  // Header
   var r = [
     page_style(),
     [ page_header(
@@ -3988,34 +4063,54 @@ function page_persona( page_name, name ){
     ) ]
   ];
   var buf = [];
+
+  buf.push( '<h1>' + persona.label + '</h1><br><br>' );
+
   // Twitter follow button
   buf.push(
     '<a href="https://twitter.com/' + persona.label
     + '" class="twitter-follow-button" data-show-count="true">'
     + 'Follow ' + persona.label + '</a>'
-
   );
+
+  // Query to filter for tags
+  buf.push( filter_label( filter ) );
+  buf.push( [
+    '\n<form name="proposition" url="/">',
+    '<input type="hidden" name="input" maxlength="140" value="page persona ' + persona.label + '"/>',
+    '<input type="text" placeholder="all" name="input3"/>',
+    '<input type="submit" name="input2" value="Search"/>',
+    '</form>\n'
+  ].join( "" ) );
+
+  // Votes
   var votes = persona.votes().reverse();
-  buf.push( '<br><div><h2>Votes</h2>' );
-  buf.push( "<ol>" );
+  buf.push( '<br><br><div><h2>Votes</h2><br>' );
+  //buf.push( "<ol>" );
   votes.forEach( function( vote ){
-    buf.push( "<li>" );
+    if( http_repl_filter.length ){
+      if( !vote.proposition.is_tagged( http_repl_filter ) )return;
+    }
+    buf.push( '<br>' ); // "<li>" );
     if( vote.is_private() ){
       buf.push( "private" );
     }else{
-      buf.push(
-          ( vote.is_secret() ? "secret" : "<em>" + vote.orientation() ) + "</em> "
+      buf.push( ''
+        +  ( vote.is_secret() ? "secret" : "<em>" + vote.orientation() ) + "</em> "
         + '' + link_to_page( "proposition", vote.proposition.label ) + ' '
-        + " <dfn>" + vote.proposition.result.orientation() + "</dfn>"
+        + " <dfn>" + vote.proposition.result.orientation() + "</dfn> "
+        + time_label( vote.proposition.result.time_touched )
       );
     }
-    buf.push( "</li>" );
+    //buf.push( "</li>" );
   });
-  buf.push( "</ol></div><br>" );
+  // buf.push( "</ol></div><br>" );
+  buf.push( '</div><br>' );
   buf.push( page_footer() );
   r[1] = r[1].concat( buf );
   return r;
 }
+
 
 function page_delegations( page_name, name ){
   var r = [ page_style(), null ];
@@ -4039,7 +4134,8 @@ function page_groups( page_name, name ){
   return r;
 }
 
-function page_propositions( page_name, filter ){
+
+function sanitize_filter( filter ){
   if( filter ){
     // Sanitize
     http_repl_filter = filter.replace( /[^#a-z0-9_ ]/g, "" );
@@ -4047,6 +4143,27 @@ function page_propositions( page_name, filter ){
       http_repl_filter = "";
     }
   }
+  return http_repl_filter;
+}
+
+function filter_label( filter, page ){
+  var buf = [];
+  if( filter ){
+    buf.push( "<div>" );
+    filter.split( " " ).forEach( function( tag ){
+      buf.push( link_to_page( page || "propositions", tag ) + " " );
+    });
+    buf.push( '</div>' );
+  }
+  return buf.join( "" );
+}
+
+
+function page_propositions( page_name, filter ){
+
+  sanitize_filter( filter );
+
+  // Header
   var r = [
     page_style(),
     [ page_header(
@@ -4060,6 +4177,11 @@ function page_propositions( page_name, filter ){
     ) ]
   ];
   var buf = [];
+
+  if( http_repl_filter ){
+    buf.push( '<h1>' + http_repl_filter + '</h1><br><br>' );
+  }
+
   // Twitter tweet button
   buf.push( '<a href="https://twitter.com/intent/tweet?button_hashtag=kudocracy'
       + '&hashtags=vote,'
@@ -4068,16 +4190,18 @@ function page_propositions( page_name, filter ){
       + 'class="twitter-hashtag-button" '
       + 'data-related="Kudocracy,vote">Tweet #kudocracy</a>'
   );
+
   // Query to search for tags or create a proposition
   buf.push( [
     '\n<form name="proposition" url="/">',
     '<input type="hidden" name="input" maxlength="140" value="change_proposition"/>',
-    '<input type="text" name="input3"/>',
+    '<input type="text" placeholder="all" name="input3"/>',
     ' <input type="submit" name="input2" value="Search"/>',
     ' <input type="submit" name="input2" value="Propose"/>',
-    '</form><br>\n'
+    '</form>\n'
   ].join( "" ) );
-  // Display matching propositions
+
+  // Display list of matching propositions
   var propositions = Topic.all;
   var list = [];
   var attr;
@@ -4091,30 +4215,32 @@ function page_propositions( page_name, filter ){
     }
     list.push( prop );
   }
-  // ToDo: sort with "hot" propositions first, needs a .heat()
-  list.sort( function( a, b ){
-    return a.age_touched() - b.age_touched()
+  list = list.sort( function( a, b ){
+    return b.heat() - a.heat()
   });
   list.forEach( function( proposition ){
-    buf.push( '<h3>' + link_to_page( "proposition", proposition.label ) + '</h3>' );
+    buf.push( '<br><h3>' + link_to_page( "proposition", proposition.label ) + '</h3>' );
     if( proposition.result.orientation() ){
       buf.push( ' <em>' + proposition.result.orientation() + '</em>' );
     }
     buf.push( '<br>' );
     proposition.tags_string().split( " " ).forEach( function( tag ){
+      if( !tag )return;
       buf.push( link_to_page( "propositions", tag ) + " " );
     });
     //buf.push( '<small>' + link_to_twitter_tags( proposition.tags_string() + '</small><br>' ) );
     buf.push( '<br>' + proposition_summary( proposition.result ) + '<br>' );
     if( http_repl_visitor ){
-      buf.push( vote_menu( http_repl_visitor, proposition ) );
+      buf.push( vote_menu( http_repl_visitor, proposition, proposition.result.orientation() ) );
+      buf.push( '<br>' );
     }
-    buf.push( '<br>' );
   });
+
   buf.push(  "<br>" + page_footer() );
   r[1] = r[1].concat( buf );
   return r;
 }
+
 
 function page_login( page_name ){
   var r = [
@@ -4153,19 +4279,107 @@ function proposition_summary( result, div ){
   buf.push( 'agree ' + result.agree() + " " );
   buf.push( 'against ' + result.against() + " " );
   buf.push( 'blank ' + result.blank() + ' ' );
-  buf.push( '<dfn>protest ' + result.protest() + '</dfn> ' );
+  buf.push( '<br><dfn>protest ' + result.protest() + '</dfn> ' );
   buf.push( '<dfn>total ' + result.total() + ' ' );
   buf.push( '(direct ' + result.direct() + ' ' );
   buf.push( 'indirect ' + (result.total() - result.direct()) + ') ' );
-  buf.push( 'changes ' + result.count() + '</dfn>' );
+  buf.push( 'change ' + result.count() + ' ' );
+  buf.push( time_label( result.time_touched ) + '</dfn>' );
   return buf.join( "" );
+}
+
+function i18n( msg ){
+  if( msg === "il y a " )return "";
+  return msg;
+}
+
+function duration_label( duration ){
+// Returns a sensible text info about a duration
+  var delta = duration / 1000;
+  var day_delta = Math.floor( delta / 86400);
+  if( isNaN( day_delta) )return "";
+  if( day_delta < 0 ) return i18n( "in the future" );
+  return (day_delta == 0
+      && ( delta < 5
+        && i18n( "just now")
+        || delta < 60
+        && i18n( "il y a ") + Math.floor( delta )
+        + i18n( " seconds")
+        || delta < 120
+        && i18n( "1 minute")
+        || delta < 3600
+        && i18n( "il y a ") + Math.floor( delta / 60 )
+        + i18n( " minutes")
+        || delta < 7200
+        && i18n( "about an hour")
+        || delta < 86400
+        && i18n( "il y a ") + Math.floor( delta / 3600 )
+        + i18n( " hours")
+        )
+      || day_delta == 1
+      && i18n( "a day")
+      || day_delta < 7
+      && i18n( "il y a ") + day_delta
+      + i18n( " days")
+      || day_delta < 31
+      && i18n( "il y a ") + Math.ceil( day_delta / 7 )
+      + i18n( " weeks")
+      || day_delta >= 31
+      && i18n( "il y a ") + Math.ceil( day_delta / 30.5 )
+      + i18n( " months")
+      ).replace( /^ /, ""); // Fix double space issue with "il y a "
+}
+
+
+function time_label( time, with_gmt ){
+// Returns a sensible text info about time elapsed.
+  //with_gmt || (with_gmt = this.isMentor)
+  var delta = ((vote.now() + 10 - time) / 1000); // + 10 to avoid 0/xxx
+  var day_delta = Math.floor( delta / 86400);
+  if( isNaN( day_delta) )return "";
+  if( day_delta < 0 ) return i18n( "in the future" );
+  var gmt = !with_gmt ? "" : ((new Date( time)).toGMTString() + ", ");
+  return gmt
+    + (day_delta == 0
+      && ( delta < 5
+        && i18n( "just now")
+        || delta < 60
+        && i18n( "il y a ") + Math.floor( delta )
+        + i18n( " seconds ago")
+        || delta < 120
+        && i18n( "1 minute ago")
+        || delta < 3600
+        && i18n( "il y a ") + Math.floor( delta / 60 )
+        + i18n( " minutes ago")
+        || delta < 7200
+        && i18n( "about an hour ago")
+        || delta < 86400
+        && i18n( "il y a ") + Math.floor( delta / 3600 )
+        + i18n( " hours ago")
+        )
+      || day_delta == 1
+      && i18n( "yesterday")
+      || day_delta < 7
+      && i18n( "il y a ") + day_delta
+      + i18n( " days ago")
+      || day_delta < 31
+      && i18n( "il y a ") + Math.ceil( day_delta / 7 )
+      + i18n( " weeks ago")
+      || day_delta >= 31
+      && i18n( "il y a ") + Math.ceil( day_delta / 30.5 )
+      + i18n( " months ago")
+      ).replace( /^ /, ""); // Fix double space issue with "il y a "
 }
 
 
 function page_proposition( page_name, name ){
+// Focus on one proposition
+
   var proposition = Topic.all[ name ];
   if( !proposition )return [ _, "Proposition not found: " + name ];
   var result = proposition.result;
+
+  // Header
   var r = [
     page_style(),
     [ page_header(
@@ -4175,6 +4389,9 @@ function page_proposition( page_name, name ){
     ) ]
   ];
   var buf = [];
+
+  buf.push( '<h1>' + proposition.label + '</h1><br><br>' );
+
   // Twitter tweet button
   buf.push( '<a href="https://twitter.com/intent/tweet?button_hashtag='
     + proposition.label
@@ -4184,19 +4401,29 @@ function page_proposition( page_name, name ){
     + 'class="twitter-hashtag-button" '
     + 'data-related="Kudocracy,vote">Tweet ' + proposition.label + '</a>'
   );
-  buf.push( proposition_summary( result, "div" ) );
-  buf.push( '<br><div>'
-     //+ link_to_twitter_tags( proposition.filter_string() )
-     // + '</div>'
-  );
-  proposition.filter_string().split( " " ).forEach( function( tag ){
-    buf.push( link_to_page( "propositions", tag ) + " " );
-  });
-  buf.push( '</div>' );
 
+  // Summary
+  buf.push( '<br><br>' + proposition_summary( result, "div" ) + '<br>' );
+
+  // List of tags
+  var tmp = proposition.filter_string();
+  buf.push( filter_label( tmp ) );
+
+  if( tmp = proposition.source() ){
+    if( tmp.indexOf( "://" ) !== -1 ){
+      tmp = '<a href="' + tmp + '">' + tmp + '</a>';
+    }
+    buf.push( "<br>source " + tmp );
+  }
+  buf.push( " " + time_label( proposition.timestamp ) );
+  //buf.push( "<br>age " + duration_label( proposition.age() ) );
+  buf.push( "<br>change " + time_label( proposition.time_touched ) );
+  buf.push( ", end in " + duration_label( proposition.expire() - vote.now() ) );
+
+  // Votes
   var votes = proposition.votes_log() || [];
-  buf.push( "<br><div><h2>Votes</h2>" );
-  buf.push( "<ol>" );
+  buf.push( "<br><br><div><h2>Votes</h2><br>" );
+  //buf.push( "<ol>" );
   votes.forEach( function( vote_value ){
     if( vote_value.delegation          === Vote.direct
     && vote_value.privacy              === Vote.public
@@ -4204,20 +4431,24 @@ function page_proposition( page_name, name ){
     && vote_value.entity.privacy()     === Vote.public
     && vote_value.entity.orientation() !== Vote.neutral
     ){
-      buf.push( "<li>" );
+      buf.push( "<br>" );
       buf.push(
           ( vote_value.orientation ) + " "
           + link_to_page( "persona", vote_value.persona_label )
+          + " <small><dfn>" + time_label( vote_value.timestamp ) + "</dfn></small>"
       );
-      buf.push( "</li>" );
+      // buf.push( "</li>" );
     }
   });
-  buf.push( "</ol></div><br>" );
+  buf.push( "</div><br>" );
+
+  // Vote menu
   if( http_repl_visitor ){
     buf.push( vote_menu( http_repl_visitor, proposition ) );
-    buf.push( "<br>" );
+    buf.push( "<br><br>" );
   }
-  //buf.push( pretty( proposition.value() ) );
+
+  // Footer
   buf.push( page_footer() );
   r[1] = r[1].concat( buf );
   return r;
@@ -4367,7 +4598,7 @@ vote.extend( http_repl_commands, {
   },
 
   change_vote: function( entity, privacy, orientation ){
-    redirect( "propositions" );
+    redirect_back();
     var proposition = null;
     var query = PendingResponse.query;
     var vote_id = query.vote_id;
@@ -4379,13 +4610,21 @@ vote.extend( http_repl_commands, {
     if( Array.isArray( orientation ) ){
       orientation = orientation[0];
     }
-    if( privacy === "idem" ){ privacy = null; }
+    if( privacy === "idem"
+    ||  privacy === "privacy"
+    ){
+      privacy = null;
+    }
     if( privacy
     && " public secret private ".indexOf( " " + privacy + " " ) === -1
     ){
       privacy = null;
     }
-    if( orientation === "idem"   ){ orientation = null; }
+    if( orientation === "idem"
+    || orientation === "orientation"
+    ){
+      orientation = null;
+    }
     if( orientation === "delete" ){ orientation = "neutral"; }
     if( orientation
     && " agree disagree protest blank neutral ".indexOf( " " + orientation + " " ) === -1
@@ -4456,7 +4695,7 @@ vote.extend( http_repl_commands, {
 
 
   change_proposition: function(){
-    redirect( "propositions" );
+    redirect_back();
     // Sanitize, extract tags, turn whole text into valid potential tag itself
     var text = Array.prototype.slice.call( arguments ).join( " " ).toLowerCase();
     // Could be a search or a propose coming from page_propositions
@@ -4473,8 +4712,9 @@ vote.extend( http_repl_commands, {
       http_repl_filter = text;
       return;
     }
-    var tags = [];
+    var tags = [ "#" + (http_repl_visitor && http_repl_visitor.label || "@anonymous").substring( 1 ) ];
     text = text.replace( /#[A-Za-z][_0A-Za-z]*/g, function( tag ){
+      if( tag === "tag ")return "";
       tags.push( tag.toLowerCase() );
       return ""
     } ).replace( /  /g, " " ).trim()
@@ -4504,9 +4744,17 @@ vote.extend( http_repl_commands, {
         })
       }
     });
-    changes.push( function(){
-      Ephemeral.inject( "Topic", { label: text, tags: tag_entities } );
-    } );
+    // Creation or addition of tags
+    var proposition = Topic.all[ text ];
+    if( !proposition ){
+      changes.push( function(){
+        Ephemeral.inject( "Topic", { label: text, tags: tag_entities } );
+      } );
+    }else{
+      changes.push( function(){
+        Ephemeral.inject( "Tagging", { proposition: proposition, tags: tag_entities } );
+      });
+    }
     Ephemeral.inject( changes );
   },
 
@@ -4651,8 +4899,8 @@ function main(){
 
   trace( "Welcome to l8/test/vote.js -- Liquid demo...cracy" );
 
-  Ephemeral.force_bootstrap = true;
-  vote.debug_mode( de = false );
+  //Ephemeral.force_bootstrap = true;
+  vote.debug_mode( de = true );
   Ephemeral.start( bootstrap, function( err ){
     if( err ){
       trace( "Cannot proceed", err, err.stack );
