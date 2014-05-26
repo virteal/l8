@@ -719,6 +719,7 @@ var type = function( ctor, base, opt_name ){
   de&&bug( "Create entity " + pretty( proto_entity ) );
   // Create global table of all entities of this new type
   ctor.all = {};
+  ctor.find = function( key ){ return ctor.all[ key ] };
   // Ease sub typing
   ctor.type = function( sub_type, opt_name ){
     return type( sub_type, ctor, opt_name );
@@ -1660,6 +1661,24 @@ var _       = vote._;
 //debugger;
 
 
+var namize_cache = {};
+
+function namize( label ){
+  // Twitter name & hashtags are case insensitive but are displayed with case
+  if( !label )return label;
+  var tmp = namize_cache[ label ];
+  if( tmp )return tmp;
+  tmp = label.toLowerCase();
+  namize_cache[ label ] = tmp;
+  namize_cache[ tmp ] = tmp;
+  return tmp;
+}
+
+function name_equal( a, b ){
+  return namize( a ) === namize( b );
+}
+
+
 /*
  *  Persona entity
  *
@@ -1698,11 +1717,13 @@ var _       = vote._;
 
 Ephemeral.type( Persona );
 function Persona( options ){
-  
+
+  this.label            = options.label || options.key;
+  this.name             = namize( this.label );
+
   var persona = this.register( options.label || options.key );
   var water   = this.water( persona );
-  
-  this.label            = options.label || options.key;
+
   this.role             = options.role || Persona.individual;
   this.members          = water( [] );
   this.memberships      = water( [] );
@@ -1725,6 +1746,11 @@ Persona.group      = "group";
 
 Persona.prototype.is_group      = function(){ return this.role === "group"; };
 Persona.prototype.is_individual = function(){ return !this.is_group();      };
+
+Persona.find = function( key ){
+// Key are case insensitive on twitter
+  return Persona.all[ namize( key ) ];
+}
 
 Persona.prototype.get_vote_on = function( proposition ){
 // If there is a vote by persona on said topic, return it, or null/undef
@@ -2003,11 +2029,13 @@ Ephemeral.type( Topic );
 function Topic( options ){
   
   de&&mand( options.label );
-  
-  var topic = this.register( options.label );
+
+  this.label = options.label;
+  this.name  = namize( this.label );
+
+  var topic = this.register(this.name );
   var water = this.water( topic );
   
-  this.label        = options.label;
   this.source       = water( options.source );
   this.votes_log    = water( options.votes_log );
   this.propositions = water( options.propositions );
@@ -2036,6 +2064,10 @@ function Topic( options ){
       tag.add_proposition( topic );
     });
   }
+}
+
+Topic.find = function( key ){
+  return Topic.all[ namize( key ) ];
 }
 
 Topic.prototype.update = function( other ){
@@ -2206,14 +2238,14 @@ Topic.prototype.tags_string = function(){
   var topic_tags_str = [ "#" + this.label ];
   var topic_tags = this.tags() || [];
   topic_tags.forEach( function( tag ){
-    topic_tags_str.push( tag.label );
+    topic_tags_str.push( tag.name );
   });
   return topic_tags_str.join( " " );
 };
 
 function string_tags_includes( tags, other_tags ){
-  tags       = " " + tags.trim() + " ";
-  other_tags = " " + other_tags.trim() + " ";
+  tags       = " " + tags.toLowerCase().trim() + " ";
+  other_tags = " " + other_tags.toLowerCase().trim() + " ";
   if( tags.length < other_tags.length )return false;
   return other_tags.split( " " ).every( function( tag ){
     if( !tag )return true;
@@ -2231,8 +2263,8 @@ function tags_includes( tags, other_tags, proposition ){
     if( tags.indexOf( other_tags[ tag ] ) === -1 ){
       // When an other tag is not found, enable the proposition to tag itself
       if( !proposition
-      || ( other_tags[ tag ].label !== proposition.label
-        && other_tags[ tag ].label !== '#' + proposition.label )
+      || ( other_tags[ tag ].name !== proposition.name
+        && other_tags[ tag ].name !== '#' + proposition.name )
       )return false;
     }
   }
@@ -2292,7 +2324,7 @@ function Tagging( options ){
   var detag_entities = [];
   this.detags.forEach( function( tag ){
     de&&mand( tag.substring( 0, 1 ) === '#' );
-    var tag_entity = ( tag.is_entity && tag ) || Topic.all[ tag ];
+    var tag_entity = ( tag.is_entity && tag ) || Topic.find( tag );
     if( !tag_entity ){
       trace( "Cannot detag, inexistent tag " + tag );
     }else{
@@ -2304,7 +2336,7 @@ function Tagging( options ){
   var tag_entities = [];
   this.tags.forEach( function( tag ){
     de&&mand( tag.substring( 0, 1 ) === '#' );
-    var tag_entity = ( tag.is_entity && tag ) || Topic.all[ tag ];
+    var tag_entity = ( tag.is_entity && tag ) || Topic.find(  tag );
     if( !tag_entity ){
       trace( "On the fly creation of first seen tag " + tag );
       de&&mand( tag.substring( 1 ) === '#' );
@@ -3273,7 +3305,7 @@ function bootstrap(){
   //   ex: e( Vote, e( Persona, "@jhr"), Topic, "Hulot president" );
   //   ex: e( Vote, Persona, @jhr, e( Topic, "Hulot president" ) );
     if( arguments.length === 1 && type && type.is_entity )return entity = type;
-    if( arguments.length === 2 )return entity = type.all[ key ];
+    if( arguments.length === 2 )return entity = type.find( key );
     var id = "";
     var ii = 1;
     while( ii < arguments.length ){
@@ -3281,11 +3313,11 @@ function bootstrap(){
         id += "." + arguments[ ii ].id;
         ii += 1;
       }else{
-        id += "." + (arguments[ ii ].all)[ arguments[ ii + 1 ] ].id;
+        id += "." + arguments[ ii ].find( arguments[ ii + 1 ] ).id;
         ii += 2;
       }
     }
-    return entity = type.all[ id.substring( 1 ) ];
+    return entity = type.find( id.substring( 1 ) );
   }
 
   // This bootstrap is also the test suite...., a() is assert()
@@ -3670,7 +3702,7 @@ var input = l8.Task( function( question ){ this
       if( more ){ data += " " + more; }
       more = PendingResponse.query.input5;
       if( more ){ data += " " + more; }
-      return data;
+      return data.substring( 0, 140 );
     }
     input( question );
   } );
@@ -3972,12 +4004,10 @@ function vote_menu( vote, proposition, orientation ){
 
 function page_visitor( page_name, name, verb, filter ){
 // The private page of a persona
-  var persona = (name && Persona.all[ name ] ) || http_repl_visitor;
+  var persona = ( name && Persona.find( name ) ) || http_repl_visitor;
   if( !persona )return [ _, "Persona not found: " + name ];
 
-  if( verb === "Search" ){
-    filter = sanitize_filter( filter );
-  }
+  filter = sanitize_filter( filter );
 
   // Header
   var r = [
@@ -4044,12 +4074,10 @@ function page_visitor( page_name, name, verb, filter ){
 
 function page_persona( page_name, name, verb, filter ){
 // This is the "public" aspect of a persona
-  var persona = Persona.all[ name ];
+  var persona = Persona.find( name );
   if( !persona )return [ _, "Persona not found: " + name ];
 
-  if( verb === "Search" ){
-    sanitize_filter( filter );
-  }
+  sanitize_filter( filter );
 
   // Header
   var r = [
@@ -4114,7 +4142,7 @@ function page_persona( page_name, name, verb, filter ){
 
 function page_delegations( page_name, name ){
   var r = [ page_style(), null ];
-  var persona = Persona.all[ name ];
+  var persona = Persona.find( name );
   if( !persona ){
     r[1] = "Persona not found: " + name;
     return r;
@@ -4125,7 +4153,7 @@ function page_delegations( page_name, name ){
 
 function page_groups( page_name, name ){
   var r = [ page_style(), null ];
-  var persona = Persona.all[ name ];
+  var persona = Persona.find( name );
   if( !persona ){
     r[1] = "Persona not found: " + name;
     return r;
@@ -4138,7 +4166,7 @@ function page_groups( page_name, name ){
 function sanitize_filter( filter ){
   if( filter ){
     // Sanitize
-    http_repl_filter = filter.replace( /[^#a-z0-9_ ]/g, "" );
+    http_repl_filter = filter.replace( /[^#A-Za-z0-9_ ]/g, "" );
     if( http_repl_filter === "all" ){
       http_repl_filter = "";
     }
@@ -4259,7 +4287,7 @@ function page_login( page_name ){
     '<label>Your twitter @name</label> ',
     '<input type="hidden" name="input" maxlength="30" value="login"/>',
     '<input type="text" name="input2"/>',
-    '<input type="submit" value="Login"/>',
+    ' <input type="submit" value="Login"/>',
     '</form>\n'
   ].join( "" ) );
   buf.push(  "<br>" + page_footer() );
@@ -4375,7 +4403,7 @@ function time_label( time, with_gmt ){
 function page_proposition( page_name, name ){
 // Focus on one proposition
 
-  var proposition = Topic.all[ name ];
+  var proposition = Topic.find( name );
   if( !proposition )return [ _, "Proposition not found: " + name ];
   var result = proposition.result;
 
@@ -4683,11 +4711,11 @@ vote.extend( http_repl_commands, {
 
   login: function( name ){
     if( name.length < 3 )return redirect( "login" );
-    name = name.toLowerCase().trim().replace( /[^a-z0-9_]/g, "" );
+    name = name.trim().replace( /[^A-Za-z0-9_]/g, "" );
     if( name[0] !== "@" ){ name = "@" + name };
-    if( !( http_repl_visitor = Persona.all[ name ] ) ){
+    if( !( http_repl_visitor = Persona.find( name ) ) ){
       Ephemeral.inject( "Persona", { label: name } );
-      http_repl_visitor = Persona.all[ name ];
+      http_repl_visitor = Persona.find( name );
     }
     http_repl_filter = "";
     return redirect( "visitor" );
@@ -4697,28 +4725,31 @@ vote.extend( http_repl_commands, {
   change_proposition: function(){
     redirect_back();
     // Sanitize, extract tags, turn whole text into valid potential tag itself
-    var text = Array.prototype.slice.call( arguments ).join( " " ).toLowerCase();
+    var text = Array.prototype.slice.call( arguments ).join( " " );
     // Could be a search or a propose coming from page_propositions
-    if( text.indexOf( "propose " ) === 0 ){
+    if( text.toLowerCase().indexOf( "propose " ) === 0 ){
       text = text.substring( "propose ".length );
-    }else if( text.indexOf( "search" ) === 0 ){
+    }else if( text.toLowerCase().indexOf( "search" ) === 0 ){
       text = text.substring( "search".length );
       // Add # prefix where missing
       text = text
-      .replace( /[^a-z0-9_ ]/g, "" )
+      .replace( /[^A-Za-z0-9_ ]/g, "" )
       .replace( /[^ ]+/g, function( m ){
         return m[0] === '#' ? m : '#' + m;
       });
       http_repl_filter = text;
       return;
     }
-    var tags = [ "#" + (http_repl_visitor && http_repl_visitor.label || "@anonymous").substring( 1 ) ];
-    text = text.replace( /#[A-Za-z][_0A-Za-z]*/g, function( tag ){
+    var tags = [ "#"
+      + ( http_repl_visitor && http_repl_visitor.label || "@anonymous" )
+      .substring( 1 )
+    ];
+    text = text.replace( /#[A-Za-z][_0-9A-Za-z]*/g, function( tag ){
       if( tag === "tag ")return "";
-      tags.push( tag.toLowerCase() );
+      tags.push( tag );
       return ""
     } ).replace( /  /g, " " ).trim()
-    .replace( /[^a-z0-9_]/g, "_" );
+    .replace( /[^A-Za-z0-9_]/g, "_" );
     // if nothing remains, use first tag to name the proposition
     if( text.length < 3 ){
       if( ( text = tags[0] ).length < 3 ){
@@ -4732,7 +4763,7 @@ vote.extend( http_repl_commands, {
     var tag_entities = [];
     tags.forEach( function( tag ){
       if( tag.length < 3 )return;
-      var entity = Topic.all[ tag ];
+      var entity = Topic.find( tag );
       if( entity ){
         tag_entities.push( entity );
       }else{
@@ -4740,12 +4771,12 @@ vote.extend( http_repl_commands, {
           Ephemeral.inject( "Topic", { label: tag } );
         });
         changes.push( function(){
-          tag_entities.push( Topic.all[ tag ] );
+          tag_entities.push( Topic.find( tag ) );
         })
       }
     });
     // Creation or addition of tags
-    var proposition = Topic.all[ text ];
+    var proposition = Topic.find( text );
     if( !proposition ){
       changes.push( function(){
         Ephemeral.inject( "Topic", { label: text, tags: tag_entities } );
