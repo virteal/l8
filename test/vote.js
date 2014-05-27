@@ -156,7 +156,10 @@ app.diff = array_diff;
 //var global = this;
 
 var epoch = 0; // 1397247088461; // 2034 is too soon
-function now(){ return l8.now - epoch; }
+function now(){
+  return now.now || l8.now - epoch;
+}
+
 app.now = now;
 var ONE_YEAR   = app.ONE_YEAR   = 365 * 24 * 60 * 60 * 1000;
 var ONE_MONTH  = app.ONE_MONTH  =  31 * 24 * 60 * 60 * 1000;
@@ -1035,6 +1038,8 @@ Change.prototype.process = function(){
     }
     // Remember what is the change currently processed, see Effect constructor
     Change.current = this;
+    // Freeze time until next change
+    now.now = this.p.ts;
     return target[ operation ].call( target, this.p );
   }catch( err ){
     trace( "Could not process change", value( this, true ), err, err.stack );
@@ -1491,6 +1496,7 @@ function persist( fn, a_fluid, filter ){
     de&&bug( "End of restore" );
     // restore done. what is now pushed to "changes" gets logged
     restore_done = true;
+    now.now = 0;
     // Log version
     if( Change.version !== Change.versioning ){
       Change.versioning = null;
@@ -1537,6 +1543,7 @@ function start( bootstrap, cb ){
 // Start the "change processor".
 // It replays logged changes and then plays new ones.
 // When there is no log, it bootstraps first.
+  var time_started = l8.update_now();
   if( !cb ){ cb = boxon(); }
   de&&dump_entities();
   // Here is the "change processor"
@@ -1561,11 +1568,11 @@ function start( bootstrap, cb ){
       trace( "Restore error", err );
       // ToDo: handle error, only ENOENT is ok, ie file does not exist
       de&&bug( "Bootstrapping" );
-      var time_started = l8.now;
+      time_started = l8.update_now();
       var step_list = bootstrap();
       step_list.push( function(){
         trace( "Bootstrap duration: "
-          + ( l8.update_now() - time_started)
+          + ( l8.update_now() - time_started )
           + " ms"
         );
       } );
@@ -1581,6 +1588,10 @@ function start( bootstrap, cb ){
     }
     ready( function( err ){
       de&&dump_entities();
+      trace( "Start duration: "
+        + ( l8.update_now() - time_started )
+        + " ms"
+      );
       if( err ){
         CRITICAL( "Cannot proceed, corrupted " + app.store );
         dump_entities();
@@ -1721,7 +1732,7 @@ function Persona( options ){
   this.label            = options.label || options.key;
   this.name             = namize( this.label );
 
-  var persona = this.register( options.label || options.key );
+  var persona = this.register( this.name );
   var water   = this.water( persona );
 
   this.role             = options.role || Persona.individual;
@@ -2033,7 +2044,7 @@ function Topic( options ){
   this.label = options.label;
   this.name  = namize( this.label );
 
-  var topic = this.register(this.name );
+  var topic = this.register( this.name );
   var water = this.water( topic );
   
   this.source       = water( options.source );
@@ -2052,6 +2063,8 @@ function Topic( options ){
     options.propositions.forEach( function( proposition ){
       proposition.add_tag( topic );
     });
+  }else{
+    topic.propositions( [] );
   }
   
   // Let the tags know that a new proposition uses them
@@ -2063,6 +2076,8 @@ function Topic( options ){
       de&&mand( tag.propositions && typeof tag.propositions === "function" );
       tag.add_proposition( topic );
     });
+  }else{
+    topic.tags( [] );
   }
 }
 
@@ -2095,14 +2110,26 @@ Topic.prototype.heat = function(){
   if( age < vote.ONE_MINUTE )return touched;
   if( age < vote.ONE_HOUR   )return touched;
   // Less recently touched topics are hot depending on number of direct votes
-  return this.result.direct();
+  // Less recently touched tags are hot depending on number of propositions
+  return this.is_tag() ? this.propositions().length : this.result.direct();
 };
 
 Topic.prototype.filter_string = function(){
+  var sorted_tags = this.tags().sort( function( a, b ){
+    // Most agreed first
+    var a_rank = a.result.orientation() + a.result.direct();
+    var b_rank = a.result.orientation() + a.result.direct();
+    if( a < b )return -1;
+    if( a > b )return  1;
+    return 0;
+  })
   var buf = [];
-  this.tags().forEach( function( tag ){
+  sorted_tags.forEach( function( tag ){
     buf.push( tag.label );
   });
+  buf = buf.sort( function(){
+
+  })
   return buf.join( " " );
 };
 
@@ -2235,9 +2262,13 @@ Topic.prototype.is_tagged = function( tags ){
 };
 
 Topic.prototype.tags_string = function(){
-  var topic_tags_str = [ "#" + this.label ];
+  var topic_tags_str = this.is_tag() ? [ this.label ] : [ "#" + this.label ];
   var topic_tags = this.tags() || [];
-  topic_tags.forEach( function( tag ){
+  topic_tags = topic_tags
+  .sort( function( a, b ){
+    return a.heat() - b.heat()
+  })
+  .forEach( function( tag ){
     topic_tags_str.push( tag.name );
   });
   return topic_tags_str.join( " " );
@@ -2328,24 +2359,27 @@ function Tagging( options ){
     if( !tag_entity ){
       trace( "Cannot detag, inexistent tag " + tag );
     }else{
-      detag_entities.push( tag_entity );
-      that.proposition.remove_tag( tag_entity );
+      if( detag_entities.indexOf( tag_entity ) === -1 ){
+        detag_entities.push( tag_entity );
+        that.proposition.remove_tag( tag_entity );
+      }
     }
   });
   // Then add tags, this will expand the delegations that apply
   var tag_entities = [];
   this.tags.forEach( function( tag ){
-    de&&mand( tag.substring( 0, 1 ) === '#' );
     var tag_entity = ( tag.is_entity && tag ) || Topic.find(  tag );
     if( !tag_entity ){
       trace( "On the fly creation of first seen tag " + tag );
       de&&mand( tag.substring( 1 ) === '#' );
       tag_entity = Topic.create( { label: tag } );
     }
-    tag_entities.push( tag_entity );
-    that.proposition.add_tag( tag_entity );
+    if( tag_entities.indexOf( tag_entity ) === -1 ){
+      tag_entities.push( tag_entity );
+      that.proposition.add_tag( tag_entity );
+    }
   });
-  // Normalizes, keep entities only, not #strings
+  // Normalizes, keep entities only, no strings, no duplicates
   this.detags = tag_entities;
   this.tags   = tag_entities;
 }
@@ -3571,6 +3605,48 @@ if( de ){
 //Ephemeral.persist( "test/vote.trace.log", Trace.fluid );
 
 /*
+ *  Minimal HTTP session management
+ *    Session is associated to source ip address.
+ *    ToDo: use a cookie
+ */
+
+
+function Session( ip ){
+// Constructor, called by .login() only (except for default local session)
+  // Return existing obj with same ip
+  var session = Session.all[ ip ];
+  if( session )return session;
+  // Or init a new object
+  this.ip            = ip;
+  this.visitor       = null;
+  this.filter        = "";
+  this.current_page  = [];
+  this.previous_page = [];
+  this.proposition   = null;
+  Session.all[ ip ]  = this;
+  return this;
+}
+
+Session.all = {};
+
+// Defaults to local session
+Session.current = new Session( "127.0.0.1" );
+
+Session.prototype.login = function( ip ){
+  if( ip !== Session.current.ip ){
+    Session.current = new Session( ip );
+    return Session.current;
+  }else{
+    return this;
+  }
+}
+
+Session.prototype.is_local = function(){
+  return this.ip === "127.0.0.1";
+}
+
+
+/*
  *  The http REPL (Read, Eval, Print, Loop) is a very simple UI
  *  to test interactively the Vote engine.
  *
@@ -3590,7 +3666,6 @@ var cls = function(){
   screen = [];
   set_head( "" );
   set_body( "" );
-  http_repl_visitor = null;
 };
 
 var print     = function( msg ){
@@ -3684,11 +3759,7 @@ var input = l8.Task( function( question ){ this
     || req.connection.remoteAddress
     || req.socket.remoteAddress
     || req.connection.socket.remoteAddress;
-    if( ip !== http_repl_ip ){
-      http_repl_visitor = null;
-      http_repl_filter  = "";
-      http_repl_ip      = ip;
-    }
+    Session.current.login( ip );
     PendingResponse = res;
     PendingResponse.request = req;
     PendingResponse.query = url.parse( req.url, true).query
@@ -3708,6 +3779,16 @@ var input = l8.Task( function( question ){ this
   } );
 } );
 
+/*
+ *  Test UI is made of pages.
+ *
+ *  Each page is a function that returns an array of two elements. The
+ *  first element is to become the "head" of the HTML response, the second
+ *  element is the body.
+ *  Note: this is currently purely sync but moving to async will be simple to
+ *  do when required.
+ */
+
 var http_repl_pages = {
   index:        page_index,
   help:         page_help,
@@ -3717,10 +3798,43 @@ var http_repl_pages = {
   delegations:  page_delegations,
   groups:       page_groups,
   proposition:  page_proposition,
-  propositions: page_propositions
+  propositions: page_propositions,
+  tags:         page_propositions
+};
+
+function page( name ){
+  var f = name && http_repl_pages[ name ];
+  // No name => list names
+  if( !f ){
+    for( name in http_repl_pages ){
+      printnl( name );
+    }
+    return;
+  }
+  var head = null;;
+  var body = null;
+  var result;
+  try{
+    result = f.apply( this, arguments );
+    head = result[ 0 ];
+    body = result[ 1 ];
+    if( Array.isArray( head ) ){
+      head = head.join( "" );
+    }
+    if( Array.isArray( body ) ){
+      body = body.join( "" );
+    }
+    Session.current.previous_page = Session.current.current_page;
+    Session.current.current_page  = Array.prototype.slice.call( arguments );
+  }catch( err  ){
+    trace( "Page error", name, err, err.stack );
+  }
+  set_head( head );
+  set_body( body );
 };
 
 function redirect( page ){
+// Set HTTP response to 302 redirect, to redirect to specified page
   if( !PendingResponse )return;
   if( !page ){ page = "index"; }
   page = page.replace( / /g, "%20" );
@@ -3728,15 +3842,15 @@ function redirect( page ){
 }
 
 function redirect_back(){
-  if( !http_repl_current_page )return redirect( "propositions" );
-  redirect( http_repl_current_page.join( "%20" ) );
+// Set HTTP response to 302 redirect, to redirect to the page from where the
+// current HTTP request is coming.
+  if( !Session.current.current_page )return redirect( "propositions" );
+  redirect( Session.current.current_page.join( "%20" ) );
 }
 
-var http_repl_ip      = null;
-var http_repl_visitor = null;
-var http_repl_filter  = "";
-var http_repl_current_page; // arguments to function page()
-var http_repl_previous_page;
+/*
+ *  <a href="...">links</a>
+ */
 
 function link_to_command( cmd ){
   var url_code = querystring.escape( cmd );
@@ -3785,48 +3899,28 @@ function link_to_twitter_filter( query ){
   + '">' + query + '</a>';
 }
 
-function page( name ){
-  var f = name && http_repl_pages[ name ];
-  // No name => list names
-  if( !f ){
-    for( name in http_repl_pages ){
-      printnl( name );
-    }
-    return;
-  }
-  var head = null;;
-  var body = null;
-  var result;
-  try{
-    result = f.apply( this, arguments );
-    head = result[ 0 ];
-    body = result[ 1 ];
-    if( Array.isArray( head ) ){
-      head = head.join( "" );
-    }
-    if( Array.isArray( body ) ){
-      body = body.join( "" );
-    }
-    http_repl_previous_page = http_repl_current_page;
-    http_repl_current_page  = Array.prototype.slice.call( arguments );
-  }catch( err  ){
-    trace( "Page error", name, err, err.stack );
-  }
-  set_head( head );
-  set_body( body );
-};
+
+/*
+ *  Page common elements/parts
+ */
+
 
 function page_style(){
   return '<link rel="stylesheet" href="http://simpliwiki.com/simpliwiki.css" type="text/css">';
 }
 
+
 function page_header( left, center, right ){
   if( !left ){
     left = link_to_page( "index" );
   }
-  if( http_repl_visitor ){
+  if( Session.current.visitor ){
     right = ( (right && (right + " ")) || "" )
-    + link_to_page( http_repl_visitor.label, "visitor",  http_repl_visitor.label );
+    + link_to_page(
+      Session.current.visitor.label,
+      "visitor",
+      Session.current.visitor.label
+    );
   }else{
     right = ( (right && (right + " ")) || "" )
       + link_to_page( "login" );
@@ -3851,7 +3945,8 @@ function page_header( left, center, right ){
 function page_footer(){
   return [
     '\n</div></div></div><div class="fade" id="footer"><div id="footer_content">',
-    link_to_page( "propositions", "all" ),
+    link_to_page( "propositions", "", "propositions" ), " ",
+    link_to_page( "tags", "", "tags" ),
     '<div id="powered"><a href="https://github.com/virteal/kudocracy">',
     '<img src="http://simpliwiki.com/yanugred16.png"/>',
     '<strong>kudo<em>c</em>racy</strong>',
@@ -3862,7 +3957,7 @@ function page_footer(){
 }
 
 function page_index(){
-  http_repl_visitor = null;
+  Session.current.visitor = null;
   return [ '<link rel="stylesheet" href="http://simpliwiki.com/style.css" type="text/css">',
   [
     '<img src="http://simpliwiki.com/alpha.gif" type="img/gif" style="position:absolute; top:0; right:0;"></img>',
@@ -3910,8 +4005,8 @@ function page_help(){
     page_header(
       _,
       link_to_twitter_tags( "#kudocracy" ),
-      http_repl_visitor
-        ? link_to_page( http_repl_visitor.label, "visitor", "vote!" )
+      Session.current.visitor
+        ? link_to_page( Session.current.visitor.label, "visitor", "vote!" )
         : link_to_page( "login" )
     ),
     '<h2>What is it?</h2><br>',
@@ -3979,11 +4074,15 @@ function vote_menu( vote, proposition, orientation ){
     '\n<form name="vote" url="/">',
     '<input type="hidden" name="input" value="change_vote"/>',
     '<input type="hidden" name="vote_id" value="' + vote_id + '"/>',
+    '<select name="orientation">',
+    o( "orientation" ), o( "agree"), o( "disagree" ), o( "protest" ), o( "blank" ), o( "delete" ),
+    '</select>',
     '<select name="privacy">',
     o( "privacy" ), o( "public"), o( "secret" ), o( "private" ),
     '</select>',
-    '<select name="orientation">',
-    o( "orientation" ), o( "agree"), o( "disagree" ), o( "protest" ), o( "blank" ), o( "delete" ),
+    '<select name="duration">',
+    o( "duration" ), o( "one year"), o( "one month" ), o( "one week" ),
+    o( "24 hours" ), o( "one hour"),
     '</select>',
     '<input type="submit" value="Vote"/>',
     '</form>\n',
@@ -4004,7 +4103,7 @@ function vote_menu( vote, proposition, orientation ){
 
 function page_visitor( page_name, name, verb, filter ){
 // The private page of a persona
-  var persona = ( name && Persona.find( name ) ) || http_repl_visitor;
+  var persona = ( name && Persona.find( name ) ) || Session.current.visitor;
   if( !persona )return [ _, "Persona not found: " + name ];
 
   filter = sanitize_filter( filter );
@@ -4023,7 +4122,7 @@ function page_visitor( page_name, name, verb, filter ){
   buf.push( '<h1>' + persona.label + '</h1><br><br>' );
 
   // Query to filter for tags
-  buf.push( filter_label( filter ) );
+  buf.push( filter_label( filter, "propositions" ) );
   buf.push( [
     '\n<form name="proposition" url="/">',
     '<input type="hidden" name="input" maxlength="140" value="page visitor ' + persona.label + '"/>',
@@ -4085,7 +4184,7 @@ function page_persona( page_name, name, verb, filter ){
     [ page_header(
       _,
       link_to_twitter_user( persona.label ),
-      http_repl_visitor
+      Session.current.visitor
       ? link_to_page( persona.label, "visitor", "vote!" )
       : ""
     ) ]
@@ -4101,7 +4200,7 @@ function page_persona( page_name, name, verb, filter ){
     + 'Follow ' + persona.label + '</a>'
   );
 
-  // Query to filter for tags
+  // Query to filter for tags in persona's vote
   buf.push( filter_label( filter ) );
   buf.push( [
     '\n<form name="proposition" url="/">',
@@ -4116,8 +4215,8 @@ function page_persona( page_name, name, verb, filter ){
   buf.push( '<br><br><div><h2>Votes</h2><br>' );
   //buf.push( "<ol>" );
   votes.forEach( function( vote ){
-    if( http_repl_filter.length ){
-      if( !vote.proposition.is_tagged( http_repl_filter ) )return;
+    if( Session.current.filter.length ){
+      if( !vote.proposition.is_tagged( Session.current.filter ) )return;
     }
     buf.push( '<br>' ); // "<li>" );
     if( vote.is_private() ){
@@ -4166,12 +4265,12 @@ function page_groups( page_name, name ){
 function sanitize_filter( filter ){
   if( filter ){
     // Sanitize
-    http_repl_filter = filter.replace( /[^#A-Za-z0-9_ ]/g, "" );
-    if( http_repl_filter === "all" ){
-      http_repl_filter = "";
+    Session.current.filter = filter.replace( /[^#A-Za-z0-9_ ]/g, "" );
+    if( Session.current.filter === "all" ){
+      Session.current.filter = "";
     }
   }
-  return http_repl_filter;
+  return Session.current.filter;
 }
 
 function filter_label( filter, page ){
@@ -4189,6 +4288,8 @@ function filter_label( filter, page ){
 
 function page_propositions( page_name, filter ){
 
+  var tag_page = page_name === "tags";
+
   sanitize_filter( filter );
 
   // Header
@@ -4196,24 +4297,25 @@ function page_propositions( page_name, filter ){
     page_style(),
     [ page_header(
       _,
-      http_repl_filter.length
-      ? link_to_twitter_tags( http_repl_filter )
+      Session.current.filter.length
+      ? link_to_twitter_tags( Session.current.filter )
       : link_to_twitter_tags(
-        "#vote #election #participation #kudocracy"
+        "#vote #kudocracy"
       ),
-      _
+      link_to_page( tag_page ? "propositions" : "tags" )
     ) ]
   ];
   var buf = [];
 
-  if( http_repl_filter ){
-    buf.push( '<h1>' + http_repl_filter + '</h1><br><br>' );
+  buf.push( tag_page ? "<br><h3>Tags</h3> " : "<br><h3>Propositions</h3> " );
+  if( Session.current.filter ){
+    buf.push( 'tagged <h1>' + Session.current.filter + '</h1><br><br>' );
   }
 
   // Twitter tweet button
   buf.push( '<a href="https://twitter.com/intent/tweet?button_hashtag=kudocracy'
       + '&hashtags=vote,'
-      + http_repl_filter.replace( / /g, "," ).replace( /#/g, "" )
+      + Session.current.filter.replace( / /g, "," ).replace( /#/g, "" )
       + '&text=new%20democracy" '
       + 'class="twitter-hashtag-button" '
       + 'data-related="Kudocracy,vote">Tweet #kudocracy</a>'
@@ -4229,7 +4331,7 @@ function page_propositions( page_name, filter ){
     '</form>\n'
   ].join( "" ) );
 
-  // Display list of matching propositions
+  // Display list of matching propositions or tags
   var propositions = Topic.all;
   var list = [];
   var attr;
@@ -4237,29 +4339,48 @@ function page_propositions( page_name, filter ){
   for( attr in propositions ){
     prop = propositions[ attr ];
     if( !prop )continue;
-    if( prop.is_tag() )continue;
-    if( http_repl_filter.length ){
-      if( !prop.is_tagged( http_repl_filter ) )continue;
+    if( prop.is_tag() ){
+      if( !tag_page )continue;
+    }else{
+      if( tag_page )continue;
+    }
+    if( Session.current.filter.length ){
+      if( !prop.is_tagged( Session.current.filter ) )continue;
     }
     list.push( prop );
   }
   list = list.sort( function( a, b ){
+    // The last consulted proposition is hot
+    if( a === Session.current.proposition )return -1;
+    if( b === Session.current.proposition )return 1;
+    // Other proposition's heat rule
     return b.heat() - a.heat()
   });
   list.forEach( function( proposition ){
-    buf.push( '<br><h3>' + link_to_page( "proposition", proposition.label ) + '</h3>' );
+    var text = proposition.label;
+    if( tag_page ){
+      text += " is a good tag";
+    }
+    buf.push( '<br><h3>' + link_to_page( "proposition", text ) + '</h3>' );
     if( proposition.result.orientation() ){
       buf.push( ' <em>' + proposition.result.orientation() + '</em>' );
     }
     buf.push( '<br>' );
     proposition.tags_string().split( " " ).forEach( function( tag ){
       if( !tag )return;
-      buf.push( link_to_page( "propositions", tag ) + " " );
+      buf.push( link_to_page( page_name, tag ) + " " );
     });
     //buf.push( '<small>' + link_to_twitter_tags( proposition.tags_string() + '</small><br>' ) );
     buf.push( '<br>' + proposition_summary( proposition.result ) + '<br>' );
-    if( http_repl_visitor ){
-      buf.push( vote_menu( http_repl_visitor, proposition, proposition.result.orientation() ) );
+
+    if( tag_page ){
+      buf.push( "" + proposition.propositions().length + " "
+        + link_to_page( "propositions", proposition.label, "propositions" ) + "<br>"
+      )
+    }
+
+    if( Session.current.visitor ){
+      buf.push( vote_menu( Session.current.visitor, proposition, proposition.result.orientation() ) );
       buf.push( '<br>' );
     }
   });
@@ -4271,6 +4392,8 @@ function page_propositions( page_name, filter ){
 
 
 function page_login( page_name ){
+
+  // Header
   var r = [
     page_style(),
     [ page_header(
@@ -4281,6 +4404,7 @@ function page_login( page_name ){
       _ ) ]
   ];
   var buf = [];
+
   // Query for name
   buf.push( [
     '\n<form name="login" url="/">',
@@ -4293,7 +4417,9 @@ function page_login( page_name ){
   buf.push(  "<br>" + page_footer() );
   r[1] = r[1].concat( buf );
   return r;
+
 }
+
 
 function proposition_summary( result, div ){
   var buf = [];
@@ -4405,37 +4531,56 @@ function page_proposition( page_name, name ){
 
   var proposition = Topic.find( name );
   if( !proposition )return [ _, "Proposition not found: " + name ];
+  Session.current.proposition = proposition;
   var result = proposition.result;
+
+  var is_tag = proposition.is_tag();
+  var tag_label;
+  var label;
+  if( is_tag ){
+    tag_label = proposition.label;
+    label = tag_label.substring( 1 );
+  }else{
+    label = proposition.label;
+    tag_label = "#" + label;
+  }
 
   // Header
   var r = [
     page_style(),
     [ page_header(
       _,
-      link_to_twitter_filter( "#" + proposition.label ),
-      link_to_page( "propositions" )
+      link_to_twitter_filter( tag_label )
+      //link_to_page( "propositions" )
     ) ]
   ];
   var buf = [];
 
-  buf.push( '<h1>' + proposition.label + '</h1><br><br>' );
+  buf.push( '<h1>' + (is_tag ? "Tag " : "" )
+  + proposition.label + '</h1><br><br>' );
 
-  // Twitter tweet button
-  buf.push( '<a href="https://twitter.com/intent/tweet?button_hashtag='
-    + proposition.label
+  // Twitter tweet button, if proposition
+  !is_tag && buf.push( '<a href="https://twitter.com/intent/tweet?button_hashtag='
+    + label
     + '&hashtags=kudocracy,vote,'
     + proposition.tags_string().replace( / /g, "," ).replace( /#/g, "")
     + '&text=new%20democracy" '
     + 'class="twitter-hashtag-button" '
-    + 'data-related="Kudocracy,vote">Tweet ' + proposition.label + '</a>'
+    + 'data-related="Kudocracy,vote">Tweet ' + label + '</a>'
   );
 
   // Summary
   buf.push( '<br><br>' + proposition_summary( result, "div" ) + '<br>' );
 
-  // List of tags
+  if( is_tag ){
+    buf.push( "<br>" + proposition.propositions().length + " "
+      + link_to_page( "propositions", label, "propositions" ) + "<br>"
+    )
+  }
+
+  // List of tags, with link to propositions
   var tmp = proposition.filter_string();
-  buf.push( filter_label( tmp ) );
+  buf.push( filter_label( tmp, "propositions" ) );
 
   if( tmp = proposition.source() ){
     if( tmp.indexOf( "://" ) !== -1 ){
@@ -4443,10 +4588,10 @@ function page_proposition( page_name, name ){
     }
     buf.push( "<br>source " + tmp );
   }
-  buf.push( " " + time_label( proposition.timestamp ) );
+  buf.push( "<br>since " + time_label( proposition.timestamp ) );
   //buf.push( "<br>age " + duration_label( proposition.age() ) );
-  buf.push( "<br>change " + time_label( proposition.time_touched ) );
-  buf.push( ", end in " + duration_label( proposition.expire() - vote.now() ) );
+  buf.push( "<br>last change " + time_label( proposition.time_touched ) );
+  buf.push( "<br>end in " + duration_label( proposition.expire() - vote.now() ) );
 
   // Votes
   var votes = proposition.votes_log() || [];
@@ -4471,8 +4616,8 @@ function page_proposition( page_name, name ){
   buf.push( "</div><br>" );
 
   // Vote menu
-  if( http_repl_visitor ){
-    buf.push( vote_menu( http_repl_visitor, proposition ) );
+  if( Session.current.visitor ){
+    buf.push( vote_menu( Session.current.visitor, proposition ) );
     buf.push( "<br><br>" );
   }
 
@@ -4482,6 +4627,9 @@ function page_proposition( page_name, name ){
   return r;
 }
 
+/*
+ *  The REPL Read Eval Print Loop commands of this Test/Debug UI
+ */
 
 var http_repl_commands = {};
 
@@ -4574,7 +4722,7 @@ vote.extend( http_repl_commands, {
           for( var item in entities ){
             list.push( entities[ item ] );
           }
-          if( !list.all ){
+          if( !list.length ){
             vote.AllEntities.forEach( function( item ){
               if( item.type === found ){
                 list.push( item );
@@ -4690,6 +4838,7 @@ vote.extend( http_repl_commands, {
     }
     // ToDo: inject change
     if( proposition ){
+      Session.current.proposition = proposition;
       Ephemeral.inject( "Vote", {
         persona:     entity,
         proposition: proposition,
@@ -4713,11 +4862,11 @@ vote.extend( http_repl_commands, {
     if( name.length < 3 )return redirect( "login" );
     name = name.trim().replace( /[^A-Za-z0-9_]/g, "" );
     if( name[0] !== "@" ){ name = "@" + name };
-    if( !( http_repl_visitor = Persona.find( name ) ) ){
+    if( !( Session.current.visitor = Persona.find( name ) ) ){
       Ephemeral.inject( "Persona", { label: name } );
-      http_repl_visitor = Persona.find( name );
+      Session.current.visitor = Persona.find( name );
     }
-    http_repl_filter = "";
+    Session.current.filter = "";
     return redirect( "visitor" );
   },
 
@@ -4737,11 +4886,11 @@ vote.extend( http_repl_commands, {
       .replace( /[^ ]+/g, function( m ){
         return m[0] === '#' ? m : '#' + m;
       });
-      http_repl_filter = text;
+      Session.current.filter = text;
       return;
     }
     var tags = [ "#"
-      + ( http_repl_visitor && http_repl_visitor.label || "@anonymous" )
+      + ( Session.current.visitor && Session.current.visitor.label || "@anonymous" )
       .substring( 1 )
     ];
     text = text.replace( /#[A-Za-z][_0-9A-Za-z]*/g, function( tag ){
@@ -4756,8 +4905,10 @@ vote.extend( http_repl_commands, {
         printnl( "Not a valid proposition name" );
         return;
       }
-      // Remove #
-      text = text.substring( 1 );
+      // Remove first # unless coming from the tags page
+      if( !Session.current.current_page[0] === "tags" ){
+        text = text.substring( 1 );
+      }
     }
     var changes = [];
     var tag_entities = [];
@@ -4787,6 +4938,7 @@ vote.extend( http_repl_commands, {
       });
     }
     Ephemeral.inject( changes );
+    Session.current.proposition = proposition || Topic.find( text );
   },
 
   debugger: function( e, e2, e3, e4 ){
