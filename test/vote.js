@@ -2115,7 +2115,8 @@ Topic.prototype.heat = function(){
 };
 
 Topic.prototype.filter_string = function(){
-  var sorted_tags = this.tags().sort( function( a, b ){
+  var tags = this.tags() || [];
+  var sorted_tags = tags.sort( function( a, b ){
     // Most agreed first
     var a_rank = a.result.orientation() + a.result.direct();
     var b_rank = a.result.orientation() + a.result.direct();
@@ -2127,11 +2128,29 @@ Topic.prototype.filter_string = function(){
   sorted_tags.forEach( function( tag ){
     buf.push( tag.label );
   });
-  buf = buf.sort( function(){
-
-  })
-  return buf.join( " " );
+  return buf.join( " " ) + this.computed_tags();
 };
+
+Topic.prototype.computed_tags = function(){
+  var buf = [];
+  // Computed tags
+  if( this.is_tag() ){
+    buf.push( '#tag' )
+  }
+  if( this.age() < vote.ONE_WEEK ){
+    buf.push( "#recent" );
+  }
+  if( this.expire() < vote.now() + vote.ONE_WEEK ){
+    buf.push( "#fade" );
+  }
+  if( this.result.orientation() === Vote.protest ){
+    buf.push( "#protest" );
+  }
+  // ToDo: #hot, not an easy one
+  if( !buf.length )return "";
+  return " " + buf.join( " " );
+};
+
 
 Topic.prototype.add_vote = function( v ){
   this.log_vote( v );
@@ -2271,7 +2290,7 @@ Topic.prototype.tags_string = function(){
   .forEach( function( tag ){
     topic_tags_str.push( tag.name );
   });
-  return topic_tags_str.join( " " );
+  return topic_tags_str.join( " " ) + this.computed_tags();
 };
 
 function string_tags_includes( tags, other_tags ){
@@ -3645,6 +3664,34 @@ Session.prototype.is_local = function(){
   return this.ip === "127.0.0.1";
 }
 
+Session.prototype.has_filter = function(){
+  return !!this.filter.length;
+}
+
+Session.prototype.filter_tags = function(){
+// Return , separated list of tags extracted from filter
+  return this.filter.replace( / /g, "," ).replace( /#/g, "" )
+}
+
+Session.prototype.set_filter = function( text ){
+  if( text ){
+    // Sanitize
+    this.filter = text.replace( /[^A-Za-z0-9_ ]/g, "" );
+    if( this.filter === "all" ){
+      this.filter = "";
+    }else if( this.filter.length ){
+      var buf = [];
+      this.filter.split( " " ).forEach( function( tag ){
+        if( tag.length >= 2 ){
+          buf.push( '#' + tag );
+        }
+      });
+      this.filter = buf.join( " " );
+    }
+  }
+  return this.filter;
+}
+
 
 /*
  *  The http REPL (Read, Eval, Print, Loop) is a very simple UI
@@ -3976,7 +4023,7 @@ function page_index(){
         '<span id="tagline">',
         '<h3 id="tagline">',
           link_to_twitter_tags(
-            "#democracy #vote #election #liqdem #LiquidDemocracy #participation"
+            "#democracy #vote #election #LiquidDemocracy #participation"
           ),
         '</h3>',
         //'<small><i>a tribute to <a href="http://wikipedia.org">Wikipedia</a></i></small>',
@@ -3986,15 +4033,18 @@ function page_index(){
     '<div id="footer" class="sw_footer sw_boxed">',
     '\n<form name="proposition" url="/">',
     '<input type="hidden" name="input" maxlength="140" value="page propositions"/>',
-    '<input type="text" placeholder="all" name="input2"/>',
+    '<input type="search" placeholder="all" name="input2"/>',
     ' <input type="submit" value="propositions?"/>',
     '</form>\n',
     '</div>',
     '<br><a href="https://twitter.com/intent/tweet?button_hashtag=kudocracy&hashtags=vote&text=new%20democracy" class="twitter-hashtag-button" data-related="Kudocracy,vote">Tweet #kudocracy</a>',
     ' <a href="https://twitter.com/Kudocracy" class="twitter-follow-button" data-show-count="true">Follow @Kudocracy</a>',
-    '<div><div><div>' + page_footer()
+    // Twitter buttons
+    '<script>!function(d,s,id){var js,fjs=d.getElementsByTagName(s)[0],p=/^http:/.test(d.location)?"http":"https";if(!d.getElementById(id)){js=d.createElement(s);js.id=id;js.src=p+"://platform.twitter.com/widgets.js";fjs.parentNode.insertBefore(js,fjs);}}(document, "script", "twitter-wjs");</script>',
+    //'<div><div><div>' + page_footer()
   ].join( "" ) ];
 }
+
 
 function page_help(){
   var r = [
@@ -4007,7 +4057,7 @@ function page_help(){
       link_to_twitter_tags( "#kudocracy" ),
       Session.current.visitor
         ? link_to_page( Session.current.visitor.label, "visitor", "vote!" )
-        : link_to_page( "login" )
+        : _
     ),
     '<h2>What is it?</h2><br>',
     'An experimental voting system where people can like/dislike hashtags.',
@@ -4106,7 +4156,7 @@ function page_visitor( page_name, name, verb, filter ){
   var persona = ( name && Persona.find( name ) ) || Session.current.visitor;
   if( !persona )return [ _, "Persona not found: " + name ];
 
-  filter = sanitize_filter( filter );
+  filter = Session.current.set_filter( filter );
 
   // Header
   var r = [
@@ -4126,7 +4176,9 @@ function page_visitor( page_name, name, verb, filter ){
   buf.push( [
     '\n<form name="proposition" url="/">',
     '<input type="hidden" name="input" maxlength="140" value="page visitor ' + persona.label + '"/>',
-    '<input type="text" placeholder="all" name="input3"/>',
+    '<input type="search" placeholder="all" name="input3" value="',
+      Session.current.filter,
+    '"/>',
     '<input type="submit" name="input2" value="Search"/>',
     '</form><br>\n'
   ].join( "" ) );
@@ -4137,9 +4189,9 @@ function page_visitor( page_name, name, verb, filter ){
   votes.forEach( function( vote ){
     buf.push( '<br><br>'
       + ' ' + link_to_page( "proposition", vote.proposition.label ) + ' '
-      + "<dfn>" + vote.proposition.result.orientation() + '</dfn>'
-      + '<br>' + vote.privacy() + " "
-      + '<em>' + vote.orientation() + "</em> "
+      //+ "<dfn>" + emojied( vote.proposition.result.orientation() ) + '</dfn>'
+      + '<br><em>' + emojied( vote.orientation() ) + "</em> "
+      + vote.privacy() + " "
       + ( vote.is_direct()
         ? ""
         :  "<dfn>(via " + link_to_page( "persona", vote.delegation().agent.label ) + ")</dfn> " )
@@ -4176,7 +4228,7 @@ function page_persona( page_name, name, verb, filter ){
   var persona = Persona.find( name );
   if( !persona )return [ _, "Persona not found: " + name ];
 
-  sanitize_filter( filter );
+  filter = Session.current.set_filter( filter );
 
   // Header
   var r = [
@@ -4205,7 +4257,9 @@ function page_persona( page_name, name, verb, filter ){
   buf.push( [
     '\n<form name="proposition" url="/">',
     '<input type="hidden" name="input" maxlength="140" value="page persona ' + persona.label + '"/>',
-    '<input type="text" placeholder="all" name="input3"/>',
+    '<input type="search" placeholder="all" name="input3" value="',
+      Session.current.filter,
+    '"/>',
     '<input type="submit" name="input2" value="Search"/>',
     '</form>\n'
   ].join( "" ) );
@@ -4223,9 +4277,11 @@ function page_persona( page_name, name, verb, filter ){
       buf.push( "private" );
     }else{
       buf.push( ''
-        +  ( vote.is_secret() ? "secret" : "<em>" + vote.orientation() ) + "</em> "
+        +  ( vote.is_secret()
+          ? "secret"
+          : "<em>" + emojied( vote.orientation() ) ) + "</em> "
         + '' + link_to_page( "proposition", vote.proposition.label ) + ' '
-        + " <dfn>" + vote.proposition.result.orientation() + "</dfn> "
+        //+ " <dfn>" + emojied( vote.proposition.result.orientation() ) + "</dfn> "
         + time_label( vote.proposition.result.time_touched )
       );
     }
@@ -4262,17 +4318,6 @@ function page_groups( page_name, name ){
 }
 
 
-function sanitize_filter( filter ){
-  if( filter ){
-    // Sanitize
-    Session.current.filter = filter.replace( /[^#A-Za-z0-9_ ]/g, "" );
-    if( Session.current.filter === "all" ){
-      Session.current.filter = "";
-    }
-  }
-  return Session.current.filter;
-}
-
 function filter_label( filter, page ){
   var buf = [];
   if( filter ){
@@ -4287,17 +4332,19 @@ function filter_label( filter, page ){
 
 
 function page_propositions( page_name, filter ){
+// This is the main page of the application, either a list of tags or
+// propositions, filtered.
 
   var tag_page = page_name === "tags";
 
-  sanitize_filter( filter );
+  filter = Session.current.set_filter( filter );
 
   // Header
   var r = [
     page_style(),
     [ page_header(
       _,
-      Session.current.filter.length
+      Session.current.has_filter()
       ? link_to_twitter_tags( Session.current.filter )
       : link_to_twitter_tags(
         "#vote #kudocracy"
@@ -4307,25 +4354,29 @@ function page_propositions( page_name, filter ){
   ];
   var buf = [];
 
-  buf.push( tag_page ? "<br><h3>Tags</h3> " : "<br><h3>Propositions</h3> " );
-  if( Session.current.filter ){
-    buf.push( 'tagged <h1>' + Session.current.filter + '</h1><br><br>' );
+  buf.push( tag_page ? "<br><h3>Tags</h3>" : "<br><h3>Propositions</h3>" );
+  if( Session.current.has_filter() ){
+    buf.push( ' tagged <h1>' + Session.current.filter + '</h1><br><br>' );
   }
 
-  // Twitter tweet button
-  buf.push( '<a href="https://twitter.com/intent/tweet?button_hashtag=kudocracy'
+  // Twitter tweet button, to tweet about the filter
+  if( Session.current.has_filter() ){
+    buf.push( '<a href="https://twitter.com/intent/tweet?button_hashtag=kudocracy'
       + '&hashtags=vote,'
-      + Session.current.filter.replace( / /g, "," ).replace( /#/g, "" )
+      + Session.current.filter_tags()
       + '&text=new%20democracy" '
       + 'class="twitter-hashtag-button" '
       + 'data-related="Kudocracy,vote">Tweet #kudocracy</a>'
-  );
+    );
+  }
 
   // Query to search for tags or create a proposition
   buf.push( [
     '\n<form name="proposition" url="/">',
     '<input type="hidden" name="input" maxlength="140" value="change_proposition"/>',
-    '<input type="text" placeholder="all" name="input3"/>',
+    '<input type="search" placeholder="all" name="input3" value="',
+      Session.current.filter,
+    '"/>',
     ' <input type="submit" name="input2" value="Search"/>',
     ' <input type="submit" name="input2" value="Propose"/>',
     '</form>\n'
@@ -4362,9 +4413,9 @@ function page_propositions( page_name, filter ){
       text += " is a good tag";
     }
     buf.push( '<br><h3>' + link_to_page( "proposition", text ) + '</h3>' );
-    if( proposition.result.orientation() ){
-      buf.push( ' <em>' + proposition.result.orientation() + '</em>' );
-    }
+    //if( proposition.result.orientation() ){
+    //  buf.push( ' <em>' + emojied( proposition.result.orientation() ) + '</em>' );
+    //}
     buf.push( '<br>' );
     proposition.tags_string().split( " " ).forEach( function( tag ){
       if( !tag )return;
@@ -4414,10 +4465,24 @@ function page_login( page_name ){
     ' <input type="submit" value="Login"/>',
     '</form>\n'
   ].join( "" ) );
-  buf.push(  "<br>" + page_footer() );
+  buf.push( "<br>" + page_footer() );
   r[1] = r[1].concat( buf );
   return r;
 
+}
+
+
+function emoji( name, spacer ){
+  return ( emoji.table[ name ] + ( spacer || "" ) ) || ""
+}
+emoji.table = {
+  agree:    "&#xe00e;",    // Thumb up
+  disagree: "&#xe421;",    // Thumb down
+  protest:  "&#xe012;"       // raised hand
+}
+
+function emojied( text ){
+  return text ? emoji( text ) + text : "";
 }
 
 
@@ -4426,9 +4491,9 @@ function proposition_summary( result, div ){
   var orientation = result.orientation();
   if( !orientation ){ orientation = "";  }
   if( div ){
-    buf.push( '<div><h2>Summary' + ' <em>' + orientation + '</em></h2><br>' );
+    buf.push( '<div><h2>Summary' + ' <em>' + emojied( orientation ) + '</em></h2><br>' );
   }else{
-    buf.push( "<em>" + orientation + "</em>. " );
+    buf.push( "<em>" +  emojied( orientation ) + "</em>. " );
   }
   buf.push( 'agree ' + result.agree() + " " );
   buf.push( 'against ' + result.against() + " " );
@@ -4773,7 +4838,8 @@ vote.extend( http_repl_commands, {
     printnl( entity ? pretty( entity.value(), 3 ) : "no entity" );
   },
 
-  change_vote: function( entity, privacy, orientation ){
+  change_vote: function( vote_entity, privacy, orientation ){
+    // ToDo: move this into some page_xxx()
     redirect_back();
     var proposition = null;
     var query = PendingResponse.query;
@@ -4811,21 +4877,21 @@ vote.extend( http_repl_commands, {
       printnl( "No change" );
       return;
     }
-    if( !entity ){
+    if( !vote_entity ){
       if( !vote_id ){
         printnl( "Vote not found" );
         return;
       }
       var idx_dot = vote_id.indexOf( "." );
       if( idx_dot === -1 ){
-        entity = vote.AllEntities[ parseInt( vote_id ) ];
-        if( !entity || entity.type !== "Vote" ){
+        vote_entity = vote.AllEntities[ parseInt( vote_id ) ];
+        if( !vote_entity || vote_entity.type !== "Vote" ){
           printnl( "Vote not found" );
           return;
         }
       }else{
-        entity = vote.AllEntities[ parseInt( vote_id.substring( 0, idx_dot ) ) ];
-        if( !entity || entity.type !== "Persona" ){
+        var persona = vote.AllEntities[ parseInt( vote_id.substring( 0, idx_dot ) ) ];
+        if( !persona || persona.type !== "Persona" ){
           printnl( "Persona not found" );
           return;
         }
@@ -4836,31 +4902,33 @@ vote.extend( http_repl_commands, {
         }
       }
     }
-    // ToDo: inject change
-    if( proposition ){
+    // Either a brand new vote
+    if( !vote_entity ){
       Session.current.proposition = proposition;
       Ephemeral.inject( "Vote", {
-        persona:     entity,
+        persona:     persona,
         proposition: proposition,
         privacy:     ( privacy || _ ),
         orientation: ( orientation || _ )
       });
+      printnl( "New vote of " + persona + " on " + proposition );
       //redirect( "proposition%20" + proposition.label );
+    // Or a change to an existing vote
     }else{
       Ephemeral.inject( "Vote", {
-        id_key:      entity.id,
+        id_key:      vote_entity.id,
         privacy:     ( privacy || _ ),
         orientation: ( orientation || _ )
       });
+      printnl( "Changed vote " + pretty( vote_entity ) );
       //redirect( "proposition%20" + entity.proposition.label );
     }
-    printnl( "Changed vote " + pretty( entity ) );
     return;
   },
 
   login: function( name ){
     if( name.length < 3 )return redirect( "login" );
-    name = name.trim().replace( /[^A-Za-z0-9_]/g, "" );
+    name = name.toLowerCase().trim().replace( /[^A-Za-z0-9_]/g, "" );
     if( name[0] !== "@" ){ name = "@" + name };
     if( !( Session.current.visitor = Persona.find( name ) ) ){
       Ephemeral.inject( "Persona", { label: name } );
