@@ -81,7 +81,11 @@ var _ = app._ = noop();      // _ === undefined
 
 var extend = function( to, from ){
 // Fast inject of properties. Note: not just owned ones, prototype's too
-  for( var ii in from ){ to[ ii ] = from[ ii ]; }
+  for( var attr in from ){
+    if( attr !== "__proto__" ){
+      to[ attr ] = from[ attr ];
+    }
+  }
   return to;
 };
 app.extend = extend;
@@ -374,6 +378,19 @@ extend( Entity.prototype, {
 
   // Type checker
   is_a: function( type ){ return this.constructor === type; },
+
+  // Change the id, to be called in .create() only
+  identity: function( new_id ){
+    if( this.is_update() )return;
+    var old_id = this.id;
+    this.id = new_id;
+    AllEntities[ new_id ] = this;
+    // Free last allocated auto incr id if possible
+    if( old_id === NextId - 1 ){
+      AllEntities[ old_id ] = _;
+      NextId--;
+    }
+  },
   
   // Create a new entity or update an existing one (ie one with same "key")
   create: function( options ){ return new Entity( options ); },
@@ -654,13 +671,19 @@ var type = function( ctor, base, opt_name ){
 //  'key' can be any string, including a combination of ids, "." separated.
 // After that call, this.is_update() is false for creations.
 //   this.water() returns l8 water() for entities xor almost idem() for updates
+// Note: classes are "closed", it is not possible to add a method to a base
+// class and expect it to be visible from it's subclasses ; this is so because
+// methods are copied when the class is created (versus referenced). This
+// is an optimization that speeds up method lookup a little.
   if( !base ){ base = Ephemeral; }
-  var proto = base.prototype;
+  var base_proto = base.prototype;
+  de&&mand( base_proto.constructor = base );
   var name = opt_name || ctor.name;
-  var sub = ctor.prototype = extend( {}, proto );
-  sub.type = name;
-  sub.constructor = ctor;
-  sub.super  = proto;  // Access to super instance stuff, like instance methods
+  // Copy base class's prototype to init the new class prototype, for speed
+  var sub_proto = ctor.prototype = extend( {}, base_proto );
+  sub_proto.type = name;
+  sub_proto.constructor = ctor;
+  sub_proto.super  = base_proto;  // Access to super instance stuff, like instance methods
   ctor.super = base;   // Access to super static stuff, like class methods
   ctor.ctors = [];     // All constructors, from Entity, down to this new type
   var a_ctor = ctor;
@@ -669,7 +692,7 @@ var type = function( ctor, base, opt_name ){
     a_ctor = a_ctor.super;
   }
   var entity_fluid = ctor.fluid = fluid();
-  sub.push = function( f ){
+  sub_proto.push = function( f ){
     if( f ){
       de&&mand( !f.is_update() );
       push( f, this );
@@ -677,7 +700,7 @@ var type = function( ctor, base, opt_name ){
     }
     de&&mand( !this.is_update() );
     push( entity_fluid, this );
-    var sup = this.super.push;
+    var sup = base.prototype.push;
     // ToDo: fix stack overflow
     if( 0 && sup ){
       sup.call( this );
@@ -685,8 +708,8 @@ var type = function( ctor, base, opt_name ){
     return this;
   };
   // Build the instance creation/update function
-  ctor.create = sub.create = function( options ){
-    var obj = Entity.created = Object.create( sub );
+  ctor.create = sub_proto.create = function( options ){
+    var obj = Entity.created = Object.create( sub_proto );
     var obj0 = obj;
     //if( !options ){ obj.machine = Machine.current; }
      // Call all constructors, including super, super's super, etc
@@ -711,15 +734,17 @@ var type = function( ctor, base, opt_name ){
     return obj;
   };
   // ToDo: improve create/update syntax
-  sub.update = function( options ){
+  sub_proto.update = function( options ){
     options.key = this.key;
     return this.create( options );
   };
   // Create the prototypal instance. It will will create new instances
-  var proto_entity = Object.create( sub );
+  var proto_entity = Object.create( sub_proto );
+  // Copy properties, to speed up lookup
+  extend( proto_entity, sub_proto );
   Entity.call( proto_entity, { machine: MainMachine } );
   // ctor.create( { machine: MainMachine } );
-  ctor.prototype = sub = AllEntities[ name ] = proto_entity;
+  ctor.prototype = sub_proto = AllEntities[ name ] = proto_entity;
   ctor.id = proto_entity.id;
   app[ name ] = ctor;
   de&&bug( "Create entity " + pretty( proto_entity ) );
@@ -734,9 +759,9 @@ var type = function( ctor, base, opt_name ){
   de&&mand( proto_entity === proto_entity.constructor.prototype );
   de&&mand( proto_entity.is_entity );
   de&&mand( proto_entity.id );
-  de&&mand( proto_entity.super === proto );
   de&&mand( proto_entity.constructor === ctor );
   de&&mand( proto_entity.constructor.prototype === proto_entity );
+  de&&mand( proto_entity.create !== base_proto.create );
   return proto_entity;
 };
 
@@ -1131,6 +1156,15 @@ Effect.prototype.touch = function(){
   return this;
 };
 
+
+Effect.prototype.expiration = function(){
+  if( this.key ){
+    this.constructor.all[ this.key ] = null;
+  }
+  // ToDo: cascade expiration, should bury dependant effects somehow
+  //Effec.super.prototype.expiration.call( this );
+}
+
 Effect.prototype.register = function( key ){
 // Register entity and detect updates about pre-existing entities
   //if( this.id === 10009 )debugger;
@@ -1291,9 +1325,10 @@ Ephemeral.prototype.bury = function(){
   }
 };
 
-Ephemeral.prototype.expiration = function(){
+Ephemeral.prototype.expiration = function ephemeral_expiration(){
   // Default is to create an expiration entity but subtype can do differently
   Expiration.create( { entity: this } );
+  Ephemeral.super.prototype.expiration.call( this );
 };
 
 Ephemeral.prototype.resurrect = function(){
@@ -1330,12 +1365,7 @@ Ephemeral.prototype.renew = function( duration ){
 };
 
 Ephemeral.prototype.touch = function(){
-  var delay = this.expire() - ( this.time_touched = now() );
-  // If touched after mid life, extend duration to twice the current age
-  if( delay < this.age() / 2 ){
-    this.renew( this.age() * 2 );
-  }
-  // Touch.create( { entity: this } );
+  this.time_touched = now();
 };
 
 
@@ -1753,6 +1783,7 @@ function Persona( options ){
 
   this.label            = options.label || options.key;
   this.name             = namize( this.label );
+  this.identity( this.name );
 
   var persona = this.register( this.name );
   var water   = this.water( persona );
@@ -2035,27 +2066,24 @@ Tweet.received = "received"; // Tweet received from twitter
 /*
  *  Topic entity
  *
- *  Atomic topics are the ultimate target of votes.
- *  aka Propositions
- *    their source is typically a tweet.
+ *  Proposition topics are the ultimate target of votes.
+ *    their source, when known, is typically a tweet.
  *    they can be tagged.
  *  Tag topics help to classify propositions. 
  *    they don't have a source, maybe.
- *    they can be voted on too, like propositions.
- *      this could help develop a folksonomy of tags, based on votes
- *
- *  ToDo: split in Topic plus two sub types, tags and propositions?
+ *    they can be tagged & voted on too, like propositions => folksonomy
  *
  *  Attributes
  *    - Entity/id
  *    - Effect/key
- *    - label        -- name of proposition (a tweet id_str) or #xxxx tag, key
+ *    - label        -- name of proposition (an hash word) or #xxxx tag
+ *    - name         -- lowercase version of label, key
  *    - source       -- source could be a url, typically
  *    - propositions -- tags track the propositions they tag
  *    - delegations  -- tags track the delegations they impact, can be huge!
- *    - tags         -- propositions track the tags assigned to them
- *    - votes_log    -- propositions track all the votes about them
- *    - result       -- the result of votes on the proposition
+ *    - tags         -- propositions & tags track the tags assigned to them
+ *    - votes_log    -- propositions & tags track all the votes about them
+ *    - result       -- the result of votes on the topic
  */
  
 Ephemeral.type( Topic );
@@ -2065,6 +2093,7 @@ function Topic( options ){
 
   this.label = options.label;
   this.name  = namize( this.label );
+  this.identity( this.name );
 
   var topic = this.register( this.name );
   var water = this.water( topic );
@@ -2115,6 +2144,17 @@ Topic.prototype.update = function( other ){
   return this;
 };
 
+
+Topic.prototype.touch = function(){
+  var delay = this.expire() - ( this.time_touched = now() );
+  // If touched after mid life, extend duration to twice the current age
+  if( delay < this.age() / 2 ){
+    this.renew( this.age() * 2 );
+  }
+  Topic.super.prototype.touch.call( this );
+};
+
+
 Topic.prototype.update_delegations = function( list ){
   trace( "ToDo: update delegations" );
   this.delegations( list );
@@ -2164,6 +2204,10 @@ Topic.reserved_tags = {
   referendum: true
 };
 
+Topic.reserved = function( tag ){
+  return !!Topic.reserved_tags[ tag.toLowerCase() ];
+};
+
 Topic.prototype.computed_tags = function(){
   var buf = [];
   if( this.is_tag() ){
@@ -2197,6 +2241,21 @@ Topic.prototype.computed_tags = function(){
   // ToDo: #hot, not an easy one
   if( !buf.length )return "";
   return " " + buf.join( " " );
+};
+
+
+Topic.prototype.expiration = function(){
+// At expiration, topic is simply renewed, unless no votes remains
+// ToDo: handle topic burial
+  if( this.result && this.result.total() ){
+    de&&bug( "Pre-expiration for " + this );
+    this.resurrect();
+    this.renew();
+  }else{
+    de&&bug( "Expiration for " + this );
+    Topic.super.prototype.expiration.call( this );
+  }
+  return this;
 };
 
 
@@ -2336,7 +2395,7 @@ Topic.prototype.tags_string = function(){
     return a.heat() - b.heat()
   })
   .forEach( function( tag ){
-    topic_tags_str.push( tag.name );
+    topic_tags_str.push( tag.label );
   });
   return topic_tags_str.join( " " ) + this.computed_tags();
 };
@@ -2468,6 +2527,7 @@ function Vote( options ){
 
   // Decide: is it a new entity or an update? key is persona_id.proposition_id
   var key = options.id_key ||( options.persona.id + "." + options.proposition.id );
+  this.identity( key );
   var vote = this.register( key );
 
   var persona      = options.persona     || vote.persona;
@@ -2549,6 +2609,7 @@ Vote.private = "private";
 
 Vote.prototype.touch = function(){
   this.time_touched = vote.now();
+  Vote.super.prototype.touch.call( this );
 }
 
 Vote.prototype.is_direct = function(){
@@ -2604,7 +2665,7 @@ Vote.prototype.expiration = function(){
     });
   }else{
     de&&bug( "Expiration for " + this );
-    this.super.expiration.call( this );
+    Vote.super.prototype.expiration.call( this );
   }
   return this;
 };
@@ -2918,8 +2979,14 @@ function Transition( options ){
  *  all the tags in that list will pass the filter and be voted on by the
  *  designated agent persona.
  *  Because delegations are transitive, if an agent delegates to another
- *  agent that delegate to the first agent, directly or indirectly, then there
+ *  agent that delegates to the first agent, directly or indirectly, then there
  *  is a "delegation loop". In such case, the delegation cannot be activated.
+ *
+ *  ToDo: consolidate all delegations to the same agent into a single
+ *  delegation with multiple filters.
+ *  ToDo: better, create votable delegation templates. Then persona can
+ *  have a list of templates instead of a list of filters.
+ *  The template should provide a default agent,
  */
 
 Ephemeral.type( Delegation );
@@ -2929,14 +2996,18 @@ function Delegation( options ){
   
   de&&mand( options.persona );
   de&&mand( options.agent   );
-  de&&mand( options.tags    );
-  
-  var delegation = this.register( "" + this.id );
+  de&&mand( options.tags );
+  de&&mand( options.tags.length > 0 );
+
+  // ToDo: id should be &d.@persona.@agent, with multiple sets of tags
+  var key = "" + options.persona + "." + options.agent + "." + options.tags[0].label;
+  this.identity( "&d." + key );
+  var delegation = this.register( key );
   var water      = this.water( delegation );
 
   // Delegation are transitive, there is a risk of loops
   if( !options.inactive
-  && options.agent.delegates_to( options.persona, options.tags )
+  && options.agent.delegates_to( options.persona, options.filter )
   ){
     trace( "Loop detected for delegation " + pretty( options ) );
     // ToDo: should provide a "reason" to explain the deactivation
@@ -2947,6 +3018,7 @@ function Delegation( options ){
   this.agent    = options.agent;
   this.label    = this.agent.label;
   this.votes    = water( [] ); // Votes done because of the delegation
+  this.filter   = water( [] );
   this.tags     = water( [] );
   this.inactive = water();
 
@@ -2960,7 +3032,7 @@ function Delegation( options ){
       // Activate delegated votes
       // ToDo: is water.effect() needed?
       if( !this.inactive ){
-        water.effect( function(){ delegation.inactive( false ); } );
+        vote.water.effect( function(){ delegation.inactive( false ); } );
       }
       return delegation;
     }
@@ -3187,7 +3259,7 @@ Delegation.prototype.expiration = function(){
     this.inactive( true );
     this.push();
   }else{
-    this.super.expiration.call( this );
+    Delegation.super.prototype.expiration.call( this );
   }
   return this;
 };
@@ -3231,8 +3303,9 @@ function Membership( options ){
   de&&mand( options.member ); // a persona
   de&&mand( options.group  ); // a group persona typically
   de&&mand( options.group.is_group() );
-  
+
   var key = "" + options.member.id + "." + options.group.id;
+  this.identity( "&m." + key );
   var membership = this.register( key );
 
   if( this.is_create() ){
@@ -3274,7 +3347,7 @@ Membership.prototype.expiration = function(){
     this.renew();
     this.inactive( true );
   }else{
-    this.super.expiration.call( this );
+    Membership.super.prototype.expiration.call( this );
     this.member.remove_membership( this );
   }
   return this;
@@ -3700,6 +3773,7 @@ function Session( ip ){
   this.ip            = ip;
   this.visitor       = null;
   this.filter        = "";
+  this.filter_tags   = [];
   this.current_page  = [];
   this.previous_page = [];
   this.proposition   = null;
@@ -3729,13 +3803,16 @@ Session.prototype.has_filter = function(){
   return !!this.filter.length;
 }
 
-Session.prototype.filter_tags = function(){
+Session.prototype.filter_tags_label = function(){
 // Return , separated list of tags extracted from filter
   return this.filter.replace( / /g, "," ).replace( /#/g, "" )
 }
 
 Session.prototype.set_filter = function( text ){
+  if( typeof text !== "string" )return;
   if( text ){
+    var tags = [];
+    var tag_entity;
     // Sanitize
     this.filter = text.replace( /[^A-Za-z0-9_ ]/g, "" );
     if( this.filter === "all" ){
@@ -3743,12 +3820,20 @@ Session.prototype.set_filter = function( text ){
     }else if( this.filter.length ){
       var buf = [];
       this.filter.split( " " ).forEach( function( tag ){
-        if( tag.length >= 2 ){
+        if( tag.length >= 2 || Topic.reserved( tag ) ){
           buf.push( '#' + tag );
+          tag_entity = Topic.find( '#' + tag );
+          if( tag_entity ){
+            tags.push( tag_entity );
+          }
         }
       });
       this.filter = buf.join( " " );
+      this.filter_tags = tags;
     }
+  }else{
+    this.filter = "";
+    this.fitler_tags = [];
   }
   return this.filter;
 }
@@ -4225,7 +4310,8 @@ function page_visitor( page_name, name, verb, filter ){
     [ page_header(
       _,
       link_to_twitter_user( persona.label ),
-      link_to_page( persona.label, "persona", "public" )
+      link_to_page( "propositions" )
+      + " " + link_to_page( persona.label, "persona", "public" )
     ) ]
   ];
   var buf = [];
@@ -4238,7 +4324,7 @@ function page_visitor( page_name, name, verb, filter ){
     '\n<form name="proposition" url="/">',
     '<input type="hidden" name="input" maxlength="140" value="page visitor ' + persona.label + '"/>',
     '<input type="search" placeholder="all" name="input3" value="',
-      Session.current.filter,
+      Session.current.has_filter() ? Session.current.filter + " #" : "",
     '"/>',
     '<input type="submit" name="input2" value="Search"/>',
     '</form><br>\n'
@@ -4251,7 +4337,10 @@ function page_visitor( page_name, name, verb, filter ){
   });
   buf.push( '<div><h2>Votes</h2>' );
   votes.forEach( function( vote_entity ){
-    if( vote_entity.expired() )return;
+    if( vote_entity.expired() || vote_entity.proposition.expired() )return;
+    if( Session.current.has_filter() ){
+      if( !vote_entity.proposition.is_tagged( Session.current.filter ) )return;
+    }
     buf.push( '<br><br>'
       + ' ' + link_to_page( "proposition", vote_entity.proposition.label ) + ' '
       //+ "<dfn>" + emojied( vote_entity.proposition.result.orientation() ) + '</dfn>'
@@ -4303,7 +4392,8 @@ function page_persona( page_name, name, verb, filter ){
       _,
       link_to_twitter_user( persona.label ),
       Session.current.visitor
-      ? link_to_page( persona.label, "visitor", "vote!" )
+      ? (link_to_page( "propositions" )
+        + " " + link_to_page( persona.label, "visitor", "votes" ) )
       : ""
     ) ]
   ];
@@ -4324,7 +4414,7 @@ function page_persona( page_name, name, verb, filter ){
     '\n<form name="proposition" url="/">',
     '<input type="hidden" name="input" maxlength="140" value="page persona ' + persona.label + '"/>',
     '<input type="search" placeholder="all" name="input3" value="',
-      Session.current.filter,
+      Session.current.has_filter() ? Session.current.filter + " #" : "",
     '"/>',
     '<input type="submit" name="input2" value="Search"/>',
     '</form>\n'
@@ -4434,7 +4524,7 @@ function page_propositions( page_name, filter ){
   if( Session.current.has_filter() ){
     buf.push( '<a href="https://twitter.com/intent/tweet?button_hashtag=kudocracy'
       + '&hashtags=vote,'
-      + Session.current.filter_tags()
+      + Session.current.filter_tags_label()
       + '&text=new%20democracy" '
       + 'class="twitter-hashtag-button" '
       + 'data-related="Kudocracy,vote">Tweet #kudocracy</a>'
@@ -4446,10 +4536,15 @@ function page_propositions( page_name, filter ){
     '\n<form name="proposition" url="/">',
     '<input type="hidden" name="input" maxlength="140" value="change_proposition"/>',
     '<input type="search" placeholder="all" name="input3" value="',
-      Session.current.filter,
+      Session.current.has_filter() ? Session.current.filter + " #" : "",
     '"/>',
-    ' <input type="submit" name="input2" value="Search"/>',
-    ' <input type="submit" name="input2" value="Propose"/>',
+    ' <input type="submit" name="input2" value="Search"/>'
+    + ( Session.current.visitor
+      && Session.current.has_filter()
+      && Session.current.filter_tags.length
+      ? ' <input type="submit" name="input2" value="Delegate"/>' : "" )
+    + ( Session.current.visitor
+      ? ' <input type="submit" name="input2" value="Propose"/>' : "" ),
     '</form>\n'
   ].join( "" ) );
 
@@ -4460,13 +4555,13 @@ function page_propositions( page_name, filter ){
   var prop;
   for( attr in propositions ){
     prop = propositions[ attr ];
-    if( !prop )continue;
+    if( !prop || prop.expired() )continue;
     if( prop.is_tag() ){
       if( !tag_page )continue;
     }else{
       if( tag_page )continue;
     }
-    if( Session.current.filter.length ){
+    if( Session.current.has_filter() ){
       if( !prop.is_tagged( Session.current.filter ) )continue;
     }
     list.push( prop );
@@ -4819,7 +4914,7 @@ function page_proposition( page_name, name ){
       buf.push(
           ( vote_value.orientation ) + " "
           + link_to_page( "persona", vote_value.persona_label )
-          + " <small><dfn>" + time_label( vote_value.timestamp ) + "</dfn></small>"
+          + " <small><dfn>" + time_label( vote_value.snaptime ) + "</dfn></small>"
       );
       // buf.push( "</li>" );
     }
@@ -5146,35 +5241,64 @@ vote.extend( http_repl_commands, {
     redirect_back();
     // Sanitize, extract tags, turn whole text into valid potential tag itself
     var text = Array.prototype.slice.call( arguments ).join( " " );
-    // Could be a search or a propose coming from page_propositions
+
+    // Could be a search, a delegate or a propose coming from page_propositions
     if( text.toLowerCase().indexOf( "propose " ) === 0 ){
       text = text.substring( "propose ".length );
+
     }else if( text.toLowerCase().indexOf( "search" ) === 0 ){
       text = text.substring( "search".length );
-      // Add # prefix where missing
-      text = text
-      .replace( /[^A-Za-z0-9_ ]/g, "" )
-      .replace( /[^ ]+/g, function( m ){
-        // filter out too short and reserved tags
-        if( m.length < 2 || Topic.reserved_tags[ m ] )return "";
-        return m[0] === '#' ? m : '#' + m;
-      });
-      Session.current.filter = text;
+      Session.current.set_filter( text );
       return;
+    }else if( text.toLowerCase().indexOf( "delegate" ) === 0 ){
+      text = text.substring( "delegate".length );
+      if( !Session.current.visitor ){
+        return;
+      }
+      if( !Session.current.has_filter() ){
+        return;
+      }
+     var agent_name = text
+      .replace( /#[A-Za-z][_0-9A-Za-z]*/g, "" )
+      .replace( /[^A-Za-z0-9_]/g, "" );
+      if( !agent_name ){
+        return;
+      }
+      var agent = Persona.find( "@" + agent_name );
+      if( !agent ){
+        return;
+      }
+      text = text.replace( agent_name, "" ).trim();
+      if( text.length ){
+        Session.current.set_filter( text );
+      }
+      if( !Session.current.filter_tags.length ){
+        return;
+      }
+      Ephemeral.inject( "Delegation", {
+        persona: Session.current.visitor,
+        agent:   agent,
+        tags:    Session.current.filter_tags
+      });
     }
+    // Collect list of tags, inject user's name as first tag
     var tags = [ "#"
       + ( Session.current.visitor && Session.current.visitor.label || "@anonymous" )
       .substring( 1 )
     ];
     text = text.replace( /#[A-Za-z][_0-9A-Za-z]*/g, function( tag ){
-      if( tag === "tag ")return "";
+      // if( tag === "tag")return "";
       tags.push( tag );
       return ""
-    } ).replace( /  /g, " " ).trim()
-    .replace( /[^A-Za-z0-9_]/g, "_" );
+    } )
+    .replace( /  /g, " " ).trim()
+    .replace( /[^A-Za-z0-9_]/g, "_" )
+    .replace( /__/g, "_" )
+    .replace( /^_/, "" )
+    .replace( /_$/, "" )
     // if nothing remains, use first tag to name the proposition
-    if( text.length < 3 ){
-      if( ( text = tags[0] ).length < 3 ){
+    if( text.length < 2 ){
+      if( ( text = tags[0] ).length < 2 ){
         printnl( "Not a valid proposition name" );
         return;
       }
@@ -5212,6 +5336,13 @@ vote.extend( http_repl_commands, {
     }
     Ephemeral.inject( changes );
     Session.current.proposition = proposition || Topic.find( text );
+    var new_filter = [];
+    tag_entities.forEach( function( tag_entity, index ){
+      // Skip user name
+      if( index === 0 )return;
+      new_filter.push( tag_entity.label );
+    });
+    Session.current.set_filter( new_filter.join( " " ) );
   },
 
   debugger: function( e, e2, e3, e4 ){
@@ -5356,7 +5487,7 @@ function main(){
   trace( "Welcome to l8/test/vote.js -- Liquid demo...cracy" );
 
   //Ephemeral.force_bootstrap = true;
-  vote.debug_mode( de = false );
+  vote.debug_mode( de = true );
   Ephemeral.start( bootstrap, function( err ){
     if( err ){
       trace( "Cannot proceed", err, err.stack );
