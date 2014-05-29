@@ -3831,8 +3831,8 @@ Session.prototype.set_filter = function( text ){
       this.filter = buf.join( " " );
       this.filter_tags = tags;
     }
-  }else{
-    this.filter = "";
+  }
+  if( !this.filter ){
     this.fitler_tags = [];
   }
   return this.filter;
@@ -4205,21 +4205,32 @@ function page_help(){
         ? link_to_page( Session.current.visitor.label, "visitor", "vote!" )
         : _
     ),
+    '<div style="max-width:50em">',
     '<h2>What is it?</h2><br>',
-    'An experimental voting system where people can like/dislike hashtags.',
+    'An experimental Liquid Democracy voting system where ',
+    'people can like/dislike hashtags.',
     '<br><br><h2>hashtags?</h2><br>',
-    'Hashtags are keywords used to categorize topics. See also ',
+    'Hashtags are keywords used to categorize topics in social networks. ',
+    'See also ',
     '#<a href="http://www.hashtags.org/quick-start/">hashtags.org</a>.',
     '<br><br><h2>How is it different?</h2><br>',
-    '<ol>',
+    'Traditional voting systems with elections every so often capture ',
+    'infrequent snapshots of the opinion. Because voting often is inconvenient, ',
+    'elections are either rare or participation suffers. Most decisions ',
+    'are therefore concentrated in the hands of a few representatives ',
+    'who are subject to corruption temptations. Liquid Democracy promises ',
+    'to solves these issues thanks to modern technologies.',
+    '<br><br><ul>',
+    '<li>With <strong>Kudo<em>c</em>racy</strong>:</li>',
     '<li>Votes are reversible, you can change your mind.</li>',
     '<li>Propositions are searchable using tags.</li>',
     '<li>Delegates may vote for you on some propositions.</li>',
     '<li>You can follow their recommendations or vote directly.</li>',
-    '<li>Results are updated in realtime after each vote.</li>',
+    '<li>Votes and delegations are ephemeral and disappear unless renewed.</li>',
+    '<li>Results are updated in realtime, trends are made visible.</li>',
     '<li>You can share your votes or hide them.</li>',
     '<li>It is <a href="https://github.com/virteal/kudocracy">open source</a>.</li>',
-    '</ol>',
+    '</ul>',
     '<br><h2>Is it available?</h2><br>',
     'No, not yet. What is available is a prototype. Depending on ',
     'success (vote #kudocracy!), the prototype will hopefully expand into ',
@@ -4235,6 +4246,7 @@ function page_help(){
     'be a good thing to apply it broadly, using modern technology, technology ',
     'that people now use all over the world.<br>' +
     'I hope you agree. ',
+    '</div>',
     // Twitter tweet & follow buttons
     (   '<a href="https://twitter.com/intent/tweet?button_hashtag=kudocracy'
       + '&hashtags=agree,kudocracy,democracy,vote,participation,LiquidDemocracy'
@@ -4271,6 +4283,7 @@ function vote_menu( vote, proposition, orientation ){
     '<input type="hidden" name="input" value="change_vote"/>',
     '<input type="hidden" name="vote_id" value="' + vote_id + '"/>',
     '<select name="orientation">',
+    // ToDo: randomize option order?
     o( "orientation" ), o( "agree"), o( "disagree" ), o( "protest" ), o( "blank" ), o( "delete" ),
     '</select>',
     '<select name="privacy">',
@@ -4302,7 +4315,7 @@ function page_visitor( page_name, name, verb, filter ){
   var persona = ( name && Persona.find( name ) ) || Session.current.visitor;
   if( !persona )return [ _, "Persona not found: " + name ];
 
-  filter = Session.current.set_filter( filter );
+  filter = Session.current.set_filter( filter || (verb = "Search" && "all" ) );
 
   // Header
   var r = [
@@ -4326,7 +4339,7 @@ function page_visitor( page_name, name, verb, filter ){
     '<input type="search" placeholder="all" name="input3" value="',
       Session.current.has_filter() ? Session.current.filter + " #" : "",
     '"/>',
-    '<input type="submit" name="input2" value="Search"/>',
+    ' <input type="submit" name="input2" value="Search"/>',
     '</form><br>\n'
   ].join( "" ) );
 
@@ -4383,7 +4396,7 @@ function page_persona( page_name, name, verb, filter ){
   var persona = Persona.find( name );
   if( !persona )return [ _, "Persona not found: " + name ];
 
-  filter = Session.current.set_filter( filter );
+  filter = Session.current.set_filter( filter || (verb = "Search" && "all" ) );
 
   // Header
   var r = [
@@ -4413,10 +4426,10 @@ function page_persona( page_name, name, verb, filter ){
   buf.push( [
     '\n<form name="proposition" url="/">',
     '<input type="hidden" name="input" maxlength="140" value="page persona ' + persona.label + '"/>',
-    '<input type="search" placeholder="all" name="input3" value="',
+    ' <input type="search" placeholder="all" name="input3" value="',
       Session.current.has_filter() ? Session.current.filter + " #" : "",
     '"/>',
-    '<input type="submit" name="input2" value="Search"/>',
+    ' <input type="submit" name="input2" value="Search"/>',
     '</form>\n'
   ].join( "" ) );
 
@@ -5175,18 +5188,18 @@ vote.extend( http_repl_commands, {
       }
       var idx_dot = vote_id.indexOf( "." );
       if( idx_dot === -1 ){
-        vote_entity = vote.AllEntities[ parseInt( vote_id ) ];
+        vote_entity = vote.AllEntities[ vote_id ];
         if( !vote_entity || vote_entity.type !== "Vote" ){
           printnl( "Vote not found" );
           return;
         }
       }else{
-        var persona = vote.AllEntities[ parseInt( vote_id.substring( 0, idx_dot ) ) ];
+        var persona = vote.AllEntities[ vote_id.substring( 0, idx_dot ) ];
         if( !persona || persona.type !== "Persona" ){
           printnl( "Persona not found" );
           return;
         }
-        proposition = vote.AllEntities[ parseInt( vote_id.substring( idx_dot + 1 ) ) ];
+        proposition = vote.AllEntities[ vote_id.substring( idx_dot + 1 ) ];
         if( proposition && proposition.type !== "Topic" ){
           printnl( "Proposition not found" );
           return;
@@ -5424,7 +5437,10 @@ function start_http_repl(){
               if( v.length === 1 ){
                 id = last_http_repl_id;
               }else{
-                id = parseInt( v.substring( 1 ) );
+                id = v.substring( 1 );
+                if( parseInt( id ) ){
+                  id = parseInt( id );
+                }
                 if( id < 10000 ){
                   id += 10000;
                 }
