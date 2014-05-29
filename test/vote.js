@@ -520,7 +520,7 @@ function pretty( v, level ){
           val -= now();
         // Turn "expire" into a boolean that is false if expiration is remote
         }else if( attr === "expire" ){
-          if( ( val.water && val() || val ) - now() > 2 * 24 * 60 * 60 * 1000 ){
+          if( ( val && val.water && val() || val ) - now() > 2 * 24 * 60 * 60 * 1000 ){
             val = false;
           }
         // Skip "effect" when there is none
@@ -531,7 +531,7 @@ function pretty( v, level ){
           if( !val )continue;
         // Skip "updates" when only the initial create update is there
         }else if( attr === "updates" ){
-          if( val._water && val() && val().length === 1 )continue;
+          if( val && val._water && val() && val().length === 1 )continue;
           if( Array.isArray( val ) && val.length === 1 )continue;
         // Skip "now" and "was" attributes, too much noise
         }else if( attr === "now" || attr === "was" )continue;
@@ -622,7 +622,8 @@ function dump_entities( from, level ){
     }
     ii = MaxSharedId + 1;
   }
-  while( item = list[ ii++ ] || ii < NextId ){
+  while( ii < NextId ){
+    item = list[ ii++ ];
     item && dump_entity( item, level );
   }
   //console.log( "RootTopic:", value( RootTopic, true ) );
@@ -686,6 +687,7 @@ var type = function( ctor, base, opt_name ){
   // Build the instance creation/update function
   ctor.create = sub.create = function( options ){
     var obj = Entity.created = Object.create( sub );
+    var obj0 = obj;
     //if( !options ){ obj.machine = Machine.current; }
      // Call all constructors, including super, super's super, etc
     var ii = 1;
@@ -701,7 +703,8 @@ var type = function( ctor, base, opt_name ){
     //de&&bug( "New entity", "" + pretty( obj, 2 ) );
     // Push new entity on the fluid bound to the entity's type, unless proto
     if( proto_entity ){
-      if( obj ){
+      if( obj === obj0 ){
+        ctor.count++;
         obj.push();
       }
     }
@@ -721,7 +724,8 @@ var type = function( ctor, base, opt_name ){
   app[ name ] = ctor;
   de&&bug( "Create entity " + pretty( proto_entity ) );
   // Create global table of all entities of this new type
-  ctor.all = {};
+  ctor.all   = {};
+  ctor.count = 0;
   ctor.find = function( key ){ return ctor.all[ key ] };
   // Ease sub typing
   ctor.type = function( sub_type, opt_name ){
@@ -986,6 +990,10 @@ Entity.prototype.value = function(){
   return value( this, true );
 };
 
+Entity.prototype.json_value = function(){
+  return JSON.stringify( this.value() );
+};
+
 
 /*
  *  The only constant is change - Heraclitus
@@ -1127,10 +1135,18 @@ Effect.prototype.register = function( key ){
 // Register entity and detect updates about pre-existing entities
   //if( this.id === 10009 )debugger;
   if( typeof key !== "string" ){
-    key = AllEntities[ key ];
-    de&&mand( key );
-    key = key.key;
-    de&&mand( key );
+    var tmp = AllEntities[ key ];
+    if( !tmp ){
+      trace( "BUG? .register( " + key + ") with integer id of missing entitiy" );
+      throw( new Error( "bad id, missing entity" ) );
+    }
+    tmp = tmp.key;
+    if( !tmp ){
+      trace( "BUG? .register( " + key + ") with integer id of invalid entitiy"
+      + tmp );
+      throw( new Error( "bad id, missing key" ) );
+    }
+    key = tmp;
   }
   // Look for an existing entity with same type and same key
   this.key = key;
@@ -1235,8 +1251,8 @@ Effect.type( Ephemeral );
 function Ephemeral( options ){
   this.timestamp    = options.timestamp || now();
   this.time_touched = options.time_touched || this.timestamp;
-  this.duration     = water( options.duration || ONE_YEAR );
   this.buried       = false;
+  this.duration     = water( options.duration || ONE_YEAR );
   this.expire       = function(){
     var limit = this.timestamp + this.duration();
     if( now() > limit ){
@@ -1260,6 +1276,7 @@ Ephemeral.prototype.bury = function(){
   // Clear object if not resurrected, this enables some garbage collection
   if( this.buried ){
     for( var attr in this ){
+      if( !this.hasOwnProperty( attr ) )continue;
       if( attr !== "is_entity" && attr !== "buried" ){
         var v = this[ attr ];
         if( v ){
@@ -1268,8 +1285,9 @@ Ephemeral.prototype.bury = function(){
         this[ attr ] = undefined;
       }
     }
+    Ephemeral.count--;
     // Also remove from list of all entities to prevent new references to it
-    AllEntities[ this.id ] = null;
+    AllEntities[ this.id ] = _;
   }
 };
 
@@ -1342,13 +1360,17 @@ function Event(){}
  *
  *  Attributes:
  *  - Entity/id
- *  - entity -- the entity that expired
+ *  - entity     -- the entity that expired, most attributes were cleared
+ *  - entity_id  -- it's id
+ *  - entity_key -- it's key, if any
  */
  
  Event.type( Expiration );
  function Expiration( options ){
-   de&&mand( this.buried );
-   this.entity = options.entity;
+   this.entity     = options.entity;
+   this.entity_id  = this.entity.id;
+   this.entity_key = this.entity.key;
+   de&&mand( this.entity.buried );
  }
 
 
@@ -2131,20 +2153,46 @@ Topic.prototype.filter_string = function(){
   return buf.join( " " ) + this.computed_tags();
 };
 
+Topic.reserved_tags = {
+  tag:        true,
+  recent:     true,
+  today:      true,
+  yesterday:  true,
+  fade:       true,
+  protest:    true,
+  orphan:     true,
+  referendum: true
+};
+
 Topic.prototype.computed_tags = function(){
   var buf = [];
-  // Computed tags
   if( this.is_tag() ){
     buf.push( '#tag' )
   }
-  if( this.age() < vote.ONE_WEEK ){
+  if( this.age() <= vote.ONE_WEEK ){
     buf.push( "#recent" );
+    if( this.age() <= vote.ONE_DAY ){
+      buf.push( "#today" );
+    }else if( this.age() <= 2 * vote.ONE_DAY ){
+      buf.push( "#yesterday" );
+    }
   }
   if( this.expire() < vote.now() + vote.ONE_WEEK ){
     buf.push( "#fade" );
   }
-  if( this.result.orientation() === Vote.protest ){
+  // #protest if orientation is protest or if protest votes > 1% of votes
+  if( ( this.result.orientation() === Vote.protest
+    || this.result.protest() * 100 > this.result.total() )
+  && Persona.count >= 50
+  ){
     buf.push( "#protest" );
+  }
+  // #orphan if no votes after a week
+  if( this.result.total() <= 1 && this.age() > vote.ONE_WEEK ){
+    buf.push( "#orphan" );
+  // #referendum if 1% of people voted
+  }else if( this.result.total() * 100 >= Persona.count && Persona.count >= 50 ){
+    buf.push( "#referendum" );
   }
   // ToDo: #hot, not an easy one
   if( !buf.length )return "";
@@ -2422,9 +2470,9 @@ function Vote( options ){
   var key = options.id_key ||( options.persona.id + "." + options.proposition.id );
   var vote = this.register( key );
 
-  var orientation  = options.orientation || Vote.neutral;
   var persona      = options.persona     || vote.persona;
   var proposition  = options.proposition || vote.proposition;
+  var orientation  = options.orientation
   de&&mand( persona     );
   de&&mand( proposition );
   this.persona     = persona;
@@ -2445,13 +2493,14 @@ function Vote( options ){
     this.persona.track_vote( this );
     this.orientation( orientation );
   }else{
-    vote.update( this, options );
+    !vote.buried && vote.update( this, options );
   }
   return vote;
   
   // Trigger on orientation or delegation change
   function update(){
     var vote = water.current.vote;
+    if( vote.expired() )return;
     try{
       if( vote.was
       &&  vote.was.orientation === vote.orientation()
@@ -2498,6 +2547,10 @@ Vote.public  = "public";
 Vote.secret  = "secret";
 Vote.private = "private";
 
+Vote.prototype.touch = function(){
+  this.time_touched = vote.now();
+}
+
 Vote.prototype.is_direct = function(){
   return this.delegation() === Vote.direct;
 };
@@ -2519,6 +2572,7 @@ Vote.prototype.is_private = function(){
 };
 
 Vote.prototype.update = function( other, options ){
+  this.duration(    other.duration    = options.duration    );
   this.analyst(     other.analyst     = options.analyst     );
   this.source(      other.source      = options.source      );
   this.previously(  other.previously  = options.previously  );
@@ -2538,13 +2592,18 @@ Vote.prototype.update = function( other, options ){
 
 Vote.prototype.expiration = function(){
 // At expiration vote becomes private direct neutral for a while
-  if( !this.is_neutral() ){
+  if( this.orientation && !this.is_neutral() ){
+    de&&bug( "Pre-expiration for " + this );
     this.resurrect();
     this.renew();
-    this.orientation( Vote.neutral );
-    this.delegation(  Vote.direct  );
-    this.privacy(     Vote.private );
+    Vote.create({
+      id_key: this.id,
+      orientation: Vote.neutral,
+      delegation:  Vote.direct,
+      privacy:     Vote.private
+    });
   }else{
+    de&&bug( "Expiration for " + this );
     this.super.expiration.call( this );
   }
   return this;
@@ -2592,25 +2651,18 @@ Vote.prototype.remove = function( was ){
   de&&mand( !was.is_entity );
   this.previously( was.orientation );
   if( was.orientation === Vote.neutral )return this;
-  // Indirect votes are processed at agent's level
-  //if( was.orientation === Vote.indirect )return;
   var vote = this;
   // Votes of groups have no impacts on results
   if( vote.persona.is_group() )return this;
-  // ToDo: is the .effect required?
-  //water.effect(
-  //  function(){
-      de&&bug( "Remove vote " + vote 
-        + " previously " + was.orientation
-        + " of " + vote.persona
-        + " via " + was.delegation
-        + " from proposition " + vote.proposition
-      );
-      //de&&bugger();
-      vote.proposition.remove_vote( was );
-  //  }
-  //);
-  return this;
+  de&&bug( "Remove vote " + vote
+    + " previously " + was.orientation
+    + " of " + vote.persona
+    + " via " + was.delegation
+    + " from proposition " + vote.proposition
+  );
+  //de&&bugger();
+  vote.proposition.remove_vote( was );
+return this;
 };
 
 Vote.prototype.delegate = function(){
@@ -2657,6 +2709,11 @@ Vote.prototype.delegate_using = function( delegation ){
   return this;
 };
 
+
+/*
+ *  Result (of votes on a topic)
+ */
+
 Effect.type( Result );
 function Result( options ){
   
@@ -2664,7 +2721,8 @@ function Result( options ){
   
   var result = this.register( "" + options.proposition.id );
   var water  = this.water( result );
-  
+
+  this.touch();
   this.proposition = options.proposition;
   this.label       = this.proposition.label;
   this.neutral     = water( options.neutral   || 0 ); // ToDo: remove this?
@@ -2697,7 +2755,6 @@ function Result( options ){
   
   this.total = function(){
     this.count( this.count() + 1 );
-    this.time_touched = vote.now();
     var old = this.total();
     var r = this.neutral()
     + this.blank()
@@ -2799,6 +2856,10 @@ function Result( options ){
   de && ( this.orientation.label = "orientation" );
 
   return this;
+}
+
+Result.prototype.touch = function(){
+  this.time_touched = vote.now();
 }
 
 Result.prototype.add_vote = function( vote ){
@@ -3120,7 +3181,7 @@ Delegation.prototype.track_vote = function( vote ){
 
 // At expiration, the delegation becomes inactive for a while
 Delegation.prototype.expiration = function(){
-  if( !this.inactive() ){
+  if( this.inactive && !this.inactive() ){
     this.resurrect();
     this.renew();
     this.inactive( true );
@@ -3208,7 +3269,7 @@ function Membership( options ){
 
 Membership.prototype.expiration = function(){
 // Handle expiration, first deactivate membership and then remove it
-  if( !this.inactive() ){
+  if( this.inactive && !this.inactive() ){
     this.resurrect();
     this.renew();
     this.inactive( true );
@@ -4183,19 +4244,24 @@ function page_visitor( page_name, name, verb, filter ){
     '</form><br>\n'
   ].join( "" ) );
 
-  // Votes
-  var votes = persona.votes().reverse();
+  // Votes, recent first
+  var votes = persona.votes()
+  votes = votes.sort( function( a, b ){
+    return b.time_touched - a.time_touched;
+  });
   buf.push( '<div><h2>Votes</h2>' );
-  votes.forEach( function( vote ){
+  votes.forEach( function( vote_entity ){
+    if( vote_entity.expired() )return;
     buf.push( '<br><br>'
-      + ' ' + link_to_page( "proposition", vote.proposition.label ) + ' '
-      //+ "<dfn>" + emojied( vote.proposition.result.orientation() ) + '</dfn>'
-      + '<br><em>' + emojied( vote.orientation() ) + "</em> "
-      + vote.privacy() + " "
-      + ( vote.is_direct()
+      + ' ' + link_to_page( "proposition", vote_entity.proposition.label ) + ' '
+      //+ "<dfn>" + emojied( vote_entity.proposition.result.orientation() ) + '</dfn>'
+      + '<br><em>' + emojied( vote_entity.orientation() ) + "</em> "
+      + "<dfn>(" + vote_entity.privacy() + ")</dfn>"
+      + ( vote_entity.is_direct()
         ? ""
-        :  "<dfn>(via " + link_to_page( "persona", vote.delegation().agent.label ) + ")</dfn> " )
-      + vote_menu( vote )
+        :  "<dfn>(via " + link_to_page( "persona", vote_entity.delegation().agent.label ) + ")</dfn> " )
+      + ", for " + duration_label( vote_entity.expire() - vote.now() )
+      + vote_menu( vote_entity )
     )
   });
   buf.push( "</div><br>" );
@@ -4264,11 +4330,15 @@ function page_persona( page_name, name, verb, filter ){
     '</form>\n'
   ].join( "" ) );
 
-  // Votes
-  var votes = persona.votes().reverse();
+  // Votes, recent first
+  var votes = persona.votes();
+  votes = votes.sort( function( a, b ){
+    return b.time_touched - a.time_touched;
+  });
   buf.push( '<br><br><div><h2>Votes</h2><br>' );
   //buf.push( "<ol>" );
   votes.forEach( function( vote ){
+    if( vote.expired() )return;
     if( Session.current.filter.length ){
       if( !vote.proposition.is_tagged( Session.current.filter ) )return;
     }
@@ -4281,8 +4351,9 @@ function page_persona( page_name, name, verb, filter ){
           ? "secret"
           : "<em>" + emojied( vote.orientation() ) ) + "</em> "
         + '' + link_to_page( "proposition", vote.proposition.label ) + ' '
+        + " <dfn>" + time_label( vote.time_touched ) + "</dfn> "
         //+ " <dfn>" + emojied( vote.proposition.result.orientation() ) + "</dfn> "
-        + time_label( vote.proposition.result.time_touched )
+        //+ time_label( vote.proposition.result.time_touched )
       );
     }
     //buf.push( "</li>" );
@@ -4473,12 +4544,15 @@ function page_login( page_name ){
 
 
 function emoji( name, spacer ){
-  return ( emoji.table[ name ] + ( spacer || "" ) ) || ""
+  var tmp = emoji.table[ name ];
+  if( !tmp )return "";
+  if( !spacer )return tmp;
+  return tmp + spacer;
 }
 emoji.table = {
   agree:    "&#xe00e;",    // Thumb up
   disagree: "&#xe421;",    // Thumb down
-  protest:  "&#xe012;"       // raised hand
+  protest:  "&#xe012;"     // raised hand
 }
 
 function emojied( text ){
@@ -4514,6 +4588,8 @@ function i18n( msg ){
 
 function duration_label( duration ){
 // Returns a sensible text info about a duration
+  // Slight increase to provide a better user feedback
+  //duration += 5000;
   var delta = duration / 1000;
   var day_delta = Math.floor( delta / 86400);
   if( isNaN( day_delta) )return "";
@@ -4591,6 +4667,50 @@ function time_label( time, with_gmt ){
 }
 
 
+function proposition_graphics(){
+// Runs client side
+  console.log( "Google pie" );
+  google.load('visualization', '1.0', {'packages':['corechart']});
+  google.setOnLoadCallback(drawChart);
+  function drawChart(){
+
+    var data;
+    var options;
+
+    // Create the data table.
+    data = new google.visualization.DataTable();
+    data.addColumn('string', 'Orientation');
+    data.addColumn('number', 'Slices');
+    data.addRows([
+      ['agree',    graph_pie.agree],
+      ['disagree', graph_pie.disagree],
+      ['protest',  graph_pie.protest],
+      ['blank',    graph_pie.blank]
+    ]);
+
+    // Set chart options
+    options = { 'title':'Orientations', 'width':400, 'height':300 };
+
+    // Instantiate and draw our chart, passing in some options.
+    var chart = new google.visualization.PieChart( document.getElementById( 'orientation_chart_div' ) );
+    chart.draw( data, options );
+
+    data = new google.visualization.DataTable();
+    data.addColumn( 'datetime', 'date' );
+    data.addColumn( 'number' ) // , 'balance' );
+    for( var ii = 0 ; ii < graph_serie.length ; ii++ ){
+      graph_serie[ ii ][ 0 ] = new Date( graph_serie[ ii ][ 0 ] );
+    }
+    data.addRows( graph_serie );
+    chart = new google.visualization.LineChart( document.getElementById( 'balance_chart_div' ) );
+    options.title = "History";
+    options.explorer = {};
+    options.hAxis = { format: 'dd/MM HH:mm' };
+    chart.draw( data, options );
+  }
+}
+
+
 function page_proposition( page_name, name ){
 // Focus on one proposition
 
@@ -4610,15 +4730,17 @@ function page_proposition( page_name, name ){
     tag_label = "#" + label;
   }
 
-  // Header
-  var r = [
-    page_style(),
-    [ page_header(
-      _,
-      link_to_twitter_filter( tag_label )
-      //link_to_page( "propositions" )
-    ) ]
-  ];
+  // Graph preparation
+  var graph_pie = {
+    agree: result.agree(),
+    disagree: result.disagree(),
+    protest: result.protest(),
+    blank: result.blank()
+  };
+  var graph_serie = [ [ proposition.timestamp, 0 ] ];
+  var balance = 0;
+
+  // Make body
   var buf = [];
 
   buf.push( '<h1>' + (is_tag ? "Tag " : "" )
@@ -4658,11 +4780,35 @@ function page_proposition( page_name, name ){
   buf.push( "<br>last change " + time_label( proposition.time_touched ) );
   buf.push( "<br>end in " + duration_label( proposition.expire() - vote.now() ) );
 
+  // Graph, pie
+  buf.push( '<div id="orientation_chart_div"></div>' );
+  buf.push( '<div id="balance_chart_div"></div>' );
+
   // Votes
   var votes = proposition.votes_log() || [];
-  buf.push( "<br><br><div><h2>Votes</h2><br>" );
+  buf.push( "<br><div><h2>Votes</h2><br>" );
   //buf.push( "<ol>" );
   votes.forEach( function( vote_value ){
+    var was = null;
+    if( vote_value.updates.length > 1 ){
+      was = vote_value.updates[ vote_value.updates.length - 1 ];
+    }
+    if( was ){ was = was.orientation; }
+    if( was === "agree" ){
+      balance--;
+    }else if( was === "disagree" || was === "protest" ){
+      balance++;
+    }
+    var now = vote_value.orientation;
+    if( now === "agree" ){
+      balance++;
+    }else if( now === "disagree" || now === "protest" ){
+      balance--;
+    }
+    graph_serie.push( [
+      vote_value.snaptime,
+      balance
+    ] );
     if( vote_value.delegation          === Vote.direct
     && vote_value.privacy              === Vote.public
     && vote_value.orientation          !== Vote.neutral
@@ -4688,6 +4834,23 @@ function page_proposition( page_name, name ){
 
   // Footer
   buf.push( page_footer() );
+
+  // Header
+  var r = [
+    page_style()
+    + '<script type="text/javascript" src="https://www.google.com/jsapi"></script>'
+    + '<script type="text/javascript">'
+    //+ '\nvar proposition = ' + proposition.json_value()
+    + '\nvar graph_pie = ' + JSON.stringify( graph_pie )
+    + '\nvar graph_serie = ' + JSON.stringify( graph_serie )
+    + '\n' + proposition_graphics + '; proposition_graphics();'
+    + '</script>',
+    [ page_header(
+      _,
+      link_to_twitter_filter( tag_label )
+      //link_to_page( "propositions" )
+    ) ]
+  ];
   r[1] = r[1].concat( buf );
   return r;
 }
@@ -4789,7 +4952,7 @@ vote.extend( http_repl_commands, {
           }
           if( !list.length ){
             vote.AllEntities.forEach( function( item ){
-              if( item.type === found ){
+              if( item && item.type === found ){
                 list.push( item );
               }
             })
@@ -4812,8 +4975,8 @@ vote.extend( http_repl_commands, {
     var list = [];
     all.forEach( function( e ){
       if( e === entity
-      || e.to === entity
-      || e.effect === entity
+      || (e && e.to === entity)
+      || (e && e.effect === entity)
       ){
         list.push( e );
       }
@@ -4838,19 +5001,16 @@ vote.extend( http_repl_commands, {
     printnl( entity ? pretty( entity.value(), 3 ) : "no entity" );
   },
 
-  change_vote: function( vote_entity, privacy, orientation ){
+  change_vote: function( vote_entity, privacy, orientation, duration ){
     // ToDo: move this into some page_xxx()
     redirect_back();
     var proposition = null;
     var query = PendingResponse.query;
-    var vote_id = query.vote_id;
+
+    // Parse privacy
     privacy = privacy || query.privacy;
     if( Array.isArray( privacy ) ){
       privacy = privacy[0];
-    }
-    orientation = orientation || query.orientation;
-    if( Array.isArray( orientation ) ){
-      orientation = orientation[0];
     }
     if( privacy === "idem"
     ||  privacy === "privacy"
@@ -4861,6 +5021,13 @@ vote.extend( http_repl_commands, {
     && " public secret private ".indexOf( " " + privacy + " " ) === -1
     ){
       privacy = null;
+    }
+    if( !privacy ){ privacy = _; }
+
+    // Parse orientation
+    orientation = orientation || query.orientation;
+    if( Array.isArray( orientation ) ){
+      orientation = orientation[0];
     }
     if( orientation === "idem"
     || orientation === "orientation"
@@ -4873,10 +5040,39 @@ vote.extend( http_repl_commands, {
     ){
       orientation = null;
     }
-    if( !privacy && !orientation ){
+    if( !orientation ){ orientation = _; }
+
+    // Parse duration
+    duration = duration || query.duration;
+    if( Array.isArray( duration ) ){
+      duration = duration[0];
+    }
+    if( duration === "idem"
+    || duration === "duration"
+    ){
+      duration = null;
+    }
+    if( duration ){
+      if( typeof duration === "string" ){
+        duration = ({
+          "one year":  vote.ONE_YEAR,
+          "one month": vote.ONE_MONTH,
+          "one week":  vote.ONE_WEEK,
+          "24 hours":  vote.ONE_DAY,
+          "one hour":  vote.ONE_HOUR
+        })[ duration ]
+      }
+    }
+    if( !duration ){ duration = _; }
+
+    // Something changed?
+    if( !privacy && !orientation && !duration ){
       printnl( "No change" );
       return;
     }
+
+    // Find vote
+    var vote_id = query.vote_id;
     if( !vote_entity ){
       if( !vote_id ){
         printnl( "Vote not found" );
@@ -4902,6 +5098,7 @@ vote.extend( http_repl_commands, {
         }
       }
     }
+
     // Either a brand new vote
     if( !vote_entity ){
       Session.current.proposition = proposition;
@@ -4909,16 +5106,22 @@ vote.extend( http_repl_commands, {
         persona:     persona,
         proposition: proposition,
         privacy:     ( privacy || _ ),
-        orientation: ( orientation || _ )
+        orientation: ( orientation || _ ),
+        duration:    duration
       });
       printnl( "New vote of " + persona + " on " + proposition );
       //redirect( "proposition%20" + proposition.label );
     // Or a change to an existing vote
     }else{
+      // Adjust duration to make a renew
+      if( duration ){
+        duration += vote_entity.age();
+      }
       Ephemeral.inject( "Vote", {
         id_key:      vote_entity.id,
         privacy:     ( privacy || _ ),
-        orientation: ( orientation || _ )
+        orientation: ( orientation || _ ),
+        duration:    duration
       });
       printnl( "Changed vote " + pretty( vote_entity ) );
       //redirect( "proposition%20" + entity.proposition.label );
@@ -4952,6 +5155,8 @@ vote.extend( http_repl_commands, {
       text = text
       .replace( /[^A-Za-z0-9_ ]/g, "" )
       .replace( /[^ ]+/g, function( m ){
+        // filter out too short and reserved tags
+        if( m.length < 2 || Topic.reserved_tags[ m ] )return "";
         return m[0] === '#' ? m : '#' + m;
       });
       Session.current.filter = text;
@@ -5151,7 +5356,7 @@ function main(){
   trace( "Welcome to l8/test/vote.js -- Liquid demo...cracy" );
 
   //Ephemeral.force_bootstrap = true;
-  vote.debug_mode( de = true );
+  vote.debug_mode( de = false );
   Ephemeral.start( bootstrap, function( err ){
     if( err ){
       trace( "Cannot proceed", err, err.stack );
