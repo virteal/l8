@@ -2196,12 +2196,34 @@ Topic.prototype.filter_string = function(){
 Topic.reserved_tags = {
   tag:        true,
   recent:     true,
+  old:        true,
   today:      true,
   yesterday:  true,
   fade:       true,
   protest:    true,
   orphan:     true,
-  referendum: true
+  referendum: true,
+  persona:    true,
+  topic:      true,
+  result:     true,
+  group:      true,
+  membership: true,
+  tagging:    true,
+  delegation: true,
+  yes:        true,
+  no:         true,
+  ok:         true,
+  ko:         true,
+  on:         true,
+  off:        true,
+  true:       true,
+  false:      true,
+  null:       true,
+  undefined:  true,
+  me:         true,
+  you:        true,
+  them:       true,
+  jhr:        true  // End Of List
 };
 
 Topic.reserved = function( tag ){
@@ -2212,6 +2234,11 @@ Topic.prototype.computed_tags = function(){
   var buf = [];
   if( this.is_tag() ){
     buf.push( '#tag' )
+  }
+  if( Persona.find( "@" + this.label )
+  || Persona.find( "@" + this.label.substring( 1 ) )
+  ){
+    buf.push( "#persona" );
   }
   if( this.age() <= vote.ONE_WEEK ){
     buf.push( "#recent" );
@@ -2384,7 +2411,7 @@ Topic.prototype.is_tagged = function( tags ){
   if( typeof tags === "string" ){
     return string_tags_includes( this.tags_string(), tags );
   }
-  return tags_includes( this.tags() || [], tags, this );
+  return tags_includes( this.tags() || [], tags, this.label );
 };
 
 Topic.prototype.tags_string = function(){
@@ -2410,7 +2437,7 @@ function string_tags_includes( tags, other_tags ){
   });
 }
 
-function tags_includes( tags, other_tags, proposition ){
+function tags_includes( tags, other_tags, misc ){
 // Checks that all the other tags are also inside the tags set
 // [] does not include [ #a ]
 // [ #a, #b, #c ] does include [ #a, #b ]
@@ -2419,9 +2446,9 @@ function tags_includes( tags, other_tags, proposition ){
   for( var tag in other_tags ){
     if( tags.indexOf( other_tags[ tag ] ) === -1 ){
       // When an other tag is not found, enable the proposition to tag itself
-      if( !proposition
-      || ( other_tags[ tag ].name !== proposition.name
-        && other_tags[ tag ].name !== '#' + proposition.name )
+      if( !misc
+      || ( other_tags[ tag ].name !== misc
+        && other_tags[ tag ].name !== '#' + misc )
       )return false;
     }
   }
@@ -2526,7 +2553,7 @@ Ephemeral.type( Vote );
 function Vote( options ){
 
   // Decide: is it a new entity or an update? key is persona_id.proposition_id
-  var key = options.id_key ||( options.persona.id + "." + options.proposition.id );
+  var key = options.id_key ||( "" + options.persona.id + "." + options.proposition.id );
   this.identity( key );
   var vote = this.register( key );
 
@@ -2686,24 +2713,21 @@ Vote.prototype.add = function(){
       return this;
     }
   }
-  // Indirect votes are processed at agent's level
-  //if( this.orientation() === Vote.indirect )return;
   var vote = this;
   // Votes of groups have no impacts on results
   if( vote.persona.is_group() )return this;
   de&&mand( this.proposition );
-  // ToDo: is the .effect required?
-  //water.effect(
-  //  function(){
-      de&&bug( "Add vote " + vote 
-        + " now " + vote.orientation()
-        + " of " + vote.persona
-        + " via " + vote.delegation()
-        + " for proposition " + vote.proposition
-      );
-      vote.proposition.add_vote( vote );
-  //  }
-  //);
+  de&&bug( "Add vote " + vote
+    + " now " + vote.orientation()
+    + " of " + vote.persona
+    + " via " + vote.delegation()
+    + " for proposition " + vote.proposition
+  );
+  // Keep persona alive
+  if( vote.delegation() === Vote.direct ){
+    vote.persona.touch();
+  }
+  vote.proposition.add_vote( vote );
   return this;
 };
 
@@ -2992,37 +3016,42 @@ function Transition( options ){
 Ephemeral.type( Delegation );
 function Delegation( options ){
   
-  //debugger;
-  
-  de&&mand( options.persona );
-  de&&mand( options.agent   );
-  de&&mand( options.tags );
-  de&&mand( options.tags.length > 0 );
+  de&&mand( options.persona || this.is_update() );
+  de&&mand( options.agent   || this.is_update()   );
+  de&&mand( options.tags    || this.is_update() );
+  de&&mand( ( options.tags && options.tags.length > 0 ) || this.is_update() );
 
   // ToDo: id should be &d.@persona.@agent, with multiple sets of tags
-  var key = "" + options.persona + "." + options.agent + "." + options.tags[0].label;
-  this.identity( "&d." + key );
+  var key = options.id_key
+  || ( "" + options.persona.id + "." + options.agent.id + "." + options.tags[0].label );
+  this.identity( key );
   var delegation = this.register( key );
   var water      = this.water( delegation );
 
+  var persona   = options.persona || delegation.persona;
+  var agent     = options.agent   || delegation.agent;
+  de&&mand( persona );
+  de&&mand( agent   );
+
   // Delegation are transitive, there is a risk of loops
   if( !options.inactive
-  && options.agent.delegates_to( options.persona, options.filter )
+  && agent.delegates_to( persona, options.tags || delegation.tags )
   ){
     trace( "Loop detected for delegation " + pretty( options ) );
     // ToDo: should provide a "reason" to explain the deactivation
     options.inactive = true;
   }
-  
-  this.persona  = options.persona;
-  this.agent    = options.agent;
-  this.label    = this.agent.label;
+
+  this.persona  = persona;
+  this.agent    = agent;
+  this.label    = agent.label;
   this.votes    = water( [] ); // Votes done because of the delegation
-  this.filter   = water( [] );
+  this.privacy  = water( options.privacy );
   this.tags     = water( [] );
   this.inactive = water();
 
-   if( this.is_update() ){
+  if( this.is_update() ){
+    delegation.privacy( this.privacy );
     // If change to list of tags
     if( options.tags && diff( options.tags, delegation.tags() ).changes ){
       this.inactive = options.inactive || delegation.inactive();
@@ -3047,6 +3076,7 @@ function Delegation( options ){
   w.delegation = this;
 
   // Fire initial update
+  this.privacy( options.privacy || Vote.public );
   this.inactive( true );
   this.tags( options.tags );
   water.effect( function(){
@@ -3126,12 +3156,57 @@ Delegation.prototype.is_inactive = function(){
   return !this.is_active();
 };
 
+Delegation.prototype.is_public = function(){
+  return this.privacy() === Vote.public;
+};
+
+Delegation.prototype.is_secret = function(){
+  return this.privacy() === Vote.secret;
+};
+
+Delegation.prototype.is_private = function(){
+  return this.privacy() === Vote.private;
+};
+
 Delegation.prototype.filter_string = function(){
   var buf = [];
   this.tags().forEach( function( tag ){
     buf.push( tag.label );
   });
   return buf.join( " " );
+};
+
+Delegation.prototype.heat = function(){
+// Compute the "heat" of a delegation. "Hot delegations" should come first.
+  var touched = this.time_touched;
+  // Recently touched are hot
+  var age = vote.now() - touched;
+  if( age < vote.ONE_MINUTE )return touched;
+  if( age < vote.ONE_HOUR   )return touched;
+  // Less recently touched delegations are hot depending on number of votes
+  return this.votes().length;
+};
+
+Delegation.prototype.is_tagged = function( tags ){
+// Returns true if a delegation includes all the specified tags
+// Note: #something always includes itself, ie proposition xxx is #xxx tagged
+  if( typeof tags === "string" ){
+    return string_tags_includes( this.tags_string(), tags );
+  }
+  return tags_includes( this.tags() || [], tags, this.agent.label.substring( 1 ) );
+};
+
+Delegation.prototype.tags_string = function(){
+  var tags_str = [ "#" + this.agent.label.substring( 1 ) ];
+  var tags = this.tags() || [];
+  tags
+  .sort( function( a, b ){
+    return a.heat() - b.heat()
+  })
+  .forEach( function( tag ){
+    tags_str.push( tag.label );
+  });
+  return tags_str.join( " " ); // + this.computed_tags();
 };
 
 Delegation.prototype.update_votes = function(){
@@ -4362,7 +4437,7 @@ function page_header( left, center, right ){
       + link_to_page( "login" );
   }
   return [
-    '<div class="header fade" id="header"><div id="header_content">',
+    '<div class="header" id="header"><div id="header_content">',
       '<div class="top_left">',
         left || "",
       '</div>',
@@ -4380,7 +4455,7 @@ function page_header( left, center, right ){
 
 function page_footer(){
   return [
-    '\n</div></div></div><div class="fade" id="footer"><div id="footer_content">',
+    '\n</div></div></div><div class="" id="footer"><div id="footer_content">',
     link_to_page( "propositions", "", "propositions" ), " ",
     link_to_page( "tags", "", "tags" ),
     '<div id="powered"><a href="https://github.com/virteal/kudocracy">',
@@ -4444,9 +4519,7 @@ function page_help(){
     page_header(
       _,
       link_to_twitter_tags( "#kudocracy" ),
-      Session.current.visitor
-        ? link_to_page( Session.current.visitor.label, "visitor", "vote!" )
-        : _
+      link_to_page( "propositions" )
     ),
     '<div style="max-width:50em">',
     '<h2>What is it?</h2><br>',
@@ -4509,6 +4582,7 @@ function page_help(){
   return r;
 }
 
+
 function vote_menu( vote, proposition, orientation ){
   function o( v, l ){v
     return '\n<option value="' + v + '">' + (v || l) + '</option>';
@@ -4528,15 +4602,15 @@ function vote_menu( vote, proposition, orientation ){
     '<select name="orientation">',
     // ToDo: randomize option order?
     o( "orientation" ), o( "agree"), o( "disagree" ), o( "protest" ), o( "blank" ), o( "delete" ),
-    '</select>',
+    ' </select>',
     '<select name="privacy">',
     o( "privacy" ), o( "public"), o( "secret" ), o( "private" ),
     '</select>',
-    '<select name="duration">',
+    ' <select name="duration">',
     o( "duration" ), o( "one year"), o( "one month" ), o( "one week" ),
     o( "24 hours" ), o( "one hour"),
     '</select>',
-    '<input type="submit" value="Vote"/>',
+    ' <input type="submit" value="Vote"/>',
     '</form>\n',
     // Twitter tweet button
     '<a href="https://twitter.com/intent/tweet?button_hashtag='
@@ -4550,8 +4624,39 @@ function vote_menu( vote, proposition, orientation ){
     + '&text=new%20democracy" '
     + 'class="twitter-hashtag-button" '
     + 'data-related="Kudocracy,vote">Tweet ' + proposition.label + '</a>'
-].join( "" );
+  ].join( "" );
 }
+
+
+function delegate_menu( delegation ){
+  function o( v, l ){v
+    return '\n<option value="' + v + '">' + (v || l) + '</option>';
+  }
+  return [
+    '\n<form name="delegation" url="/">',
+    '<input type="hidden" name="input" '
+      + 'value="change_delegation &' + delegation.id + '"/>',
+    '<select name="privacy">',
+    o( "privacy" ), o( "public"), o( "secret" ), o( "private" ),
+    '</select>',
+    ' <select name="duration">',
+    o( "duration" ), o( "one year"), o( "one month" ), o( "one week" ),
+    o( "24 hours" ), o( "one hour"),
+    '</select>',
+    ' <input type="submit" value="Delegate"/>',
+    '</form>\n',
+    // Twitter tweet button
+    '\n<a href="https://twitter.com/intent/tweet?button_hashtag='
+    + delegation.agent.label.substring( 1 )
+    + '&hashtags=kudocracy,vote,'
+    + delegation.tags_string().replace( / /g, "," ).replace( /#/g, "")
+    + '&text=new%20democracy%20%40' + delegation.agent.label.substring( 1 ) + '" '
+    + 'class="twitter-hashtag-button" '
+    + 'data-related="Kudocracy,vote">Tweet #'
+    + delegation.agent.label.substring( 1 ) + '</a>'
+  ].join( "" );
+}
+
 
 function page_visitor( page_name, name, verb, filter ){
 // The private page of a persona
@@ -4567,6 +4672,7 @@ function page_visitor( page_name, name, verb, filter ){
       _,
       link_to_twitter_user( persona.label ),
       link_to_page( "propositions" )
+      + " " + link_to_page( persona.label, "delegations" )
       + " " + link_to_page( persona.label, "persona", "public" )
     ) ]
   ];
@@ -4592,21 +4698,21 @@ function page_visitor( page_name, name, verb, filter ){
     return b.time_touched - a.time_touched;
   });
   buf.push( '<div><h2>Votes</h2>' );
-  votes.forEach( function( vote_entity ){
-    if( vote_entity.expired() || vote_entity.proposition.expired() )return;
+  votes.forEach( function( entity ){
+    if( entity.expired() || entity.proposition.expired() )return;
     if( Session.current.has_filter() ){
-      if( !vote_entity.proposition.is_tagged( Session.current.filter ) )return;
+      if( !entity.proposition.is_tagged( Session.current.filter ) )return;
     }
     buf.push( '<br><br>'
-      + ' ' + link_to_page( "proposition", vote_entity.proposition.label ) + ' '
-      //+ "<dfn>" + emojied( vote_entity.proposition.result.orientation() ) + '</dfn>'
-      + '<br><em>' + emojied( vote_entity.orientation() ) + "</em> "
-      + "<dfn>(" + vote_entity.privacy() + ")</dfn>"
-      + ( vote_entity.is_direct()
+      + ' ' + link_to_page( "proposition", entity.proposition.label ) + ' '
+      //+ "<dfn>" + emojied( entity.proposition.result.orientation() ) + '</dfn>'
+      + '<br><em>' + emojied( entity.orientation() ) + "</em> "
+      + "<dfn>(" + entity.privacy() + ")</dfn>"
+      + ( entity.is_direct()
         ? ""
-        :  "<dfn>(via " + link_to_page( "persona", vote_entity.delegation().agent.label ) + ")</dfn> " )
-      + ", for " + duration_label( vote_entity.expire() - vote.now() )
-      + vote_menu( vote_entity )
+        :  "<dfn>(via " + link_to_page( "persona", entity.delegation().agent.label ) + ")</dfn>" )
+      + ", for " + duration_label( entity.expire() - vote.now() )
+      + vote_menu( entity )
     )
   });
   buf.push( "</div><br>" );
@@ -4615,13 +4721,16 @@ function page_visitor( page_name, name, verb, filter ){
   var delegations = persona.delegations();
   buf.push( "<div><h2>Delegations</h2><br>" );
   //buf.push( "<ol>" );
-  delegations.forEach( function( delegation ){
-    buf.push( '<br>' // "<li>"
-        + link_to_page( "persona", delegation.agent.label )
-        //+ ' <small>' + link_to_twitter_user( delegation.agent.label ) + '</small> '
-        + ( delegation.is_inactive() ? " <dfn>(inactive)</dfn> " :  " " )
-        + link_to_page( "propositions", delegation.filter_string() )
-        //+ ' <small>' + link_to_twitter_filter( delegation.filter_string() ) + '</small>'
+  delegations.forEach( function( entity ){
+    if( entity.expired() || entity.agent.expired() )return;
+    if( Session.current.has_filter() ){
+      if( !entity.proposition.is_tagged( Session.current.filter ) )return;
+    }    buf.push( '<br>' // "<li>"
+        + link_to_page( "persona", entity.agent.label )
+        //+ ' <small>' + link_to_twitter_user( entity.agent.label ) + '</small> '
+        + ( entity.is_inactive() ? " <dfn>(inactive)</dfn> " :  " " )
+        + link_to_page( "propositions", entity.filter_string() )
+        //+ ' <small>' + link_to_twitter_filter( entity.filter_string() ) + '</small>'
         + "</li>"
     )
   });
@@ -4647,10 +4756,11 @@ function page_persona( page_name, name, verb, filter ){
     [ page_header(
       _,
       link_to_twitter_user( persona.label ),
-      Session.current.visitor
-      ? (link_to_page( "propositions" )
-        + " " + link_to_page( persona.label, "visitor", "votes" ) )
-      : ""
+      link_to_page( "propositions" )
+      + ( Session.current.visitor === persona
+        ?   " " + link_to_page( "delegations" )
+          + " " + link_to_page( persona.label, "visitor", "votes" )
+        : "" )
     ) ]
   ];
   var buf = [];
@@ -4664,7 +4774,7 @@ function page_persona( page_name, name, verb, filter ){
     + 'Follow ' + persona.label + '</a>'
   );
 
-  // Query to filter for tags in persona's vote
+  // Query to filter for tags in persona's votes
   buf.push( filter_label( filter ) );
   buf.push( [
     '\n<form name="proposition" url="/">',
@@ -4683,23 +4793,28 @@ function page_persona( page_name, name, verb, filter ){
   });
   buf.push( '<br><br><div><h2>Votes</h2><br>' );
   //buf.push( "<ol>" );
-  votes.forEach( function( vote ){
-    if( vote.expired() )return;
+  votes.forEach( function( entity ){
+    if( entity.expired() )return;
     if( Session.current.filter.length ){
-      if( !vote.proposition.is_tagged( Session.current.filter ) )return;
+      if( !entity.proposition.is_tagged( Session.current.filter ) )return;
     }
     buf.push( '<br>' ); // "<li>" );
-    if( vote.is_private() ){
+    if( entity.is_private() ){
       buf.push( "private" );
     }else{
       buf.push( ''
-        +  ( vote.is_secret()
+        +  ( entity.is_secret()
           ? "secret"
-          : "<em>" + emojied( vote.orientation() ) ) + "</em> "
-        + '' + link_to_page( "proposition", vote.proposition.label ) + ' '
-        + " <dfn>" + time_label( vote.time_touched ) + "</dfn> "
-        //+ " <dfn>" + emojied( vote.proposition.result.orientation() ) + "</dfn> "
-        //+ time_label( vote.proposition.result.time_touched )
+          : "<em>" + emojied( entity.orientation() ) ) + "</em> "
+        + '' + link_to_page( "proposition", entity.proposition.label ) + ' '
+        + " <dfn>" + time_label( entity.time_touched ) + "</dfn> "
+        //+ " <dfn>" + emojied( entity.proposition.result.orientation() ) + "</dfn> "
+        //+ time_label( entity.proposition.result.time_touched )
+        //+ "<dfn>(" + entity.privacy() + ")</dfn>"
+        + ( entity.is_direct() || !entity.delegation().is_public()
+          ? ""
+          :  "<dfn>(via " + link_to_page( "persona", entity.delegation().agent.label ) + ")</dfn> " )
+        //+ ", for " + duration_label( entity.expire() - vote.now() )
       );
     }
     //buf.push( "</li>" );
@@ -4712,16 +4827,62 @@ function page_persona( page_name, name, verb, filter ){
 }
 
 
-function page_delegations( page_name, name ){
-  var r = [ page_style(), null ];
-  var persona = Persona.find( name );
-  if( !persona ){
-    r[1] = "Persona not found: " + name;
-    return r;
-  }
-  r[1] = pretty( persona.value() );
+function page_delegations( page_name, name, verb, filter ){
+// The private page of a persona's delegations
+  var persona = ( name && Persona.find( name ) ) || Session.current.visitor;
+  if( !persona )return [ _, "Persona not found: " + name ];
+
+  filter = Session.current.set_filter( filter || (verb = "Search" && "all" ) );
+
+  // Header
+  var r = [
+    page_style(),
+    [ page_header(
+      _,
+      link_to_twitter_user( persona.label ),
+      link_to_page( "propositions" )
+      + " " + link_to_page( persona.label, "persona", "public" )
+      + " " + link_to_page( persona.label, "visitor", "votes" )
+    ) ]
+  ];
+  var buf = [];
+
+  buf.push( '<h1>' + persona.label + '</h1><br><br>' );
+
+  // Query to filter for tags
+  buf.push( filter_label( filter, "propositions" ) );
+  buf.push( [
+    '\n<form name="proposition" url="/">',
+    '<input type="hidden" name="input" maxlength="140" value="page delegations ' + persona.label + '"/>',
+    '<input type="search" placeholder="all" name="input3" value="',
+      Session.current.has_filter() ? Session.current.filter + " #" : "",
+    '"/>',
+    ' <input type="submit" name="input2" value="Search"/>',
+    '</form><br>\n'
+  ].join( "" ) );
+
+  // Delegations
+  var delegations = persona.delegations();
+  buf.push( "<div><h2>Delegations</h2>" );
+  delegations.forEach( function( entity ){
+    if( entity.expired() )return;
+    buf.push( '<br><br>'
+      + link_to_page( "persona", entity.agent.label )
+      + ( entity.is_inactive() ? " <dfn>(inactive)</dfn> " :  " " )
+      + link_to_page( "propositions", entity.filter_string() )
+      + "<br><dfn>(" + entity.privacy() + ")</dfn>"
+      + ", for " + duration_label( entity.expire() - vote.now() )
+    + delegate_menu( entity )
+    )
+  });
+
+  // Footer
+  buf.push( "</div><br>" );
+  buf.push( page_footer() );
+  r[1] = r[1].concat( buf );
   return r;
 }
+
 
 function page_groups( page_name, name ){
   var r = [ page_style(), null ];
@@ -5267,7 +5428,8 @@ vote.extend( http_repl_commands, {
       link_to_command( "effects &" ) + "id -- dump effects of involed change",
       "login -- create user if needed and set current",
       "change_vote &id privacy orientation -- change existing vote",
-      "change_proposition text #tag text #tag... -- change proposition"
+      "change_proposition text #tag text #tag... -- change proposition",
+      "delegate &id privacy duration -- change delegation"
     ];
     for( var v in replized_verbs ){
       tmp.push( v + " " + replized_verbs_help[ v ] );
@@ -5477,6 +5639,65 @@ vote.extend( http_repl_commands, {
       printnl( "Changed vote " + pretty( vote_entity ) );
       //redirect( "proposition%20" + entity.proposition.label );
     }
+    return;
+  },
+
+  change_delegation: function( delegation_entity, privacy, duration ){
+    // ToDo: move this into some page_xxx()
+    redirect_back();
+    var query = PendingResponse.query;
+
+    // Parse privacy
+    privacy = privacy || query.privacy;
+    if( privacy === "idem"
+    ||  privacy === "privacy"
+    ){
+      privacy = null;
+    }
+    if( privacy
+    && " public secret private ".indexOf( " " + privacy + " " ) === -1
+    ){
+      privacy = null;
+    }
+    if( !privacy ){ privacy = _; }
+
+    // Parse duration
+    duration = duration || query.duration;
+    if( duration === "idem"
+    || duration === "duration"
+    ){
+      duration = null;
+    }
+    if( duration ){
+      if( typeof duration === "string" ){
+        duration = ({
+          "one year":  vote.ONE_YEAR,
+          "one month": vote.ONE_MONTH,
+          "one week":  vote.ONE_WEEK,
+          "24 hours":  vote.ONE_DAY,
+          "one hour":  vote.ONE_HOUR
+        })[ duration ]
+      }
+    }
+    if( !duration ){ duration = _; }
+
+    // Something changed?
+    if( !privacy && !duration ){
+      printnl( "No change" );
+      return;
+    }
+
+    // Adjust duration to make a renew
+    if( duration ){
+      duration += delegation_entity.age();
+    }
+    Ephemeral.inject( "Delegation", {
+      id_key:      delegation_entity.id,
+      privacy:     privacy,
+      duration:    duration
+    });
+    printnl( "Changed delegation " + pretty( delegation_entity ) );
+
     return;
   },
 
@@ -5746,7 +5967,7 @@ function main(){
   trace( "Welcome to l8/test/vote.js -- Liquid demo...cracy" );
 
   //Ephemeral.force_bootstrap = true;
-  vote.debug_mode( de = true );
+  vote.debug_mode( de = false );
   Ephemeral.start( bootstrap, function( err ){
     if( err ){
       trace( "Cannot proceed", err, err.stack );
