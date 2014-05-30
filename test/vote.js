@@ -28,7 +28,7 @@ var water = app.water = require( "l8/lib/water.js" );
 var fluid = app.fluid = water.fluid;
 
 // My de&&bug() darling, traces that can be disabled with low overhead
-var de        = false;
+var de        = true;
 var debugging = true; // Interactive mode, useful to debug test cases
 var trace     = app.trace = l8.trace;
 var bug       = app.bug   = trace;
@@ -294,7 +294,7 @@ var MainMachine = Machine.current = Machine.main = new Machine({});
  */
 
 // Global pool of all entities, id indexed
-var NextId      = 0;
+var NextId      = 1;
 var MaxSharedId = 9999;
 var AllEntities = [];
 app.AllEntities = AllEntities;
@@ -958,6 +958,23 @@ function json_decode( o ){
   return decoded;
 }
 
+var value_dont_copy = {
+  "__proto__": true,
+  machine: true,
+  type : true,
+  v: true,
+  super: true,
+  is_entity: true,
+  entity: true,
+  buried: true,
+  was: true,
+  now: true,
+  updates: true,
+  next_effect: true,
+  effect: true,
+  change: true,
+  snapshot: true
+};
 
 function value( x, force ){
 // Entity's value is a snapshot of the entity's current state
@@ -966,6 +983,11 @@ function value( x, force ){
   var a;
   var r;
   if( x ){
+    if( x.snaptime ){
+      de&&bug( "Copying a value?" );
+      de&&bugger();
+      return x;
+    }
     if( x.is_entity && x.buried ){
       return _;
     }else if( x.is_entity && !force ){
@@ -987,13 +1009,19 @@ function value( x, force ){
         o = {};
         // Scan all properties, including inherited ones
         for( var attr in x ){
-          r = value( x[ attr ] );
+          r = x[ attr ];
           if( typeof r !== "undefined"
           // Filter out some attributes
-          && [ "machine", "type", "v", "super", "is_entity", "buried", "was", "now" ]
-            .indexOf( attr ) === -1
+          &&  !value_dont_copy[ attr ]
+          &&  attr[0] !== "_"
           ){
-            o[ attr ] = r;
+            r = value( r  );
+            if( typeof r !== "undefined" ){
+              if( de && !force ){
+                // bug( "Copied attr " + attr );
+              }
+              o[ attr ] = r;
+            }
           }
         }
         return o;
@@ -1098,8 +1126,8 @@ Change.prototype.process = function(){
  *  - next_effect -- next effect in change's list of effects (see Change/to)
  *  - effect      -- optional, the updated entity, if effect is an update
  *  If the effect is not an update, then it is the updated entity:
- *  - updates     -- array of snapshoot values of the entity, ie log
- *  - was         -- the last snapshoot value of the entity
+ *  - updates     -- array of snapshot values of the entity, ie log
+ *  - was         -- the last snapshot value of the entity
  */
 
 Entity.type( Effect );
@@ -2116,6 +2144,7 @@ function Topic( options ){
   this.propositions = water( options.propositions );
   this.tags         = water( options.tags );
   this.delegations  = water( options.delegations );
+  this.comments     = water( options.comments );
   this.result       = options.result
     || ( this.is_create() && Result.create({ proposition: this } ) );
 
@@ -2152,6 +2181,7 @@ Topic.find = function( key ){
 Topic.prototype.update = function( other ){
   // ToDo: handle .tags and .propositions changes
   this.source( other.source );
+  this.comments( other.comments );
   if( other.result ){ this.result = other.result };
   if( other.delegations ){ this.update_delegations( other.delegations ); }
   return this;
@@ -2328,7 +2358,9 @@ Topic.prototype.log_vote = function( v ){
 // There is a log of all votes. It is a snapshot copy of the vote value that is
 // kept because a persona's vote can change over time.
   var val = v.value();
+  v.snapshot = val;
   val.snaptime = vote.now();
+  val.comment_text = v.comment() && v.comment().text;
   val.entity = v;
   val.persona_label = v.persona.label;
   var votes_log = this.votes_log();
@@ -2370,8 +2402,8 @@ Topic.prototype.add_tag = function( tag, loop ){
   var idx = list.indexOf( tag );
   // Done if already there
   if( idx !== -1 )return this;
-  // ToDo: avoid clone?
-  var new_list = list.slice();
+  // No clone, not needed
+  var new_list = list;
   new_list.push( tag );
   this.tags( new_list );
   if( !loop ){
@@ -2386,7 +2418,7 @@ Topic.prototype.remove_tag = function( tag, loop ){
   var idx = list.indexOf( tag );
   // Done if already not there
   if( idx === -1 )return this;
-  // ToDo: avoid clone?
+  // No clone, not needed
   var new_list = list;
   de&&mand( idx !== - 1 );
   new_list.splice( idx, 1 );
@@ -2397,6 +2429,32 @@ Topic.prototype.remove_tag = function( tag, loop ){
   }
   return this;
 };
+
+Topic.prototype.add_comment = function( comment ){
+  var list = this.comments() || [];
+  var idx = list.indexOf( comment );
+  // Done if already there
+  if( idx !== -1 )return this;
+  // No clone, not needed
+  var new_list = list;;
+  new_list.push( comment );
+  this.comments( new_list );
+  return this;
+};
+
+Topic.prototype.remove_comment = function( comment ){
+  var list = this.tags() || [];
+  var idx = list.indexOf( comment );
+  // Done if already not there
+  if( idx === -1 )return this;
+  // ToDo: avoid clone?
+  var new_list = list;
+  de&&mand( idx !== - 1 );
+  new_list.splice( idx, 1 );
+  this.comments( new_list );
+  return this;
+};
+
 
 Topic.prototype.add_proposition = function( proposition, loop ){
 // Each tag has a list of all the propositions that are tagged with it
@@ -2565,6 +2623,39 @@ function Tagging( options ){
 
 
 /*
+ *   Comment entity
+ *
+ *   Personas can leave comments to explain things about their vote.
+ */
+
+Event.type( Comment );
+function Comment( options ){
+
+  de&&mand( options.vote );
+  de&&mand( options.text );
+
+  // ToDo: fix this, should be the true object
+  if( options.vote !== Vote.find( options.vote.key ) ){
+    trace( "BUG! this should not happen..." );
+    options.vote = Vote.find( options.vote.key );
+  }
+  this.vote = options.vote;
+  this.text = options.text;
+  this.vote.set_comment( this );
+  this.vote.proposition.add_comment( this );
+
+}
+
+
+Comment.prototype.expiration = function(){
+  if( this.vote.comment() === this ){
+    this.vote.comment( null );
+  }
+  this.topic.remove_comment( this );
+}
+
+
+/*
  *  Vote entity
  *
  *  Personas can vote on propositions. They can change their mind.
@@ -2578,7 +2669,7 @@ function Tagging( options ){
 Ephemeral.type( Vote );
 function Vote( options ){
 
-  // Decide: is it a new entity or an update? key is persona_id.proposition_id
+  // Decide: is it a new entity or an update? key is @persona_id.proposition_id
   var key = options.id_key ||( "" + options.persona.id + "." + options.proposition.id );
   this.identity( key );
   var vote = this.register( key );
@@ -2594,11 +2685,13 @@ function Vote( options ){
   if( this.is_create() ){
     this.analyst     = water( options.analyst );
     this.source      = water( options.source );
+    this.comment     = water( options.comment );
     this.delegation  = water( options.delegation  || Vote.direct  );
     // Analysts vote "in the open", no privacy ; otherwise defaults to private
     this.privacy     = water( (options.analyst && Vote.public )
       || options.privacy || Vote.public
     );
+    this.snapshot = null; // See Topic.log_vote() & Topic.set_comment()
     this.previously  = water( options.previously  || Vote.neutral );
     this.orientation = water();
     var w = water( _, error_traced( update ), [ this.delegation, this.orientation ] );
@@ -2664,7 +2757,7 @@ Vote.private = "private";
 Vote.log = [];
 
 Vote.prototype.touch = function(){
-  this.time_touched = vote.now();
+  //this.time_touched = vote.now();
   Vote.super.prototype.touch.call( this );
 }
 
@@ -2822,6 +2915,16 @@ Vote.prototype.delegate_using = function( delegation ){
   delegation.track_vote( vote );
   return this;
 };
+
+Vote.prototype.set_comment = function( comment ){
+  if( comment ){
+    this.touch();
+  }
+  this.comment( comment );
+  // Comments can occur after vote's value was logged, see Topic.log_vote()
+  this.snapshot.comment_text = comment.text;;
+  return this;
+}
 
 
 /*
@@ -3045,12 +3148,11 @@ function Transition( options ){
 Ephemeral.type( Delegation );
 function Delegation( options ){
   
-  de&&mand( options.persona || this.is_update() );
-  de&&mand( options.agent   || this.is_update()   );
-  de&&mand( options.tags    || this.is_update() );
-  de&&mand( ( options.tags && options.tags.length > 0 ) || this.is_update() );
+  de&&mand( options.persona || options.id_key );
+  de&&mand( options.agent   || options.id_key );
+  de&&mand( options.tags    || options.id_key );
+  de&&mand( ( options.tags && options.tags.length > 0 ) || options.id_key );
 
-  // ToDo: id should be &d.@persona.@agent, with multiple sets of tags
   var key = options.id_key
   || ( "" + options.persona.id + "." + options.agent.id + "." + options.tags[0].label );
   this.identity( key );
@@ -4008,7 +4110,7 @@ var ClueDiv     = null	// Effect is a semi transparent horizontal div
 
 
 // My debug darling, see http://virteal.com/DebugDarling
-var de = false	// Please use true to display debug traces
+var de = true	// Please use true to display debug traces
 var bug = (console && console.log
   && function bug( m ){ console.log( "ScrollCue: " + m)})
 || (de = false)
@@ -4618,26 +4720,47 @@ function vote_menu( vote, proposition, orientation ){
   function o( v, l ){v
     return '\n<option value="' + v + '">' + (v || l) + '</option>';
   }
+  var with_comment = "";
   // vote is either a vote or a persona
   var vote_id;
   if( vote.type === "Vote" ){
     vote_id = vote.id;
     proposition = vote.proposition;
+    with_comment = true;
   }else{
     vote_id = "" + vote.id + "." + proposition.id;
+  }
+  if( with_comment ){
+    with_comment = '<input type="search" name="comment" placeholder="comment" ';
+    if( vote.comment() ){
+      with_comment += 'value="' + Wiki.htmlizeAttr( vote.comment().text ) + '"';
+    }
+    with_comment += '/> ';
+  }
+  var tags = proposition.tags_string()
+  .replace( " #recent", "" )
+  .replace( " #yesterday", "" )
+  .replace( " #today", "" );
+  var comment;
+  var remain = 140 - " #kudcracy #vote".length;
+  if( with_comment && vote.comment() ){
+    comment = encodeURIComponent( vote.comment().text.substring( 0, remain ) );
+  }else{
+    comment = "new democracy"
   }
   return [
     '\n<form name="vote" url="/">',
     '<input type="hidden" name="input" value="change_vote"/>',
     '<input type="hidden" name="vote_id" value="' + vote_id + '"/>',
+    with_comment,
     '<select name="orientation">',
     // ToDo: randomize option order?
     o( "orientation" ), o( "agree"), o( "disagree" ), o( "protest" ), o( "blank" ), o( "delete" ),
-    ' </select>',
+    '</select>',
     '<select name="privacy">',
     o( "privacy" ), o( "public"), o( "secret" ), o( "private" ),
     '</select>',
-    ' <select name="duration">',
+    '<select name="duration">',
     o( "duration" ), o( "one year"), o( "one month" ), o( "one week" ),
     o( "24 hours" ), o( "one hour"),
     '</select>',
@@ -4645,15 +4768,17 @@ function vote_menu( vote, proposition, orientation ){
     '</form>\n',
     // Twitter tweet button
     '<a href="https://twitter.com/intent/tweet?button_hashtag='
-    + proposition.label
+    + (proposition.is_tag()
+      ? proposition.label.substring( 1 )
+      : proposition.label )
     + '&hashtags=kudocracy,vote,'
     + (vote.type !== "Vote"
       ? (orientation && orientation + "," || "")
       : vote.orientation() + ","
       )
-    + proposition.tags_string().replace( / /g, "," ).replace( /#/g, "")
-    + '&text=new%20democracy" '
-    + 'class="twitter-hashtag-button" '
+    + tags.replace( / /g, "," ).replace( /#/g, "")
+    + '&text=' + comment
+    + '" class="twitter-hashtag-button" '
     + 'data-related="Kudocracy,vote">Tweet ' + proposition.label + '</a>'
   ].join( "" );
 }
@@ -5152,6 +5277,472 @@ function i18n( msg ){
   return msg;
 }
 
+// section: include.js
+function $include( file, prepand, postpand ){
+// Like C's #include to some extend. See also $include_json().
+// The big difference with require() is that whatever is declared using
+// "var" is visible, whereas with require() local variables are defined in
+// some different scope.
+// The big difference with #include is that #include can be used anywhere
+// whereas $include() can be used only as a statement.
+// Please use $include_json() to include an expression.
+// file is searched like require() does (if require.resolve() exists).
+// File's content is not cached, I trust the OS for doing some caching better
+// than myself. As a result, it works great with self modifying code...
+// Another big difference is the fact that $include() will fail silently if
+// the file cannot be read.
+  var data
+  var fs      = require( 'fs')
+  var ffile   = ""
+  var rethrow = false
+  try{
+    ffile = require.resolve ? require.resolve( file) : file
+  }catch( err ){}
+  // Silent ignore if file not found
+  if( !ffile ){
+    trace( "$include: no " + file)
+    return
+  }
+  try{
+    data = fs.readFileSync( ffile).toString()
+    prepand  && (data = prepand + data)
+    postpand && (data = data    + postpand)
+    $include.result = undefined
+    // trace( "$include() eval of:" + data)
+    try{
+      eval( data) // I wish I could get better error reporting
+    }catch( err ){
+      rethrow = true
+      throw err
+    }
+    return $include.result
+  }catch( err ){
+    trace( "$include: " + file)
+    if( true || rethrow ) throw err
+  }
+}
+
+function $include_json( file ){
+// Like C's #include when #include is used on the right side of an assignment
+  return $include( file, ";($include.result = (", "));")
+}
+// section: end include.js
+
+// section: end sectionize.js
+
+
+// -------------------
+// section: globals.js
+
+// Some global constants
+var SW = {
+  // Needed at startup
+  version:  "0.15",
+  name:     "Kudocracy",	// Name of website
+  debug:    true,		// Debug mode means lots of traces
+  test:     false,		// Test mode
+  dir:      "",		        // Local to cwd, where files are, must exist
+  port:     1234,		// 80 default, something else if behind a proxy
+  domain:   "",			// To build permalinks, empty => no virtual hosting
+  static:   "",			// To serve static files, optionnal, ToDo: ?
+  protocol: "http://",		// Idem, https requires a reverse proxy
+  fbid:     "",                 // Facebook app ID
+  twid:     "",			// Twitter app ID
+  likey:    "",			// LinkedIn API key
+  dbkey:    "",			// Dropbox key
+  dbsecret: "",			// Dropbox secret
+  shkey:    "",			// Shareaholic key
+  scalable: false,		// ToDo: a multi-core/multi-host version
+  style:    "",			// CSS string (or lesscss if "less" is found)
+
+  // Patterns for valid page names, please change with great care only
+
+  // ~= CamelCase, @#_[ are like uppercase, . - [ are like lowercase
+  wikiwordCamelCasePattern:
+    "[@#A-Z_\\[][a-z0-9_.\\[-]{1,62}[@#A-Z_\\[\\]]",
+  // 3Code style
+  wikiword3CodePattern:
+    "3\w\w-\w\w\w-\w\w\w",
+  // 4Codes
+  wikiword4CodePattern:
+    "4\w\w\w-\w\w\w\w-\w\w\w\w-\w\w\w\w",
+  // Twitter hash tag
+  wikiwordHashTagPattern:
+    "#[A-Za-z][a-z_0-9]{2,30}",
+  // Twitter name
+  wikiwordTwitterPattern:
+    "@[A-Za-z][A-Za-z_0-9]{2,30}",
+  // email address, very liberal but fast
+  wikiwordEmailPattern:
+    "[a-z][a-z_0-9.-]{1,62}@[a-z0-9.-]{5,62}",
+  // Free links, anything long enough but without / & infamous <> HTML tags
+  // ToDo: I also filter out .", = and ' but I should not, but that would break
+  wikiwordFreeLinkPattern:
+    "[A-Za-z_]*\\[[^.='\"/<>\\]]{3,62}\\]",
+  // Suffix, can follow any of the previous pattern
+  wikiwordSuffixPattern:
+    "(([\.][@#A-Z_a-z0-9-\\[\\]])|([@#A-Z_a-z0-9\\[\\]-]*))*",
+  // Prefix, cannot precede a wikiword
+  wikiwordPrefixPattern:
+    "([^=@#A-Za-z0-9_~\?&\)\/\\\">.:-]|^)",
+  // ToDo: Postfix anti pattern, cannot succede a wikiword, non capturing
+  wikiwordPostfixAntiPattern: "",
+
+  // Valid chars in 3Codes, easy to read, easy to spell
+  // 23 chars => 23^8 possibilities, ~= 80 000 000 000, 80 billions
+  // 4codes: 23^15 ~= a billion of billions, enough
+  // Don't change that. If you change it, all exiting "public" key get confused
+  valid3: "acefghjkprstuvxyz234678",	// avoid confusion (ie O vs 0...)
+
+  // Pattern for dates, ISO format, except I allow lowercase t & z
+  datePattern: "20..-..-..[tT]..:..:..\....[zZ]",
+
+  // Delays:
+  thereDelay:        30 * 1000,	// Help detect current visitors
+  recentDelay:  30 * 60 * 1000,	// Recent vs less recent
+  awayDelay:    10 * 60 * 1000,	// Help logout old guests
+  logoutDelay: 2 * 3600 * 1000,	// Help logout inactive members
+  saveDelay:         30 * 1000,	// Save context delay
+  resetDelay: 12 * 3600 * 1000,	// Inactive wikis are unloaded
+  hotDelay:  45 * 84600 * 1000,	// Short term memory extend
+
+  // Hooks
+  hookSetOption: null, // f( wiki, key, str_val, base) => null or {ok:x,val:y}
+  hookStart:     null, // Called right before .listen()
+
+  the: "end" // of the missing comma
+}
+
+// Compute the maximum numeric value of a 3Code (or 4Code)
+// These are approximates because it does not fit in a javascript 53 bits
+// integer
+;(function compute_max_3Code(){
+  var len = SW.valid3 * len
+  // 8 chars for 3 codes, 15 for 4codes
+  var nch = 8
+  var max = 1
+  while( nch-- ){ max = max * len }
+  SW.max3code = max
+  // 8 + 7 is 15
+  nch = 7
+  while( nch-- ){ max = max * len }
+  SW.max4code = max
+})()
+
+// String pattern for all valid Wikiwords
+SW.wikiwordPattern = "("
+  + "("
+  +       SW.wikiwordCamelCasePattern
+  + "|" + SW.wikiword3CodePattern
+  + "|" + SW.wikiword4CodePattern
+  + "|" + SW.wikiwordHashTagPattern
+  + "|" + SW.wikiwordTwitterPattern
+  + "|" + SW.wikiwordEmailPattern
+  + "|" + SW.wikiwordFreeLinkPattern
+  + ")"
+  // All previous followed by optionnal non space stuff, but not . ending
+  + SW.wikiwordSuffixPattern
++ ")"
+
+// String pattern for all ids
+SW.wikiwordIdPattern = ""
+  + "("
+  +       SW.wikiwordTwitterPattern
+  + "|" + SW.wikiwordEmailPattern
+  + ")"
+
+// From string patterns, let's build RegExps
+
+// Pattern to isolate wiki words out of stuff
+SW.wikiwords = new RegExp(
+    SW.wikiwordPrefixPattern
+  + SW.wikiwordPattern
+  + SW.wikiwordPostfixAntiPattern
+  , "gm"
+)
+
+// Pattern to check if a str is a wikiword
+SW.wikiword
+  = new RegExp( "^" + SW.wikiwordPattern              + "$")
+// Pattern to check if a str in an id
+SW.wikiwordId
+  = new RegExp( "^" + SW.wikiwordIdPattern            + "$")
+// Pattern for each type of wikiword
+SW.wikiwordCamelCase
+  = new RegExp( "^" + SW.wikiwordCamelCasePattern     + "$")
+SW.wikiword3Code
+  = new RegExp( "^" + SW.wikiword3CodePattern         + "$")
+SW.wikiword4Code
+  = new RegExp( "^" + SW.wikiword4CodePattern         + "$")
+SW.wikiwordHashTag
+  = new RegExp( "^" + SW.wikiwordHashTagPattern       + "$")
+SW.wikiwordTwitter
+  = new RegExp( "^" + SW.wikiwordTwitterPattern       + "$")
+SW.wikiwordEmail
+  = new RegExp( "^" + SW.wikiwordEmailPattern         + "$")
+SW.wikiwordFreeLink
+  = new RegExp( "^" + SW.wikiwordFreeLinkPattern      + "$")
+
+// Some tests
+if( true ){
+  var De = true;
+  // Smoke test
+  if( !SW.wikiword.test( "WikiWord") ){
+    De&&bug( "Pattern:", SW.wikiwordPattern)
+    De&&mand( false, "Failed WikiWord smoke test")
+  }
+  // Some more tests, because things gets tricky some times
+  var test_wikiwords = function (){
+    function test( a, neg ){
+      if( !De )return
+      !neg && mand(  SW.wikiword.test( a), "false negative " + a)
+      neg  && mand( !SW.wikiword.test( a), "false positive " + a)
+      var match = SW.wikiwords.exec( " " + a + " ")
+      if( !match ){
+        mand( neg, "bad match " + a)
+      }else{
+        mand( match[1] == " ", "bad prefix for " + a)
+        match = match[2]
+        !neg && mand( match == a, "false negative match: " + a + ": " + match)
+        neg  && mand( match != a, "false positive match: " + a + ": " + match)
+        match = SW.wikiwords.exec( "~" + a + " ")
+        if( match ){
+          mand( neg, "bad ~match " + a)
+        }
+      }
+    }
+    function ok( a ){ test( a)       }
+    function ko( a ){ test( a, true) }
+    ok( "WikiWord")
+    ok( "WiWi[jhr]")
+    ok( "W_W_2")
+    ok( "@jhr")
+    ok( "@Jhr")
+    ko( "@jhr.")
+    ok( "@jhr@again")
+    ko( "j-h.robert@")
+    ko( "jhR@")
+    ok( "#topic")
+    ok( "#Topic")
+    ok( "#long-topic5")
+    ko( "Word")
+    ko( "word")
+    ko( " gar&badge ")
+    ok( "UserMe@myaddress_com")
+    ko( "aWiki")
+    ko( "aWikiWord")
+    ok( "_word_")
+    ko( "_two words_")
+    ok( "[free link]")
+    ok( "User[free]")
+    ok( "[free]Guest")
+    ko( "[free/link]")
+    ko( "linkedIn")
+    ko( "shrtIn")
+    ko( "badLinkIn")
+    ok( "info@simpliwiki.com")
+  }
+  test_wikiwords()
+}
+
+// Each wiki has configuration options.
+// Some of these can be overridden by wiki specific AboutWiki pages
+// and also at session's level (or even at page level sometimes).
+SW.config =
+// section: config.json, import, optional, keep
+// If file config.json exists, it's content is included, ToDo
+{
+  lang:           "en",	// Default language
+  title:          "",	// User label of wiki, cool for 3xx-xxx-xxx ones
+  cols: 50,		// IETF RFCs style is 72
+  rows: 40,		// IETF RFCs style is 58
+  twoPanes:       false,// Use right side to display previous page
+  cssStyle:       "",	// CSS page or url, it patches default inlined CSS
+  canScript:      true,	// To please Richard Stallman, say false
+  open:           true,	// If true everybody can stamp
+  premium:        false,// True to get lower Ys back
+  noCache:        false,// True to always refetch fresh data
+  backupWrites:   SW.debug,	// Log page changes in SW.dir/Backup
+  mentorUser:     "",	// default mentor
+  mentorCode:     "",	// hard coded default mentor's login code
+  mentors:        "",	// Users that become mentor when they log in
+  adminIps:       "",	// Mentors from these addresses are admins
+  debugCode:      "",	// Remote debugging
+  fbLike:         true,	// If true, Like button on some pages
+  meeboBar:       "",   // Meebo bar name, "" if none, ToDo: retest
+}
+// section: end config.json
+
+// Local hooks makes it possible to change (ie hack) things on a local install
+// This is where one want to define secret constants, ids, etc...
+$include( "hooks.js")
+if( SW.name != "SimpliJs" ){
+  trace( "Congratulations, SimpliJs is now " + SW.name)
+  if( SW.dir ){
+    trace( "wiki's directory: " + SW.dir)
+  }else{
+    trace( "wiki is expected to be in current directory")
+    trace( "See the doc about 'hooks', SW.dir in 'hooks.js'")
+  }
+  if( SW.port == "1234" ){
+    trace( "default 1234 port")
+    trace( "see the doc about 'hooks', SW.port in 'hooks.js'")
+  }
+}else{
+  trace( "Humm... you could customize the application's name")
+  trace( "See the doc about 'hooks', SW.name in 'hooks.js'")
+}
+
+// Let's compute "derived" constants
+
+SW.idCodePrefix = "code" + "id"
+
+// Global variables
+var Sw = {
+  interwikiMap: {},	// For interwiki links, actually defined below
+  sessionId: 0,         // For debugging
+  currentSession: null, // Idem
+  requestId: 0,
+  timeNow: 0,
+  dateNow: 0,
+  cachedDateTooltips: {},
+  inspectedObject: null
+}
+
+// section: end globals.js
+
+/* ---------------------------------------------------------------------------
+ *  Extracted from SimpliWiki
+ */
+
+var Wiki = {};
+
+Wiki.redize = function( str ){
+  if( !str )return ""
+  return "<em>" + str.substr( 0, 1) + "</em>" + str.substr( 1)
+}
+
+Wiki.htmlizeMap = {
+  "&": "&amp;",
+  "<": "&lt;",
+  ">": "&gt;"
+}
+
+Wiki.htmlize = function( txt ){
+// Per HTML syntax standard, &, < and > must be encoded in most cases, <script>
+// CDATA and maybe <textarea> are the exceptions.
+  // Protect pre-encoded i18n stuff, unless "HTML" in text tells differently
+  if( txt.indexOf( "HTML") < 0 ){
+    txt = txt.replace( /&([a-z]{2,7};)/, "\r$1")
+  }
+  var map = Wiki.htmlizeMap
+  txt = txt.replace( /[&<>]/g, function( ch ){ return map[ch] })
+  // Restore pre-encoded i18n stuff
+  txt = txt.replace( /\r([a-z]{2,7};)/, "&$1")
+  return txt
+}
+
+Wiki.dehtmlizeMap = {
+  "&amp;": "&",
+  "&lt;":  "<",
+  "&gt;":  ">"
+}
+
+Wiki.dehtmlize = function( txt ){
+  var map = Wiki.dehtmlizeMap
+  return txt.replace( /(&.*;)/g, function( ch ){ return map[ch] })
+}
+
+Wiki.htmlizeAttrMap = {
+  "&": "&amp;",
+  '"': "&quot;",
+  "'": "&#39;"
+}
+
+Wiki.htmlizeAttr = function( txt ){
+// HTML syntax dictactes that attribute cannot contain " and, that's a bit
+// suprizing ' and &... they must be encoded.
+// Google Chrome specially does not like ' in attributes... it freeezes in
+// some cases.
+  var map = Wiki.htmlizeAttrMap
+  return txt.replace( /[&"']/g, function( ch ){ return map[ch] })
+}
+
+Wiki.dehtmlizeAttrMap = {
+  "&amp;": "&",
+  "&quot;": '"',
+  "&#39;": "'"
+}
+
+Wiki.dehtmlizeAttr = function( txt ){
+// HTML syntax dictactes that attribute cannot contain " and, that's a bit
+// suprizing ' and &... they must be encoded.
+// Google Chrome specially does not like ' in attributes... it freeezes in
+// some cases.
+  var map = Wiki.dehtmlizeAttrMap
+  return txt.replace( /(&.*;)/g, function( ch ){ return map[ch] })
+}
+
+Wiki.wikify = function( text ){
+  // Soft urls, very soft, xyz.abc style
+  // The pattern is tricky, took me hours to debug it
+  // http://gskinner.com/RegExr/ may help
+  var surl =
+  /([\s>]|^)([^\s:=@#"([)\]>][a-z0-9.-]+\.[a-z]{2,4}[^\sA-Za-z0-9_!.;,<"]*[^\s:,<>"']*[^.@#\s:,<>'"]*)/g
+  /*
+   *  (([\s>]|^)             -- space or end of previous link or nothing
+   *  [^\s:=@#"([)\]>]       -- anything but one of these
+   *  [\w.-]+                -- words, maybe . or - separated/terminated
+   *  \.[a-z]{2,4}           -- .com or .org or .xxx
+   *  [^\sA-Za-z0-9_!.;,<"]* -- ? maybe
+   *  [^\s:,<>"']*           -- not some separator, optional
+   *  [^.@#\s:,<>'"]*        -- not . or @ or # terminated -- ToDo: broken
+   *
+   *  ToDo: must not match jh.robert@
+   *  but should match simpliwiki.com/jh.robert@
+   */
+    text = text.replace( surl, function( m, p, u ){
+      // u = u.replace( /&amp;/g, "&")
+      // exclude some bad matches
+      if( /[#.]$/.test( u) )return m
+      if( u.indexOf( "..") >= 0 )return m
+      return p
+      + '<a href="' + Wiki.htmlizeAttr( "http://" + u) + '">'
+      + u
+      + '</a>'
+    })
+
+  // url are htmlized into links
+  // The pattern is tricky, change with great care only
+  var url = /([^>"\w]|^)([a-ik-z]\w{2,}:[^\s'",!<>)]{2,}[^.\s"',<>)]*)/g
+    text = text
+    .replace( url, function( m, p, u ){
+      // exclude some matches
+      //if( /[.]$/.test( u) )return m
+      // Fix issue with terminating dot
+      var dot = ""
+      if( ".".ends( u) ){
+        u = u.substr( 0, u.length - 1)
+        dot = "."
+      }
+      u = u.replace( /&amp;/g, "&")
+      return p + '<a href="' +  Wiki.htmlizeAttr( u) + '">' + u  + '</a>' + dot
+    })
+
+    text = text
+    .replace( wiki_names, '$1<a class="wiki" href="' + href + '$2">$2</a>')
+
+  // Fix some rare issue with nested links, remove them
+  text = text.replace( /(<a [^>\n]+?)<a [^\n]+?>([^<\n]+?)<\/a>/g, '$1$2')
+}
+
+// ---------------------------------------------------------------------------
+
+function format_comment( text ){
+// SimpliWiki style formating
+  return Wiki.htmlizeAttr( text );
+}
+
 function duration_label( duration ){
 // Returns a sensible text info about a duration
   // Slight increase to provide a better user feedback
@@ -5380,7 +5971,7 @@ function page_proposition( page_name, name ){
           :  "<dfn>(via " + link_to_page( "persona", vote_entity.delegation().agent.label ) + ")</dfn>" )
         + ", for " + duration_label( vote_entity.expire() - vote.now() )
       );
-      buf.push( vote_menu( vote_entity ) );
+      buf.push( vote_menu( vote_entity, true /* with comment */ ) );
     }else{
       buf.push( vote_menu( Session.current.visitor, proposition ) );
     }
@@ -5397,8 +5988,8 @@ function page_proposition( page_name, name ){
   //buf.push( "<ol>" );
   votes.forEach( function( vote_value ){
     var was = null;
-    if( vote_value.updates.length > 1 ){
-      was = vote_value.updates[ vote_value.updates.length - 1 ];
+    if( vote_value.entity.updates.length > 1 ){
+      was = vote_value.entity.updates[ vote_value.entity.updates.length - 1 ];
     }
     if( was ){ was = was.orientation; }
     if( was === "agree" ){
@@ -5428,6 +6019,9 @@ function page_proposition( page_name, name ){
         + link_to_page( "persona", vote_value.persona_label )
         + " <small><dfn>" + time_label( vote_value.snaptime ) + "</dfn></small>"
       );
+      if( vote_value.comment_text ){
+        buf.push( ' ' + format_comment( vote_value.comment_text ) );
+      }
       // buf.push( "</li>" );
     }
   });
@@ -5448,8 +6042,8 @@ function page_proposition( page_name, name ){
     + '</script>',
     [ page_header(
       _,
-      link_to_twitter_filter( tag_label )
-      //link_to_page( "propositions" )
+      link_to_twitter_filter( tag_label ),
+      link_to_page( "propositions" )
     ) ]
   ];
   r[1] = r[1].concat( buf );
@@ -5603,9 +6197,22 @@ vote.extend( http_repl_commands, {
     printnl( entity ? pretty( entity.value(), 3 ) : "no entity" );
   },
 
-  change_vote: function( vote_entity, privacy, orientation, duration ){
+  change_vote: function( vote_entity, privacy, orientation, duration, comment ){
+
     // ToDo: move this into some page_xxx()
     redirect_back();
+
+    // Find vote
+    var vote_id = query.vote_id;
+    if( !vote_entity ){
+      if( !vote_id ){
+        printnl( "Vote not found" );
+        return;
+      };
+      vote_entity = Vote.find( vote_id );
+    }
+
+    // Figure out parameters, maybe from pending http query
     var proposition = null;
     var query = PendingResponse.query;
 
@@ -5614,95 +6221,82 @@ vote.extend( http_repl_commands, {
     if( Array.isArray( privacy ) ){
       privacy = privacy[0];
     }
-    if( privacy === "idem"
-    ||  privacy === "privacy"
+    if( !privacy
+    ||   privacy === "idem"
+    ||   privacy === "privacy"
+    ||   privacy === vote_entity && vote_entity.privacy()
+    || " public secret private ".indexOf( " " + privacy + " " ) === -1
     ){
-      privacy = null;
+      privacy = _;
     }
-    if( privacy
-    && " public secret private ".indexOf( " " + privacy + " " ) === -1
-    ){
-      privacy = null;
-    }
-    if( !privacy ){ privacy = _; }
 
     // Parse orientation
     orientation = orientation || query.orientation;
     if( Array.isArray( orientation ) ){
       orientation = orientation[0];
     }
-    if( orientation === "idem"
-    || orientation === "orientation"
+    if( !orientation
+    ||   orientation === "idem"
+    ||   orientation === "orientation"
+    ||   orientation === vote_entity && vote_entity.orientation()
+    || " agree disagree protest blank neutral ".indexOf( " " + privacy + " " ) === -1
     ){
-      orientation = null;
+      orientation = _;
     }
-    if( orientation === "delete" ){ orientation = "neutral"; }
-    if( orientation
-    && " agree disagree protest blank neutral ".indexOf( " " + orientation + " " ) === -1
-    ){
-      orientation = null;
-    }
-    if( !orientation ){ orientation = _; }
 
     // Parse duration
     duration = duration || query.duration;
     if( Array.isArray( duration ) ){
       duration = duration[0];
     }
-    if( duration === "idem"
-    || duration === "duration"
+    if( !duration
+    ||   duration === "idem"
+    ||   duration === "duration"
     ){
-      duration = null;
-    }
-    if( duration ){
-      if( typeof duration === "string" ){
-        duration = ({
-          "one year":  vote.ONE_YEAR,
-          "one month": vote.ONE_MONTH,
-          "one week":  vote.ONE_WEEK,
-          "24 hours":  vote.ONE_DAY,
-          "one hour":  vote.ONE_HOUR
-        })[ duration ]
-      }
+      duration = _;
+    }else if( typeof duration === "string" ){
+      duration = ({
+        "one year":  vote.ONE_YEAR,
+        "one month": vote.ONE_MONTH,
+        "one week":  vote.ONE_WEEK,
+        "24 hours":  vote.ONE_DAY,
+        "one hour":  vote.ONE_HOUR
+      })[ duration ]
     }
     if( !duration ){ duration = _; }
 
+    // Parse comment
+    comment = comment || query.comment;
+    if( Array.isArray( comment ) ){
+      comment = comment[0];
+    }
+    if( !comment
+    ||   comment === "idem"
+    ||   comment === "comment"
+    ||   comment === vote_entity && vote_entity.comment() && vote_entity.comment().text
+    ){
+      comment = _;
+    }
+
     // Something changed?
-    if( !privacy && !orientation && !duration ){
+    if( !privacy && !orientation && !duration &!comment ){
       printnl( "No change" );
       return;
     }
 
-    // Find vote
-    var vote_id = query.vote_id;
-    if( !vote_entity ){
-      if( !vote_id ){
-        printnl( "Vote not found" );
-        return;
-      }
-      var idx_dot = vote_id.indexOf( "." );
-      if( idx_dot === -1 ){
-        vote_entity = vote.AllEntities[ vote_id ];
-        if( !vote_entity || vote_entity.type !== "Vote" ){
-          printnl( "Vote not found" );
-          return;
-        }
-      }else{
-        var persona = vote.AllEntities[ vote_id.substring( 0, idx_dot ) ];
-        if( !persona || persona.type !== "Persona" ){
-          printnl( "Persona not found" );
-          return;
-        }
-        proposition = vote.AllEntities[ vote_id.substring( idx_dot + 1 ) ];
-        if( proposition && proposition.type !== "Topic" ){
-          printnl( "Proposition not found" );
-          return;
-        }
-      }
-    }
-
     // Either a brand new vote
     if( !vote_entity ){
+      var idx_dot = vote_id.indexOf( "." )
+      var persona = Persona.find( vote_id.substring( 0, idx_dot ) );
+      if( !persona || persona.type !== "Persona" ){
+        printnl( "Persona not found" );
+        return;
+      }
+      proposition = Topic.find( vote_id.substring( idx_dot + 1 ) );
+      if( proposition && proposition.type !== "Topic" ){
+        printnl( "Proposition not found" );
+        return;
+      }
       Session.current.proposition = proposition;
       Ephemeral.inject( "Vote", {
         persona:     persona,
@@ -5713,19 +6307,32 @@ vote.extend( http_repl_commands, {
       });
       printnl( "New vote of " + persona + " on " + proposition );
       //redirect( "proposition%20" + proposition.label );
+
     // Or a change to an existing vote
     }else{
-      // Adjust duration to make a renew
-      if( duration ){
-        duration += vote_entity.age();
+      if( privacy || duration || orientation ){
+        // Adjust duration to make a renew
+        if( duration ){
+          duration += vote_entity.age();
+        }
+        Ephemeral.inject( "Vote", {
+          id_key:      vote_entity.id,
+          privacy:     ( privacy || _ ),
+          orientation: ( orientation || _ ),
+          duration:    duration
+        });
+        printnl( "Changed vote " + pretty( vote_entity ) );
       }
-      Ephemeral.inject( "Vote", {
-        id_key:      vote_entity.id,
-        privacy:     ( privacy || _ ),
-        orientation: ( orientation || _ ),
-        duration:    duration
-      });
-      printnl( "Changed vote " + pretty( vote_entity ) );
+      if( comment ){
+        Ephemeral.inject( "Comment", {
+          vote: vote_entity,
+          text: comment
+        });
+        printnl( "Comment changed " + pretty( vote_entity ) );
+      }
+      if( comment ){
+
+      }
       //redirect( "proposition%20" + entity.proposition.label );
     }
     return;
@@ -6090,7 +6697,7 @@ function main(){
   trace( "Welcome to l8/test/vote.js -- Liquid demo...cracy" );
 
   //Ephemeral.force_bootstrap = true;
-  vote.debug_mode( de = false );
+  vote.debug_mode( de = true );
   Ephemeral.start( bootstrap, function( err ){
     if( err ){
       trace( "Cannot proceed", err, err.stack );
