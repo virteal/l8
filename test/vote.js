@@ -1357,7 +1357,7 @@ Ephemeral.prototype.age_touched = function(){
 
 Ephemeral.prototype.renew = function( duration ){
   if( this.buried )return;
-  if( !duration ){ duration = ONE_YEAR; }
+  if( !duration ){ duration = ONE_WEEK; }
   var new_limit = now() + duration;
   var total_duration = new_limit - this.timestamp;
   this.duration( total_duration );
@@ -1800,6 +1800,9 @@ function Persona( options ){
   // ToDo: test update()
   if( this.is_update() )return persona.update( this );
 
+  // Increase default expiration
+  this.duration( options.duration || vote.ONE_YEAR );
+
   // Indexes, for faster access
   this.votes_indexed_by_proposition = {};
 }
@@ -1815,6 +1818,16 @@ Persona.find = function( key ){
 // Key are case insensitive on twitter
   return Persona.all[ namize( key ) ];
 }
+
+Persona.prototype.touch = function(){
+  var delay = this.expire() - ( this.time_touched = vote.now() );
+  // If touched after mid life, extend duration to twice the current age
+  if( delay < this.age() / 2 ){
+    this.renew( this.age() * 2 );
+  }
+  Persona.super.prototype.touch.call( this );
+};
+
 
 Persona.prototype.get_vote_on = function( proposition ){
 // If there is a vote by persona on said topic, return it, or null/undef
@@ -2164,6 +2177,10 @@ Topic.prototype.update_delegations = function( list ){
 Topic.prototype.is_proposition = function(){ return this.label[0] !== "#"; };
 Topic.prototype.is_tag         = function(){ return !this.is_proposition(); };
 
+Topic.prototype.orientation = function(){
+  return this.result.orientation();
+}
+
 Topic.prototype.heat = function(){
 // Compute the "heat" of a topic. "Hot topics" should come first.
   var touched = this.result.time_touched || this.time_touched;
@@ -2223,10 +2240,17 @@ Topic.reserved_tags = {
   me:         true,
   you:        true,
   them:       true,
+  abuse:      true,
   jhr:        true  // End Of List
 };
 
 Topic.reserved = function( tag ){
+  if( !tag )return false;
+  if( tag[0] === "#" ){
+    tag = tag.substring( 1 );
+  }
+  // One letter tags are all reserved for future use
+  if( tag.length < 2 )return true;
   return !!Topic.reserved_tags[ tag.toLowerCase() ];
 };
 
@@ -2311,6 +2335,8 @@ Topic.prototype.log_vote = function( v ){
   if( !votes_log ){ votes_log = []; }
   votes_log.push( val );
   this.votes_log( votes_log );
+  // Also log in global log
+  Vote.log.push( val );
   return this;
 };
 
@@ -2633,6 +2659,9 @@ Vote.direct = "direct";
 Vote.public  = "public";
 Vote.secret  = "secret";
 Vote.private = "private";
+
+// Log a snapshot of all votes
+Vote.log = [];
 
 Vote.prototype.touch = function(){
   this.time_touched = vote.now();
@@ -4495,7 +4524,8 @@ function page_index(){
       '</div>',
     '</div><br><br>',
     '<div id="footer" class="sw_footer sw_boxed">',
-    '\n<form name="proposition" url="/">',
+    '\n <form name="proposition" url="/">',
+    '<span style="font-size:1.5em">' + emoji( "agree" ) + ' </span>',
     '<input type="hidden" name="input" maxlength="140" value="page propositions"/>',
     '<input type="search" placeholder="all" name="input2"/>',
     ' <input type="submit" value="propositions?"/>',
@@ -4524,7 +4554,8 @@ function page_help(){
     '<div style="max-width:50em">',
     '<h2>What is it?</h2><br>',
     'An experimental Liquid Democracy voting system where ',
-    'people can like/dislike hashtags.',
+    'people can ' + emoji( "agree" ) + 'like/'
+    + emoji( "disagree" ) + 'dislike hashtags.',
     '<br><br><h2>hashtags?</h2><br>',
     'Hashtags are keywords used to categorize topics in social networks. ',
     'See also ',
@@ -4724,7 +4755,7 @@ function page_visitor( page_name, name, verb, filter ){
   delegations.forEach( function( entity ){
     if( entity.expired() || entity.agent.expired() )return;
     if( Session.current.has_filter() ){
-      if( !entity.proposition.is_tagged( Session.current.filter ) )return;
+      if( !entity.is_tagged( Session.current.filter ) )return;
     }    buf.push( '<br>' // "<li>"
         + link_to_page( "persona", entity.agent.label )
         //+ ' <small>' + link_to_twitter_user( entity.agent.label ) + '</small> '
@@ -4969,19 +5000,25 @@ function page_propositions( page_name, filter ){
   var propositions = Topic.all;
   var list = [];
   var attr;
-  var prop;
+  var entity;
+  var visitor_tag = null;;
+  if( Session.current.visitor ){
+    visitor_tag = "#" + Session.current.visitor.label.substring( 1 );
+  }
   for( attr in propositions ){
-    prop = propositions[ attr ];
-    if( !prop || prop.expired() )continue;
-    if( prop.is_tag() ){
+    entity = propositions[ attr ];
+    if( !entity || entity.expired() )continue;
+    if( entity.is_tag() ){
       if( !tag_page )continue;
     }else{
       if( tag_page )continue;
     }
     if( Session.current.has_filter() ){
-      if( !prop.is_tagged( Session.current.filter ) )continue;
+      if( !entity.is_tagged( Session.current.filter ) )continue;
     }
-    list.push( prop );
+    // Filter out propositions without votes unless current user created it
+    if( visitor_tag && !entity.result.total() && !entity.is_tagged( visitor_tag ) )continue;
+    list.push( entity );
   }
   list = list.sort( function( a, b ){
     // The last consulted proposition is hot
@@ -4995,7 +5032,11 @@ function page_propositions( page_name, filter ){
     if( tag_page ){
       text += " is a good tag";
     }
-    buf.push( '<br><h3>' + link_to_page( "proposition", text ) + '</h3>' );
+    buf.push(
+      '<br><h3>' + emoji( proposition.result.orientation() )
+      + link_to_page( "proposition", text )
+      + '</h3>'
+    );
     //if( proposition.result.orientation() ){
     //  buf.push( ' <em>' + emojied( proposition.result.orientation() ) + '</em>' );
     //}
@@ -5014,7 +5055,20 @@ function page_propositions( page_name, filter ){
     }
 
     if( Session.current.visitor ){
-      buf.push( vote_menu( Session.current.visitor, proposition, proposition.result.orientation() ) );
+      var vote_entity = Vote.find( Session.current.visitor.name + "." + proposition.name );
+      if( vote_entity ){
+        buf.push( 'you: '
+          + vote_entity.orientation()
+          + "<dfn>(" + vote_entity.privacy() + ")</dfn>"
+          + ( vote_entity.is_direct()
+            ? ""
+            :  "<dfn>(via " + link_to_page( "persona", vote_entity.delegation().agent.label ) + ")</dfn>" )
+          + ", for " + duration_label( vote_entity.expire() - vote.now() )
+        );
+        buf.push( vote_menu( vote_entity ) );
+      }else{
+        buf.push( vote_menu( Session.current.visitor, proposition ) );
+      }
       buf.push( '<br>' );
     }
   });
@@ -5079,7 +5133,7 @@ function proposition_summary( result, div ){
   if( div ){
     buf.push( '<div><h2>Summary' + ' <em>' + emojied( orientation ) + '</em></h2><br>' );
   }else{
-    buf.push( "<em>" +  emojied( orientation ) + "</em>. " );
+    buf.push( "<em>" + orientation + "</em>. " );
   }
   buf.push( 'agree ' + result.agree() + " " );
   buf.push( 'against ' + result.against() + " " );
@@ -5087,8 +5141,8 @@ function proposition_summary( result, div ){
   buf.push( '<br><dfn>protest ' + result.protest() + '</dfn> ' );
   buf.push( '<dfn>total ' + result.total() + ' ' );
   buf.push( '(direct ' + result.direct() + ' ' );
-  buf.push( 'indirect ' + (result.total() - result.direct()) + ') ' );
-  buf.push( 'change ' + result.count() + ' ' );
+  buf.push( 'indirect ' + (result.total() - result.direct()) + ')</dfn> ' );
+  buf.push( '<dfn>change ' + result.count() + ' ' );
   buf.push( time_label( result.time_touched ) + '</dfn>' );
   return buf.join( "" );
 }
@@ -5256,17 +5310,19 @@ function page_proposition( page_name, name ){
   var buf = [];
 
   buf.push( '<h1>' + (is_tag ? "Tag " : "" )
-  + proposition.label + '</h1><br><br>' );
+  + emoji( proposition.result.orientation() ) + proposition.label + '</h1><br><br>' );
 
-  // Twitter tweet button, if proposition
-  !is_tag && buf.push( '<a href="https://twitter.com/intent/tweet?button_hashtag='
-    + label
-    + '&hashtags=kudocracy,vote,'
-    + proposition.tags_string().replace( / /g, "," ).replace( /#/g, "")
-    + '&text=new%20democracy" '
-    + 'class="twitter-hashtag-button" '
-    + 'data-related="Kudocracy,vote">Tweet ' + label + '</a>'
-  );
+  // Twitter tweet button, if proposition and no visitor (else use vote_menu())
+  if( !is_tag && !Session.current.visitor ){
+    buf.push( '<a href="https://twitter.com/intent/tweet?button_hashtag='
+      + label
+      + '&hashtags=kudocracy,vote,'
+      + proposition.tags_string().replace( / /g, "," ).replace( /#/g, "")
+      + '&text=new%20democracy" '
+      + 'class="twitter-hashtag-button" '
+      + 'data-related="Kudocracy,vote">Tweet ' + label + '</a>'
+    );
+  }
 
   // Summary
   buf.push( '<br><br>' + proposition_summary( result, "div" ) + '<br>' );
@@ -5281,6 +5337,7 @@ function page_proposition( page_name, name ){
   var tmp = proposition.filter_string();
   buf.push( filter_label( tmp, "propositions" ) );
 
+  // Source, since, age, last change...
   if( tmp = proposition.source() ){
     if( tmp.indexOf( "://" ) !== -1 ){
       tmp = '<a href="' + tmp + '">' + tmp + '</a>';
@@ -5290,7 +5347,45 @@ function page_proposition( page_name, name ){
   buf.push( "<br>since " + time_label( proposition.timestamp ) );
   //buf.push( "<br>age " + duration_label( proposition.age() ) );
   buf.push( "<br>last change " + time_label( proposition.time_touched ) );
+
+  // Last vote
+  var votes_log = proposition.votes_log();
+  if( votes_log.length ){
+    var last_vote_value = votes_log[ votes_log.length -1 ];
+    buf.push( '<br>last vote ' + time_label( last_vote_value.snaptime ) );
+    if( last_vote_value.entity.privacy() === "public" ){
+      buf.push( ' <em>' + emojied( last_vote_value.entity.orientation() ) + '</em>' );
+      buf.push( ' ' + link_to_page( "persona", last_vote_value.persona_label ) );
+      if( last_vote_value.delegation !== Vote.direct ){
+        buf.push( ' <dfn>(via '
+          + link_to_page( last_vote_value.delegation.agent.label, "persona" )
+          + ')</dfn>'
+        );
+      }
+    }
+  }
+
+  // End in...
   buf.push( "<br>end in " + duration_label( proposition.expire() - vote.now() ) );
+
+  // Vote menu
+  if( Session.current.visitor ){
+    var vote_entity = Vote.find( Session.current.visitor.name + "." + proposition.name );
+    if( vote_entity ){
+      buf.push( '<br><br>you: '
+        + '<em>' + emojied( vote_entity.orientation() ) + "</em> "
+        + "<dfn>(" + vote_entity.privacy() + ")</dfn>"
+        + ( vote_entity.is_direct()
+          ? ""
+          :  "<dfn>(via " + link_to_page( "persona", vote_entity.delegation().agent.label ) + ")</dfn>" )
+        + ", for " + duration_label( vote_entity.expire() - vote.now() )
+      );
+      buf.push( vote_menu( vote_entity ) );
+    }else{
+      buf.push( vote_menu( Session.current.visitor, proposition ) );
+    }
+    buf.push( "<br>" );
+  }
 
   // Graph, pie
   buf.push( '<div id="orientation_chart_div"></div>' );
@@ -5329,20 +5424,14 @@ function page_proposition( page_name, name ){
     ){
       buf.push( "<br>" );
       buf.push(
-          ( vote_value.orientation ) + " "
-          + link_to_page( "persona", vote_value.persona_label )
-          + " <small><dfn>" + time_label( vote_value.snaptime ) + "</dfn></small>"
+        '<em>' + emojied( vote_value.orientation ) + "</em> "
+        + link_to_page( "persona", vote_value.persona_label )
+        + " <small><dfn>" + time_label( vote_value.snaptime ) + "</dfn></small>"
       );
       // buf.push( "</li>" );
     }
   });
   buf.push( "</div><br>" );
-
-  // Vote menu
-  if( Session.current.visitor ){
-    buf.push( vote_menu( Session.current.visitor, proposition ) );
-    buf.push( "<br><br>" );
-  }
 
   // Footer
   buf.push( page_footer() );
@@ -5702,15 +5791,22 @@ vote.extend( http_repl_commands, {
   },
 
   login: function( name ){
-    if( name.length < 3 )return redirect( "login" );
-    name = name.toLowerCase().trim().replace( /[^A-Za-z0-9_]/g, "" );
+    name = name.trim().replace( /[^A-Za-z0-9_]/g, "" );
     if( name[0] !== "@" ){ name = "@" + name };
-    if( !( Session.current.visitor = Persona.find( name ) ) ){
+    if( name.length < 4 )return redirect( "login" );
+    var lower_name = name.toLowerCase();
+    // Create persona if first visit, respect user provided case
+    if( !( Session.current.visitor = Persona.find( lower_name ) ) ){
       Ephemeral.inject( "Persona", { label: name } );
-      Session.current.visitor = Persona.find( name );
+      Session.current.visitor = Persona.find( lower_name );
     }
     Session.current.filter = "";
-    return redirect( "visitor" );
+    if( Session.current.previous_page[0] === "proposition" ){
+      Session.current.current_page = Session.current.previous_page;
+      redirect_back();
+    }else{
+      redirect( "visitor" );
+    }
   },
 
 
@@ -5723,10 +5819,13 @@ vote.extend( http_repl_commands, {
     if( text.toLowerCase().indexOf( "propose " ) === 0 ){
       text = text.substring( "propose ".length );
 
+    // Search
     }else if( text.toLowerCase().indexOf( "search" ) === 0 ){
       text = text.substring( "search".length );
       Session.current.set_filter( text || "all" );
       return;
+
+    // Delegate
     }else if( text.toLowerCase().indexOf( "delegate" ) === 0 ){
       text = text.substring( "delegate".length );
       if( !Session.current.visitor ){
@@ -5735,7 +5834,7 @@ vote.extend( http_repl_commands, {
       if( !Session.current.has_filter() ){
         return;
       }
-     var agent_name = text
+      var agent_name = text
       .replace( /#[A-Za-z][_0-9A-Za-z]*/g, "" )
       .replace( /[^A-Za-z0-9_]/g, "" );
       if( !agent_name ){
@@ -5758,6 +5857,9 @@ vote.extend( http_repl_commands, {
         tags:    Session.current.filter_tags
       });
     }
+
+    // Propose
+
     // Collect list of tags, inject user's name as first tag
     var tags = [ "#"
       + ( Session.current.visitor && Session.current.visitor.label || "@anonymous" )
@@ -5767,12 +5869,25 @@ vote.extend( http_repl_commands, {
       // if( tag === "tag")return "";
       tags.push( tag );
       return ""
-    } )
-    .replace( /  /g, " " ).trim()
-    .replace( /[^A-Za-z0-9_]/g, "_" )
-    .replace( /__/g, "_" )
+    } );
+
+    // If not tags at all but some space, assume list of tags
+    if( tags.length === 1 && text.indexOf( " " ) !== -1 ){
+      text = text.replace( /[A-Za-z][_0-9A-Za-z]*/g, function( tag ){
+        // if( tag === "tag")return "";
+        tags.push( tag );
+        return ""
+      } );
+    }
+
+    // Tags were removed, process invalid characters
+    text
+    .replace( /  /g, " " ).trim()  // extra spaces
+    .replace( /[^A-Za-z0-9_]/g, "_" ) // _ where non alphanum
+    .replace( /__/g, "_" ) // remove extra _
     .replace( /^_/, "" )
-    .replace( /_$/, "" )
+    .replace( /_$/, "" );
+
     // if nothing remains, use first tag to name the proposition
     if( text.length < 2 ){
       if( ( text = tags[0] ).length < 2 ){
@@ -5784,6 +5899,7 @@ vote.extend( http_repl_commands, {
         text = text.substring( 1 );
       }
     }
+
     var changes = [];
     var tag_entities = [];
     tags.forEach( function( tag ){
@@ -5792,6 +5908,8 @@ vote.extend( http_repl_commands, {
       if( entity ){
         tag_entities.push( entity );
       }else{
+        // Filter out reserved tags
+        if( Topic.reserved( tag ) )return;
         changes.push( function(){
           Ephemeral.inject( "Topic", { label: tag } );
         });
@@ -5800,7 +5918,8 @@ vote.extend( http_repl_commands, {
         })
       }
     });
-    // Creation or addition of tags
+
+    // Creation of topic or update with addition of tags
     var proposition = Topic.find( text );
     if( !proposition ){
       changes.push( function(){
@@ -5811,7 +5930,11 @@ vote.extend( http_repl_commands, {
         Ephemeral.inject( "Tagging", { proposition: proposition, tags: tag_entities } );
       });
     }
+
+    // Process change. ToDo: async
     Ephemeral.inject( changes );
+
+    // Update filter to match topic
     Session.current.proposition = proposition || Topic.find( text );
     var new_filter = [];
     tag_entities.forEach( function( tag_entity, index ){
