@@ -6202,6 +6202,10 @@ vote.extend( http_repl_commands, {
     // ToDo: move this into some page_xxx()
     redirect_back();
 
+    // Figure out parameters, maybe from pending http query
+    var proposition = null;
+    var query = PendingResponse.query;
+
     // Find vote
     var vote_id = query.vote_id;
     if( !vote_entity ){
