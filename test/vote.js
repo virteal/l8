@@ -2242,7 +2242,7 @@ Topic.prototype.heat = function(){
   return this.is_tag() ? this.propositions().length : this.result.direct();
 };
 
-Topic.prototype.filter_string = function(){
+Topic.prototype.filter_string = function( persona ){
   var tags = this.tags() || [];
   var sorted_tags = tags.sort( function( a, b ){
     // Most agreed first
@@ -2256,12 +2256,16 @@ Topic.prototype.filter_string = function(){
   sorted_tags.forEach( function( tag ){
     buf.push( tag.label );
   });
-  return ( buf.join( " " ) + this.computed_tags() ).trim();
+  return ( buf.join( " " ) + this.computed_tags( persona ) ).trim();
 };
 
 Topic.reserved_tags = {
+  vote:       true,
   tag:        true,
+  new:        true,
   hot:        true,
+  spam:       true,
+  nsfw:       true,
   recent:     true,
   old:        true,
   today:      true,
@@ -2292,6 +2296,7 @@ Topic.reserved_tags = {
   them:       true,
   abuse:      true,
   win:        true,
+  blank:      true,
   tie:        true,
   jhr:        true  // End Of List
 };
@@ -2306,8 +2311,15 @@ Topic.reserved = function( tag ){
   return !!Topic.reserved_tags[ tag.toLowerCase() ];
 };
 
-Topic.prototype.computed_tags = function(){
+Topic.prototype.computed_tags = function( persona ){
   var buf = [];
+  var voted = false;
+  if( persona ){
+    if( Vote.find( persona.name + "." + this.name ) ){
+      buf.push( "#vote" );
+      voted = true;
+    }
+  }
   if( this.is_tag() ){
     buf.push( '#tag' )
   }
@@ -2316,7 +2328,10 @@ Topic.prototype.computed_tags = function(){
   ){
     buf.push( "#persona" );
   }
-  if( this.age() <= vote.ONE_WEEK ){
+  if( persona && !voted ){
+    buf.push( "#new" );
+  }
+  if( this.age() <= vote.ONE_WEEK && !voted ){
     buf.push( "#recent" );
     if( this.result.total() === 1
     ||  this.result.is_referendum()
@@ -2340,6 +2355,9 @@ Topic.prototype.computed_tags = function(){
   }else if( this.result.is_abuse() ){
     buf.push( "#abuse" );
   }
+  if( this.result.orientation() === "blank" ){
+    buf.push( "#blank" );
+  }
 
   // #protest if protest votes > 1% of agree votes
   if( this.result.is_problematic() ){
@@ -2349,7 +2367,7 @@ Topic.prototype.computed_tags = function(){
   if( this.result.total() <= 1 && this.age() > vote.ONE_WEEK ){
     buf.push( "#orphan" );
   // #referendum if 1% of people voted (at least 2!)
-  }else if( this.result.is_referendum() ){
+  }else if( this.result.is_referendum() && !voted ){
     buf.push( "#referendum" );
   }
   // ToDo: #hot, not an easy one
@@ -2523,7 +2541,7 @@ Topic.prototype.remove_proposition = function( proposition, loop ){
 };
 
 
-Topic.prototype.filtered = function( filter ){
+Topic.prototype.filtered = function( filter, persona ){
 // True if proposition pass thru the filter, ie proposition not filtered out
 
   if( this.expired() )return false;
@@ -2532,25 +2550,25 @@ Topic.prototype.filtered = function( filter ){
   if( !filter ){
     return !this.result.is_abuse();
   }
-  // Abuses don't pass, unless filter explicitely accept them
+  // Abuses don't pass, unless filter explicitly accept them
   if( this.result.is_abuse() ){
     if( filter.indexOf( "#abuse" ) === -1 )return false;
   }
 
   // OK, let's check the tags
-  return this.is_tagged( filter );
+  return this.is_tagged( filter, persona );
 }
 
-Topic.prototype.is_tagged = function( tags ){
+Topic.prototype.is_tagged = function( tags, persona ){
 // Returns true if a topic includes all the specified tags
 // Note: #something always includes itself, ie proposition xxx is #xxx tagged
   if( typeof tags === "string" ){
-    return string_tags_includes( this.tags_string(), tags );
+    return string_tags_includes( this.tags_string( persona ), tags );
   }
   return tags_includes( this.tags() || [], tags, this.label );
 };
 
-Topic.prototype.tags_string = function(){
+Topic.prototype.tags_string = function( persona ){
   var topic_tags_str = this.is_tag() ? [ this.label ] : [ "#" + this.label ];
   var topic_tags = this.tags() || [];
   topic_tags = topic_tags
@@ -2560,7 +2578,7 @@ Topic.prototype.tags_string = function(){
   .forEach( function( tag ){
     topic_tags_str.push( tag.label );
   });
-  return topic_tags_str.join( " " ) + this.computed_tags();
+  return topic_tags_str.join( " " ) + this.computed_tags( persona );
 };
 
 function string_tags_includes( tags, other_tags ){
@@ -2836,9 +2854,9 @@ Vote.prototype.is_private = function(){
   return this.privacy() === Vote.private;
 };
 
-Vote.prototype.filtered = function( filter ){
+Vote.prototype.filtered = function( filter, persona ){
   if( this.expired )return false;
-  return this.proposition.filtered( filter );
+  return this.proposition.filtered( filter, persona || this.persona );
 }
 
 Vote.prototype.update = function( other, options ){
@@ -2885,10 +2903,10 @@ Vote.prototype.is_neutral = function(){
 };
 
 
-Vote.prototype.filtered = function( filter ){
+Vote.prototype.filtered = function( filter, persona ){
   if( this.expired() )return false;
   if( this.persona.expired() )return false;
-  return this.proposition.filtered( filter );
+  return this.proposition.filtered( filter, persona || this.persona );
 }
 
 
@@ -3390,7 +3408,7 @@ Delegation.prototype.is_private = function(){
   return this.privacy() === Vote.private;
 };
 
-Delegation.prototype.filter_string = function(){
+Delegation.prototype.filter_string = function( persona ){
   var buf = [];
   this.tags().forEach( function( tag ){
     buf.push( tag.label );
@@ -3410,25 +3428,25 @@ Delegation.prototype.heat = function(){
 };
 
 
-Delegation.prototype.filtered = function( filter ){
+Delegation.prototype.filtered = function( filter, persona ){
 
   if( this.expired( ) )return false;
   if( this.agent.expired() )return false;
   if( !filter )return true;
-  return this.is_tagged( filter );
+  return this.is_tagged( filter, persona );
 }
 
 
-Delegation.prototype.is_tagged = function( tags ){
+Delegation.prototype.is_tagged = function( tags, persona ){
 // Returns true if a delegation includes all the specified tags
 // Note: #something always includes itself, ie proposition xxx is #xxx tagged
   if( typeof tags === "string" ){
-    return string_tags_includes( this.tags_string(), tags );
+    return string_tags_includes( this.tags_string( persona ), tags );
   }
   return tags_includes( this.tags() || [], tags, this.agent.label.substring( 1 ) );
 };
 
-Delegation.prototype.tags_string = function(){
+Delegation.prototype.tags_string = function( persona ){
   var tags_str = [ "#" + this.agent.label.substring( 1 ) ];
   var tags = this.tags() || [];
   tags
@@ -4083,35 +4101,37 @@ if( de ){
  */
 
 
-function Session( ip ){
+function Session( id ){
 // Constructor, called by .login() only (except for default local session)
-  // Return existing obj with same ip
-  var session = Session.all[ ip ];
+  // Return existing obj with same id
+  var session = Session.all[ id ];
   if( session )return session;
   // Or init a new object
-  this.ip            = ip;
+  this.id = id;
+  this.clear();
+  Session.all[ id ]  = this;
+  return this;
+}
+
+Session.all = {};
+
+Session.prototype.login = function( id ){
+  if( id !== Session.current.id ){
+    Session.current = new Session( id );
+    return Session.current;
+  }else{
+    return this;
+  }
+}
+
+Session.prototype.clear = function(){
   this.visitor       = null;
   this.filter        = "";
   this.filter_tags   = [];
   this.current_page  = [];
   this.previous_page = [];
   this.proposition   = null;
-  Session.all[ ip ]  = this;
   return this;
-}
-
-Session.all = {};
-
-// Defaults to local session
-Session.current = new Session( "127.0.0.1" );
-
-Session.prototype.login = function( ip ){
-  if( ip !== Session.current.ip ){
-    Session.current = new Session( ip );
-    return Session.current;
-  }else{
-    return this;
-  }
 }
 
 Session.prototype.is_local = function(){
@@ -4145,25 +4165,26 @@ Session.prototype.set_filter = function( text ){
       var buf = [];
       this.filter.split( " " ).forEach( function( tag ){
 
-        if( tag.length >= 2 || Topic.reserved( tag ) ){
-          tag_entity = Topic.find( '#' + tag );
-          // Existing tags
-          if( tag_entity ){
-            if( with_abuses || !tag_entity.result.is_abuse() ){
-              buf.push( '#' + tag );
-              tags.push( tag_entity );
-            }
-          // Computed tags
-          }else if( Topic.reserved( tag ) ){
-            buf.push( "#" + tag );
-            if( tag === "abuse" ){
-              with_abuses = true;
-            }
-          // Tags that are names of existing topics
-          }else if( topic = Topic.find( tag ) ){
-            if( with_abuses || !topic.result.is_abuse ){
-              buf.push( "#" + tag )
-            }
+        if( tag.length <  2 && !Topic.reserved( tag ) )return;
+
+        // Existing tags
+        if( tag_entity = Topic.find( '#' + tag ) ){
+          if( with_abuses || !tag_entity.result.is_abuse() ){
+            buf.push( '#' + tag );
+            tags.push( tag_entity );
+          }
+
+        // Computed tags
+        }else if( Topic.reserved( tag ) ){
+          buf.push( "#" + tag );
+          if( tag === "abuse" ){
+            with_abuses = true;
+          }
+
+        // Tags that are names of existing topics
+        }else if( topic = Topic.find( tag ) ){
+          if( with_abuses || !topic.result.is_abuse() ){
+            buf.push( "#" + tag )
           }
         }
 
@@ -4177,6 +4198,9 @@ Session.prototype.set_filter = function( text ){
   }
   return this.filter;
 }
+
+// Defaults to local session
+Session.current = new Session( "127.0.0.1" );
 
 
 /*
@@ -4736,7 +4760,7 @@ function page_footer(){
 }
 
 function page_index(){
-  Session.current.visitor = null;
+  Session.current.clear();
   return [ '<link rel="stylesheet" href="http://simpliwiki.com/style.css" type="text/css">',
   [
     '<img src="http://simpliwiki.com/alpha.gif" type="img/gif" style="position:absolute; top:0; right:0;"></img>',
@@ -4766,7 +4790,7 @@ function page_index(){
     '\n <form name="proposition" url="/">',
     '<span style="font-size:1.5em">' + emoji( "agree" ) + ' </span>',
     '<input type="hidden" name="input" maxlength="140" value="page propositions"/>',
-    '<input type="search" placeholder="all" name="input2"/>',
+    '<input type="search" placeholder="all" name="input2" value="new"/>',
     ' <input type="submit" value="propositions?"/>',
     '</form>\n',
     '</div>',
@@ -4994,7 +5018,7 @@ function page_visitor( page_name, name, verb, filter ){
 
   votes.forEach( function( entity ){
 
-    if( !entity.filtered( Session.current.filter ) )return;
+    if( !entity.filtered( Session.current.filter, Session.current.visitor ) )return;
 
     buf.push( '<br><br>'
       + ' ' + link_to_page( "proposition", entity.proposition.label ) + ' '
@@ -5018,14 +5042,14 @@ function page_visitor( page_name, name, verb, filter ){
 
   delegations.forEach( function( entity ){
 
-    if( !entity.filtered( Session.current.filter ) )return;
+    if( !entity.filtered( Session.current.filter, Session.current.visitor ) )return;
 
     buf.push( '<br>' // "<li>"
         + link_to_page( "persona", entity.agent.label )
         //+ ' <small>' + link_to_twitter_user( entity.agent.label ) + '</small> '
         + ( entity.is_inactive() ? " <dfn>(inactive)</dfn> " :  " " )
-        + link_to_page( "propositions", entity.filter_string() )
-        //+ ' <small>' + link_to_twitter_filter( entity.filter_string() ) + '</small>'
+        + link_to_page( "propositions", entity.filter_string( persona ) )
+        //+ ' <small>' + link_to_twitter_filter( entity.filter_string( persona ) ) + '</small>'
         + "</li>"
     )
   });
@@ -5091,7 +5115,7 @@ function page_persona( page_name, name, verb, filter ){
 
   votes.forEach( function( entity ){
 
-    if( !entity.filtered( Session.current.filter ) )return;
+    if( !entity.filtered( Session.current.filter, Session.current.visitor ) )return;
 
     buf.push( '<br>' ); // "<li>" );
     if( entity.is_private() ){
@@ -5163,12 +5187,12 @@ function page_delegations( page_name, name, verb, filter ){
 
   delegations.forEach( function( entity ){
 
-    if( !entity.filtered() )return;
+    if( !entity.filtered( Session.current.filter, persona ) )return;
 
     buf.push( '<br><br>'
       + link_to_page( "persona", entity.agent.label )
       + ( entity.is_inactive() ? " <dfn>(inactive)</dfn> " :  " " )
-      + link_to_page( "propositions", entity.filter_string() )
+      + link_to_page( "propositions", entity.filter_string( persona ) )
       + "<br><dfn>(" + entity.privacy() + ")</dfn>"
       + ", for " + duration_label( entity.expire() - vote.now() )
     + delegate_menu( entity )
@@ -5214,7 +5238,11 @@ function page_propositions( page_name, filter ){
 
   var tag_page = page_name === "tags";
 
+  var persona = Session.current.visitor;
   filter = Session.current.set_filter( filter );
+  if( !persona && filter === "#new" ){
+    filter = Session.current.set_filter( "hot" );
+  }
 
   // Header
   var r = [
@@ -5286,7 +5314,7 @@ function page_propositions( page_name, filter ){
     }else{
       if( tag_page )continue;
     }
-    if( !entity.filtered( Session.current.filter ) )continue;
+    if( !entity.filtered( Session.current.filter, persona ) )continue;
 
     // Filter out propositions without votes unless current user created it
     if( !entity.result.total()
@@ -5361,6 +5389,7 @@ function page_propositions( page_name, filter ){
 function page_votes( page_name, filter ){
 // This is the votes page of the application, filtered.
 
+  var persona = Session.current.visitor;
   filter = Session.current.set_filter( filter || "#hot" );
 
   // Header
@@ -5428,7 +5457,7 @@ function page_votes( page_name, filter ){
     vote_value = votes[ ii ];
     entity = vote_value.entity;
 
-    if( !entity || !entity.filtered( Session.current.filter ) )continue;
+    if( !entity || !entity.filtered( Session.current.filter, persona ) )continue;
 
     // Filter out propositions without votes unless current user created it
     if( !entity.proposition.result.total()
@@ -6137,7 +6166,8 @@ function page_proposition( page_name, name ){
   var proposition = Topic.find( name );
   if( !proposition )return [ _, "Proposition not found: " + name ];
   Session.current.proposition = proposition;
-  var result = proposition.result;
+  var persona = Session.current.visitor;
+  var result  = proposition.result;
 
   var is_tag = proposition.is_tag();
   var tag_label;
@@ -6188,7 +6218,7 @@ function page_proposition( page_name, name ){
   }
 
   // List of tags, with link to propositions
-  var tmp = proposition.filter_string();
+  var tmp = proposition.filter_string( persona );
   buf.push( filter_label( tmp, "propositions" ) );
 
   // Source, since, age, last change...
@@ -6465,7 +6495,7 @@ vote.extend( http_repl_commands, {
   change_vote: function( vote_entity, privacy, orientation, duration, comment ){
 
     // ToDo: move this into some page_xxx()
-    redirect_back();
+    redirect_back( 2 );
 
     // Figure out parameters, maybe from pending http query
     var proposition = null;
@@ -6598,6 +6628,10 @@ vote.extend( http_repl_commands, {
           text: comment
         });
         printnl( "Comment changed " + pretty( vote_entity ) );
+        // If change to comment only, go to page about proposition
+        if( !privacy && !duration && !orientation ){
+          redirect( "proposition", proposition.label );
+        }
       }
     }
     return;
@@ -6672,13 +6706,15 @@ vote.extend( http_repl_commands, {
       Ephemeral.inject( "Persona", { label: name } );
       Session.current.visitor = Persona.find( lower_name );
     }
-    Session.current.filter = "";
+    if( Session.current.filter = "" || Session.current.filter === "#hot" ){
+      Session.current.set_filter( "new" );
+    };
     if( Session.current.previous_page[0] === "proposition" ){
       Session.current.current_page = Session.current.previous_page;
-      redirect_back();
+      redirect_back( 2 );
     }else if( Session.current.previous_page[0] === "propositions" ){
       Session.current.current_page = Session.current.previous_page;
-      redirect_back();
+      redirect_back( 2 );
     }else{
       redirect( "visitor" );
     }
