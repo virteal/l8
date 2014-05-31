@@ -2256,11 +2256,12 @@ Topic.prototype.filter_string = function(){
   sorted_tags.forEach( function( tag ){
     buf.push( tag.label );
   });
-  return buf.join( " " ) + this.computed_tags();
+  return ( buf.join( " " ) + this.computed_tags() ).trim();
 };
 
 Topic.reserved_tags = {
   tag:        true,
+  hot:        true,
   recent:     true,
   old:        true,
   today:      true,
@@ -2290,6 +2291,8 @@ Topic.reserved_tags = {
   you:        true,
   them:       true,
   abuse:      true,
+  win:        true,
+  tie:        true,
   jhr:        true  // End Of List
 };
 
@@ -2315,6 +2318,11 @@ Topic.prototype.computed_tags = function(){
   }
   if( this.age() <= vote.ONE_WEEK ){
     buf.push( "#recent" );
+    if( this.result.total() === 1
+    ||  this.result.is_referendum()
+    ){
+      buf.push( "#hot" );
+    }
     if( this.age() <= vote.ONE_DAY ){
       buf.push( "#today" );
     }else if( this.age() <= 2 * vote.ONE_DAY ){
@@ -2324,18 +2332,24 @@ Topic.prototype.computed_tags = function(){
   if( this.expire() < vote.now() + vote.ONE_WEEK ){
     buf.push( "#fade" );
   }
-  // #protest if orientation is protest or if protest votes > 1% of votes
-  if( ( this.result.orientation() === Vote.protest
-    || this.result.protest() * 100 > this.result.total() )
-  && Persona.count >= 50
-  ){
+
+  if( this.result.is_win() ){
+    buf.push( "#win" );
+  }else if( this.result.is_tie() ){
+    buf.push( "#tie" );
+  }else if( this.result.is_abuse() ){
+    buf.push( "#abuse" );
+  }
+
+  // #protest if protest votes > 1% of agree votes
+  if( this.result.is_problematic() ){
     buf.push( "#protest" );
   }
   // #orphan if no votes after a week
   if( this.result.total() <= 1 && this.age() > vote.ONE_WEEK ){
     buf.push( "#orphan" );
-  // #referendum if 1% of people voted
-  }else if( this.result.total() * 100 >= Persona.count && Persona.count >= 50 ){
+  // #referendum if 1% of people voted (at least 2!)
+  }else if( this.result.is_referendum() ){
     buf.push( "#referendum" );
   }
   // ToDo: #hot, not an easy one
@@ -2507,6 +2521,25 @@ Topic.prototype.remove_proposition = function( proposition, loop ){
   }
   return this;
 };
+
+
+Topic.prototype.filtered = function( filter ){
+// True if proposition pass thru the filter, ie proposition not filtered out
+
+  if( this.expired() )return false;
+
+  // If not filter, all pass, but abuses
+  if( !filter ){
+    return !this.result.is_abuse();
+  }
+  // Abuses don't pass, unless filter explicitely accept them
+  if( this.result.is_abuse() ){
+    if( filter.indexOf( "#abuse" ) === -1 )return false;
+  }
+
+  // OK, let's check the tags
+  return this.is_tagged( filter );
+}
 
 Topic.prototype.is_tagged = function( tags ){
 // Returns true if a topic includes all the specified tags
@@ -2803,6 +2836,11 @@ Vote.prototype.is_private = function(){
   return this.privacy() === Vote.private;
 };
 
+Vote.prototype.filtered = function( filter ){
+  if( this.expired )return false;
+  return this.proposition.filtered( filter );
+}
+
 Vote.prototype.update = function( other, options ){
   this.duration(    other.duration    = options.duration    );
   this.analyst(     other.analyst     = options.analyst     );
@@ -2841,9 +2879,18 @@ Vote.prototype.expiration = function(){
   return this;
 };
 
+
 Vote.prototype.is_neutral = function(){
   return this.orientation() === Vote.neutral;
 };
+
+
+Vote.prototype.filtered = function( filter ){
+  if( this.expired() )return false;
+  if( this.persona.expired() )return false;
+  return this.proposition.filtered( filter );
+}
+
 
 Vote.prototype.add = function(){
   if( this.orientation() === Vote.neutral ){
@@ -3101,6 +3148,28 @@ Result.prototype.touch = function(){
   this.time_touched = vote.now();
 }
 
+Result.prototype.is_tie = function(){
+  return this.agree() === this.against();
+}
+
+Result.prototype.is_win = function(){
+  return this.win();
+}
+
+Result.prototype.is_abuse = function(){
+  return this.orientation() === Vote.protest;
+}
+
+Result.prototype.is_referendum = function(){
+  return this.total() * 100 > Persona.count && this.total() > 1;
+}
+
+Result.prototype.is_problematic = function(){
+// A proposition is problematic if the number of protest votes exceeds 1%
+// of the number of agree votes.
+  return this.protest() * 100 > this.agree();
+}
+
 Result.prototype.add_vote = function( vote ){
 // Called by topic.add_vote()
   de&&mand( vote.proposition === this.proposition );
@@ -3339,6 +3408,16 @@ Delegation.prototype.heat = function(){
   // Less recently touched delegations are hot depending on number of votes
   return this.votes().length;
 };
+
+
+Delegation.prototype.filtered = function( filter ){
+
+  if( this.expired( ) )return false;
+  if( this.agent.expired() )return false;
+  if( !filter )return true;
+  return this.is_tagged( filter );
+}
+
 
 Delegation.prototype.is_tagged = function( tags ){
 // Returns true if a delegation includes all the specified tags
@@ -4051,22 +4130,43 @@ Session.prototype.filter_tags_label = function(){
 Session.prototype.set_filter = function( text ){
   if( typeof text !== "string" )return;
   if( text ){
+
+    var with_abuses = false;
     var tags = [];
     var tag_entity;
-    // Sanitize
+    var topic;
+
+    // Sanitize, filter out weird stuff, keep valid tags for filtering
     this.filter = text.replace( /[^A-Za-z0-9_ ]/g, "" );
     if( this.filter === "all" ){
       this.filter = "";
     }else if( this.filter.length ){
+
       var buf = [];
       this.filter.split( " " ).forEach( function( tag ){
+
         if( tag.length >= 2 || Topic.reserved( tag ) ){
-          buf.push( '#' + tag );
           tag_entity = Topic.find( '#' + tag );
+          // Existing tags
           if( tag_entity ){
-            tags.push( tag_entity );
+            if( with_abuses || !tag_entity.result.is_abuse() ){
+              buf.push( '#' + tag );
+              tags.push( tag_entity );
+            }
+          // Computed tags
+          }else if( Topic.reserved( tag ) ){
+            buf.push( "#" + tag );
+            if( tag === "abuse" ){
+              with_abuses = true;
+            }
+          // Tags that are names of existing topics
+          }else if( topic = Topic.find( tag ) ){
+            if( with_abuses || !topic.result.is_abuse ){
+              buf.push( "#" + tag )
+            }
           }
         }
+
       });
       this.filter = buf.join( " " );
       this.filter_tags = tags;
@@ -4514,11 +4614,12 @@ function redirect( page ){
   PendingResponse.redirect = "?input=page%20" + page;
 }
 
-function redirect_back(){
+function redirect_back( n ){
 // Set HTTP response to 302 redirect, to redirect to the page from where the
 // current HTTP request is coming.
   if( !Session.current.current_page )return redirect( "propositions" );
-  redirect( Session.current.current_page.join( " " ) );
+  var target = Session.current.current_page.slice( 0, ( n || 1 )  );
+  redirect( target.join( " " ) );
 }
 
 /*
@@ -4890,11 +4991,11 @@ function page_visitor( page_name, name, verb, filter ){
     return b.time_touched - a.time_touched;
   });
   buf.push( '<div><h2>Votes</h2>' );
+
   votes.forEach( function( entity ){
-    if( entity.expired() || entity.proposition.expired() )return;
-    if( Session.current.has_filter() ){
-      if( !entity.proposition.is_tagged( Session.current.filter ) )return;
-    }
+
+    if( !entity.filtered( Session.current.filter ) )return;
+
     buf.push( '<br><br>'
       + ' ' + link_to_page( "proposition", entity.proposition.label ) + ' '
       //+ "<dfn>" + emojied( entity.proposition.result.orientation() ) + '</dfn>'
@@ -4906,6 +5007,7 @@ function page_visitor( page_name, name, verb, filter ){
       + ", for " + duration_label( entity.expire() - vote.now() )
       + vote_menu( entity )
     )
+
   });
   buf.push( "</div><br>" );
 
@@ -4913,11 +5015,12 @@ function page_visitor( page_name, name, verb, filter ){
   var delegations = persona.delegations();
   buf.push( "<div><h2>Delegations</h2><br>" );
   //buf.push( "<ol>" );
+
   delegations.forEach( function( entity ){
-    if( entity.expired() || entity.agent.expired() )return;
-    if( Session.current.has_filter() ){
-      if( !entity.is_tagged( Session.current.filter ) )return;
-    }    buf.push( '<br>' // "<li>"
+
+    if( !entity.filtered( Session.current.filter ) )return;
+
+    buf.push( '<br>' // "<li>"
         + link_to_page( "persona", entity.agent.label )
         //+ ' <small>' + link_to_twitter_user( entity.agent.label ) + '</small> '
         + ( entity.is_inactive() ? " <dfn>(inactive)</dfn> " :  " " )
@@ -4985,11 +5088,11 @@ function page_persona( page_name, name, verb, filter ){
   });
   buf.push( '<br><br><div><h2>Votes</h2><br>' );
   //buf.push( "<ol>" );
+
   votes.forEach( function( entity ){
-    if( entity.expired() )return;
-    if( Session.current.filter.length ){
-      if( !entity.proposition.is_tagged( Session.current.filter ) )return;
-    }
+
+    if( !entity.filtered( Session.current.filter ) )return;
+
     buf.push( '<br>' ); // "<li>" );
     if( entity.is_private() ){
       buf.push( "private" );
@@ -5011,6 +5114,7 @@ function page_persona( page_name, name, verb, filter ){
     }
     //buf.push( "</li>" );
   });
+
   // buf.push( "</ol></div><br>" );
   buf.push( '</div><br>' );
   buf.push( page_footer() );
@@ -5056,8 +5160,11 @@ function page_delegations( page_name, name, verb, filter ){
   // Delegations
   var delegations = persona.delegations();
   buf.push( "<div><h2>Delegations</h2>" );
+
   delegations.forEach( function( entity ){
-    if( entity.expired() )return;
+
+    if( !entity.filtered() )return;
+
     buf.push( '<br><br>'
       + link_to_page( "persona", entity.agent.label )
       + ( entity.is_inactive() ? " <dfn>(inactive)</dfn> " :  " " )
@@ -5093,7 +5200,7 @@ function filter_label( filter, page ){
   if( filter ){
     buf.push( "<div>" );
     filter.split( " " ).forEach( function( tag ){
-      buf.push( link_to_page( page || "propositions", tag ) + " " );
+      buf.push( link_to_page( page || "propositions", tag, tag ) + " " );
     });
     buf.push( '</div>' );
   }
@@ -5167,24 +5274,29 @@ function page_propositions( page_name, filter ){
   if( Session.current.visitor ){
     visitor_tag = "#" + Session.current.visitor.label.substring( 1 );
   }
+
   for( attr in propositions ){
+
     entity = propositions[ attr ];
+
+    // Apply filter
     if( !entity || entity.expired() )continue;
     if( entity.is_tag() ){
       if( !tag_page )continue;
     }else{
       if( tag_page )continue;
     }
-    if( Session.current.has_filter() ){
-      if( !entity.is_tagged( Session.current.filter ) )continue;
-    }
+    if( !entity.filtered( Session.current.filter ) )continue;
+
     // Filter out propositions without votes unless current user created it
     if( !entity.result.total()
     && ( !visitor_tag || !entity.is_tagged( visitor_tag ) ) // ToDo: remove #jhr mention
     && ( !visitor_tag || visitor_tag !== "#jhr" )  // Enable clean up during alpha phase
     )continue;
+
     list.push( entity );
   }
+
   list = list.sort( function( a, b ){
     // The last consulted proposition is hot
     if( a === Session.current.proposition )return -1;
@@ -5192,7 +5304,9 @@ function page_propositions( page_name, filter ){
     // Other proposition's heat rule
     return b.heat() - a.heat()
   });
+
   list.forEach( function( proposition ){
+
     var text = proposition.label;
     if( tag_page ){
       text += " is a good tag";
@@ -5247,7 +5361,7 @@ function page_propositions( page_name, filter ){
 function page_votes( page_name, filter ){
 // This is the votes page of the application, filtered.
 
-  filter = Session.current.set_filter( filter );
+  filter = Session.current.set_filter( filter || "#hot" );
 
   // Header
   var r = [
@@ -5307,30 +5421,30 @@ function page_votes( page_name, filter ){
     visitor_tag = "#" + Session.current.visitor.label.substring( 1 );
   }
   var ii = votes.length;
+  var count = 0;
+
   while( ii-- ){
+
     vote_value = votes[ ii ];
     entity = vote_value.entity;
-    if( !entity
-    || entity.expired()
-    || entity.proposition.expired()
-    || entity.persona.expired()
-    )continue;
-    if( Session.current.has_filter() ){
-      if( !entity.proposition.is_tagged( Session.current.filter ) )continue;
-    }
+
+    if( !entity || !entity.filtered( Session.current.filter ) )continue;
+
     // Filter out propositions without votes unless current user created it
     if( !entity.proposition.result.total()
     && ( !visitor_tag || !entity.proposition.is_tagged( visitor_tag ) ) // ToDo: remove #jhr mention
     && ( !visitor_tag || visitor_tag !== "#jhr" )  // Enable clean up during alpha phase
     )continue;
-    // Filter not public votes
+
+    // Keep public votes
     if( vote_value.delegation          === Vote.direct
     && vote_value.privacy              === Vote.public
     && vote_value.orientation          !== Vote.neutral
     && vote_value.entity.privacy()     === Vote.public
     && vote_value.entity.orientation() !== Vote.neutral
     ){
-      buf.push( "<br>" + link_to_page( "proposition", vote_value.proposition ) );
+      count++;
+      buf.push( "<br>" + link_to_page( "proposition", vote_value.entity.proposition.label ) );
       buf.push(
         ' <em>' + emojied( vote_value.orientation ) + "</em> "
         + link_to_page( "persona", vote_value.persona_label )
@@ -5343,7 +5457,11 @@ function page_votes( page_name, filter ){
     }
   }
 
-  buf.push(  "<br>" + page_footer() );
+  if( !count && Session.current.filter === "#hot" ){
+    return redirect( "vote #recent" );
+  }
+
+  buf.push(  "<br><br>" + page_footer() );
   r[1] = r[1].concat( buf );
   return r;
 }
@@ -6567,23 +6685,23 @@ vote.extend( http_repl_commands, {
   },
 
 
-  change_proposition: function(){
-    redirect_back();
+  change_proposition: function( name ){
+
     // Sanitize, extract tags, turn whole text into valid potential tag itself
     var text = Array.prototype.slice.call( arguments ).join( " " );
 
+    redirect_back();
     // Could be a search, a delegate or a propose coming from page_propositions
-    if( text.toLowerCase().indexOf( "propose " ) === 0 ){
-      text = text.substring( "propose ".length );
 
     // Search
-    }else if( text.toLowerCase().indexOf( "search" ) === 0 ){
+    if( text.toLowerCase().indexOf( "search" ) === 0 ){
       text = text.substring( "search".length );
       Session.current.set_filter( text || "all" );
       return;
+    }
 
     // Delegate
-    }else if( text.toLowerCase().indexOf( "delegate" ) === 0 ){
+    if( text.toLowerCase().indexOf( "delegate" ) === 0 ){
       text = text.substring( "delegate".length );
       if( !Session.current.visitor ){
         return;
@@ -6613,6 +6731,10 @@ vote.extend( http_repl_commands, {
         agent:   agent,
         tags:    Session.current.filter_tags
       });
+    }
+
+    if( text.toLowerCase().indexOf( "propose " ) === 0 ){
+      text = text.substring( "propose ".length );
     }
 
     // Propose
