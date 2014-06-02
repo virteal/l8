@@ -5487,7 +5487,7 @@ function page_votes( page_name, filter ){
   }
 
   if( !count && Session.current.filter === "#hot" ){
-    return redirect( "vote #recent" );
+    redirect( "vote #recent" );
   }
 
   buf.push(  "<br><br>" + page_footer() );
