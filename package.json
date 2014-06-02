@@ -1,6 +1,6 @@
 {
   "name": "l8",
-  "version": "0.2.9",
+  "version": "0.3.0",
   "description": "l8 is an experimental pthread/erlang inspired task manager for javascript. Simple tasks becomes 'paroles', complex tasks become functions broken in 'steps'. l8 comes with synchronisation and distribution tools including semaphores, mutexes, message queues, generators, actors and socket.io proxied actors, among others.",
   "main": "lib/l8.js",
   "files": [

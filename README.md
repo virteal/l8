@@ -1,9 +1,11 @@
-l8 0.2.10
-=========
+l8 0.3.0
+========
 
 [![Build Status](https://travis-ci.org/JeanHuguesRobert/l8.png)](https://travis-ci.org/JeanHuguesRobert/l8)
 
-l8 is a pthread/erlang inspired multi-tasker for javascript. It schedules javascript tasks using promises and distributed actors. Such tasks can run browser side and server side.
+l8 provides the foundation control flow tools for its currently unique application: [Kudocracy, when liquid democracy meets twitter](https://github.com/virteal/kudocracy).
+
+l8 includes a pthread/erlang inspired multi-tasker for javascript. It schedules javascript tasks using promises and distributed actors. Such tasks can run browser side and server side.
 
 This is a work in progress that is not ready for production yet.
 See [![Build Status](https://c9.io/site/wp-content/themes/cloud9/img/logo_cloud9_small.png)](https://c9.io/jhr/l8)
@@ -14,7 +16,6 @@ npm install l8
 cd node_modules/l8; npm test
 ```
 
-l8 provides the foundation control flow tools for its currently unique application: [Kudocracy, when liquid democracy meets twitter](https://github.com/virteal/kudocracy).
 
 Introduction
 ============
