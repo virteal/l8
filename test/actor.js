@@ -7,6 +7,7 @@
 var l8 = require( "l8/lib/actor.js")
 var Http    = require( "http")
 var Connect = require( "connect")
+var ServeStatic = require('serve-static');
 
 var de   = l8.de
 var bug  = l8.bug
@@ -17,7 +18,7 @@ var mand = l8.mand
  */
 
 var app = Connect()
-app.use( Connect.static( 'public' ) )
+app.use( ServeStatic( 'public' ) )
 app.use( function( req, res ){ res.end( 'hello world\n' ) })
 var server = Http.createServer( app )
 l8.http_port = parseInt( process.env.PORT, 10) || 8080 // 80 requires sudo

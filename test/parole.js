@@ -7,7 +7,7 @@
 var html = typeof document !== "undefined";
 
 // In jsfiddle, whisper.js is included by the HTML page & defines Parole
-var P = html ? Parole : require("l8/lib/whisper");
+var P = html ? Parole : require("l8/lib/whisper.js");
 
 
 var syncsched = function (f) {
