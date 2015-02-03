@@ -1,7 +1,7 @@
 {
   "name": "l8",
-  "version": "0.3.4",
-  "description": "l8 is an experimental pthread/erlang inspired task manager for javascript. Simple tasks becomes 'paroles', complex tasks become functions broken in 'steps'. l8 comes with synchronisation and distribution tools including semaphores, mutexes, message queues, generators, actors and socket.io proxied actors, among others.",
+  "version": "0.3.6",
+  "description": "l8 is an *experimental* pthread/erlang inspired task manager for javascript. Simple tasks becomes 'paroles', complex tasks become functions broken in 'steps'. l8 comes with synchronisation and distribution tools including semaphores, mutexes, message queues, generators, actors and socket.io proxied actors, among others.",
   "main": "lib/l8.js",
   "files": [
     "lib",
@@ -15,18 +15,19 @@
     "node": ">=0.10.0"
   },
   "dependencies": {
-    "browserify": "^5.12.1",
-    "coffee-script": "^1.8.0",
     "connect": "^3.2.0",
     "matches": "^0.5.1",
-    "mocha": "^1.21.4",
-    "mocha-unfunk-reporter": "^0.4.0",
-    "promises-aplus-tests": "^2.1.0",
     "serve-static": "^1.6.3",
     "socket.io": "^1.1.0",
     "socket.io-client": "^1.1.0"
   },
-  "devDependencies": {},
+  "devDependencies": {
+    "browserify": "^8.1.1",
+    "coffee-script": "^1.8.0",
+    "mocha": "^1.21.4",
+    "mocha-unfunk-reporter": "^0.4.0",
+    "promises-aplus-tests": "^2.1.0"
+  },
   "scripts": {
     "postinstall": "ln -s ../. node_modules/l8 || true",
     "test": "node test/parole.js && mocha test/boxon.js -R spec && promises-aplus-tests test/promise.js && node test/suite.js && node test/actor.js && node test/node.js"
