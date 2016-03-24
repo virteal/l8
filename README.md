@@ -1,4 +1,4 @@
-l8 0.3.6
+l8 0.4.1
 ========
 
 [![Build Status](https://travis-ci.org/JeanHuguesRobert/l8.png)](https://travis-ci.org/JeanHuguesRobert/l8)
@@ -37,14 +37,14 @@ Boxon (lib/boxon.js) is a tiny 200 LOC helper that removes some of the mess with
 ```
 var read = Boxon(); fs.readFile( "read.txt", "utf8", read );
 // ... somewhere else, in some distant future maybe ...
-read( function( err, data ){ ... } );
+read( ( err, data ) => { ... } );
 ```
 
 "promise outcome retrieval, nodejs style"
 -----------------------------------------
 ```
 var read = Boxon.cast( read_promise );
-read( function( err, data ){ ... } );
+read( ( err, data ) => { ... } );
 ```
 
 "outcome as data" use case
@@ -71,8 +71,8 @@ Example
 -------
 ```
 var a = Water(), b = Water(), c = Water();
-c( Water, function(){ return a() + b(); }
-Water( c, function( v ){ console.log( "c: " + v ); } );
+c( Water, () => a() + b() )
+Water( c, v => console.log( "c: " + v ) );
 a( 2 ); // nothing, b is missing
 b( 5 ); // => outputs 7 on console
 a( 1 ); // => outputs 6
@@ -87,10 +87,10 @@ var sink    = Water();
 Water.fluid()
   .from( source  )
   .from( source2 )
-    .where(  function( v ){ return v > 0;        } )
-    .map(    function( v ){ return v * 10;       } )
-    .reduce( function( p, v ){ return p + v;  }, 0 )
-    .tap(    function( v ){ console.log( v );    } )
+    .where(  v => ( v > 0 ) )
+    .map(    v => v * 10 )
+    .reduce( ( p, v ) => p + v, 0 )
+    .tap(    v => console.log( v ) )
   .to( sink );
 source(  -1 ); // => nothing
 source(   1 ); // => 10
@@ -117,8 +117,8 @@ Paroles, among other things, are a solution to the promises vs callbacks tension
 ```
 var read = Parole(); fs.readFile( "test.txt", "utf8", read );
 read.then(
-  function( content ){ console.log( "content: " + content; },
-  function( error   ){ console.log( "error: "   + error;   }
+  content => console.log( "content: " + content ),
+  error   => console.log( "error: "   + error   )
 );
 ```
 
@@ -127,7 +127,7 @@ read.then(
 
 ```
 var timeout = Parole(); setTimeout( timeout, 1000 );
-timeout.on( function(){ console.log( "timeout !" ); }
+timeout.on( () => console.log( "timeout !" ) );
 ```
 
 "Paroles as pub/sub" use case
@@ -135,8 +135,8 @@ timeout.on( function(){ console.log( "timeout !" ); }
 
 ```
 var publish = Parole();
-publish.subscribe( function( msg ){ console.log( "sub1 receives " + msg ); }
-publish.subscribe( function( msg ){ console.log( "sub2 receives " + msg ); }
+publish.subscribe( msg => console.log( "sub1 receives " + msg ) );
+publish.subscribe( msg => console.log( "sub2 receives " + msg ) );
 publish( "Hello world!" );
 ```
 
@@ -222,12 +222,12 @@ The main flow control structures are the sequential execution of steps, the exec
 Beware that the "thread" model of computation is not without shortcomings. Race conditions and deadlocks are difficult to avoid when using the shared state paradigm. What is sometimes a necessary evil to gain maximal performance out of multiple cores cpus is not an option within a javascript process that is by design single threaded. This is why l8 favors a different approach based on message passing and distributed actors.
 
 
-Roadmap (feb 2014)
-==================
+Roadmap (march 2016)
+====================
 
 Boxons - mostly complete with good test converage.
 
-Water - current work on progress.
+Water - well tested in Kudocracy application.
 
 Paroles - mostly done, needs more tests.
 
@@ -322,7 +322,7 @@ l8 API at a glance
   All these methods, if invoked against the global l8 object, will usually get
   forwarded to the "current task", the task that is currently executing. That
   task is often the returned value of such methods, when it makes sense. When
-  the body of a task is executing, "this" references the current task.
+  the body of a task is executing, "this" and l8.current references the task.
 
   -- synchronization
 
@@ -425,7 +425,7 @@ l8 API at a glance
   will replace the initial promise.
 
   Other librairies provides additional usefull Promise related services. See
-  lueebird, Q.js, When.js, Promise.io, etc.
+  bluebird, Q.js, When.js, Promise.io, etc.
 
   -- Actors runs in places called "stages"
   They are remotely accessible using proxies.
