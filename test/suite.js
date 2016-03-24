@@ -1,5 +1,7 @@
 /*
  *  l8 test suite
+ *
+ *  2016/03/24, jhr, es6 arrow functions
  */
 
 "use strict";
@@ -19,7 +21,7 @@ require( "l8/lib/lock"        )
 require( "l8/lib/parole"      )
 
 /* ----------------------------------------------------------------------------
- *  Tests
+ *  Test micro framework
  */
 
 var trace = l8.trace
@@ -70,26 +72,32 @@ var test // current test id
     trace( "Test " + test, "PASSED")
     traces = []
   }
+  
+  /*
+   *  The tests
+   */
 
   var test_1 = function test1(){
     test = 1
-    t( "go")
+    t( "go" )
     l8.begin
-      .step(  function(){ t( "start")      })
-      .step(  function(){ t( "step")       })
-      .step(  function(){ t( "sleep")
-                          this.sleep( 100)
-                          t( "sleeping")   })
-      .step(  function(){ t( "sleep done") })
-      .failure( function( e ){ t( "!!! unexpected failure", e) })
-      .final( function(){ t( "final")
+      .step( _=> t( "start" ) )
+      .step( _=> t( "step" )  )
+      .step( function(){ 
+                 t( "sleep" )
+                 l8.current.sleep( 100 )
+                 t( "sleeping" )   })
+      .step( _=> t( "sleep done" ) )
+      .failure( e => t( "!!! unexpected failure", e ) )
+      .final( _=>{ 
+        t( "final" );
         check( "start",
                "step",
                "sleep",
                "sleeping",
                "sleep done",
                "final"
-        )
+        );
         test_2()
       })
     .end
@@ -97,16 +105,17 @@ var test // current test id
 
   var test_2 = l8.Task( function test2(){
     test = 2; this
-    .step(  function(){ t( "start")               })
-    .step(  function(){ setTimeout( this.walk, 0) })
-    .step(  function(){ t( "sleep/timeout done")  })
-    .failure( function( e ){ t( "unexpected failure", e) })
-    .final( function(){ t( "final")
+    .step( _=> t( "start" ) )
+    .step( function(){ setTimeout( this.walk, 0 ) } )
+    .step( _=> t( "sleep/timeout done" ) )
+    .failure( e => t( "unexpected failure", e ) )
+    .final( function(){ 
+      t( "final" );
       check( "start",
              "sleep/timeout done",
              "final"
-      )
-      test_3()
+      );
+      test_3();
     })
   })
 
@@ -466,10 +475,11 @@ var test // current test id
   })
 
   var test_last = function(){
-    trace( "SUCCESS!!! All tests ok")
-    process.exit( 0)
+    trace( "SUCCESS!!! All tests ok" );
+    process.exit( 0 );
   }
 
-trace( "starting l8")
-l8.countdown( 10)
-test_1()
+
+trace( "starting l8, for tests" );
+l8.countdown( 10 );
+test_1();
