@@ -24,20 +24,25 @@ l8.task( function(){
   var fd
 
   l8.step( function ( ) {
+    l8.trace( "requiring 'fs'" );
     l8.require( "fs" );
   }).step( function (m) {
+    l8.assert( m );
     l8.trace( "got fs" );
     fs = m;
     l8.require( "buffer" );
-  }).step( function (m) {    
+  }).step( function (m) {
+    l8.assert( m );
     l8.trace( "got buffer" );
     Buffer = m.Buffer;
     fs.open( "node.js.test_file.txt", "w" );
-  }).step( function (f) {    
+  }).step( function (f) {
+    l8.assert( f );
     l8.trace( "got fd" );
     fd = f;
     new Buffer( "Hello, world!", "utf8" );
-  }).step( function (b) {    
+  }).step( function (b) {
+    l8.assert( b );
     l8.trace( "got new buffer" );
     fs.write( fd, b, 0, b.length, null );
   }).step( function ( ) {
