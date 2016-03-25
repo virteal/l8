@@ -172,7 +172,7 @@ var pipe2 = Parole.from().will( function( input ){
 pipe1.pipe( pipe2 ).pipe( function( output ){
   console.log( output );
 });
-p1( "Hello" )( "World" );
+pipe1( "Hello" )( "World" );
 // => !*Hello*!   !*World*!
 ```
 
@@ -224,7 +224,7 @@ Beware that the "thread" model of computation is not without shortcomings. Race 
 Roadmap (march 2016)
 ====================
 
-Boxons - mostly complete with good test converage.
+Boxons - mostly complete with decent test converage.
 
 Water - well tested in Kudocracy application.
 
@@ -243,6 +243,8 @@ ECMA 6 Promise - partial, need more tests and doc.
 ECMA 6 Generators - using "yield" to break a function in steps is a nice option. Study phase. Interop with co() seems ok.
 
 Cluster - run actors in multiple processes to get more speed on multi-core CPUs. Not done.
+
+I started an effort to modularize l8 so that one can use some parts of it via autonomous npm packages, versus the monolithic current package.
 
 The goal is to have a modern toolkit to build code that runs in browsers and servers, distributed using the actor model for inter process communications.
 
