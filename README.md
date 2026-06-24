@@ -9,6 +9,26 @@ l8 includes a pthread/erlang inspired multi-tasker for javascript. It schedules 
 
 This is a work in progress that is not ready for production yet.
 
+**Historical status (2026)**
+
+l8 is the original JavaScript implementation of cooperative, single-threaded multi-tasking via Tasks composed of Steps (explicit cooperating closures scheduled cooperatively), with rich control flow (fork/join, semaphores, pause/resume, should-stop/cancel), promises/paroles integration, Water/Fluid for reactive streams and dataflow, and early actor support.
+
+It is no longer the active home for these ideas. They have been generalized and evolved:
+
+- **Runtime / native substrate**: l9.nox in this repository (Inox) — the L9 kernel ("from l8.js"), object system, actors, dataflow, etc. Inox is the intended efficient, multi-dialect, control/data-plane-separated runtime that descends from JS hosts to bare metal.
+- **Distributed / cognitive layer**: inseme (COP — Cognitive Orchestration Protocol). COP generalizes l8-style Tasks/Steps/continuations into routable cognitive packets, Cogitors (the distributed equivalents of l8 processors/steps), dynamic wiring via continuations-as-closures, event-sourced projections (artifacts, tasks, steps), and mixed human/AI agent judgment.
+
+Current practical bridges ("l8 face for Cogitors") live in inseme/packages/cop-kernel (see `continuation.js` for `createCogitorL8Waitable` / `callCogitorAsPromise`, stack framing, l8-inspired cogitorCooperation, etc.). These let l8-structured flows treat remote Cogitors (including non-JS agents) as cooperative steps.
+
+See:
+- `Inox/lib/l9.nox` and `Inox/research/` (especially reactive_sets_inox_cop_implementation.md) for the Inox path.
+- `inseme/packages/cop-kernel/docs/task-step-continuation-lineage.md` for the detailed lineage (l8 → COP → Inox).
+- Inox#17 (https://github.com/JeanHuguesRobert/Inox/issues/17) for the ongoing discussion of the destiny of the l8 and side repositories (user confirmation: we want to move out of Javascript into Inox; while no stabilized Inox yet we keep producing plain Javascript code for the transitional bridges and avoid TypeScript on that portable code when reasonable).
+
+The original code and history are preserved here as an important Rossignol / point of attestation.
+
+---
+
 [npm](https://npmjs.org/package/l8)
 ```
 npm install l8
