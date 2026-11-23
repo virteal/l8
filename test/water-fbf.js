@@ -64,4 +64,29 @@ async function cycles(){
   }
  }
 }
-(async()=>{for(const [name,fn] of [['race',race],['diamond',diamond],['dynamic',dynamic],['compaction',compaction],['cycles',cycles]]){await fn();console.log('PASS',name)}})().catch(e=>{console.error('FAIL',e.stack);process.exitCode=1});
+async function holdReleaseAndSubmitContract(){
+ // FBF 2026-11-23 — GPT-6 under Jean Hugues Noël Robert's direction.
+ // Regression for the original smoke-test bug: submit() refuses a held machine.
+ const machine=W.machine({autodep:true});
+ const previous=machine.resume();
+ try{
+  const stream=W.fluid().hold().from([10,20,30]);
+  const collected=stream.map(n=>n*n).stateful().state();
+  let called=false, submitError=null;
+  W.submit(function(){called=true;stream.release()},function(err){submitError=err});
+  assert.equal(called,false,'submit must not execute a held/busy machine');
+  assert.match(String(submitError),/cannot submit.*busy/);
+  assert.equal(machine.nested,1);
+  stream.release();
+  assert.deepEqual(collected,[100,400,900]);
+  assert.equal(machine.nested,0);
+  assert.equal(machine.effects.length,0);
+  assert.equal(machine.queue.length,0);
+  assert.equal(machine.ready(),true);
+  // A successfully released machine must still accept regular submits.
+  let ran=false;
+  W.submit(function(){ran=true},function(err){assert.equal(err,undefined)});
+  assert.equal(ran,true);
+ }finally{previous.resume()}
+}
+(async()=>{for(const [name,fn] of [['race',race],['diamond',diamond],['dynamic',dynamic],['compaction',compaction],['cycles',cycles],['hold-release-submit',holdReleaseAndSubmitContract]]){await fn();console.log('PASS',name)}})().catch(e=>{console.error('FAIL',e.stack);process.exitCode=1});
