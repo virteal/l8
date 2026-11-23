@@ -28,6 +28,24 @@ async function testLateWaitResolution() {
   assert.equal(resumeCalls, 1, 'obsolete promise must not resume completed task');
 }
 
+async function testLateWaitRejection() {
+  const p = l8.promise();
+  const task = l8.task(function() {
+    this.step(function() { this.wait(p); });
+    this.step(function() {});
+  });
+  let raiseCalls = 0;
+  const raise = task.raise;
+  task.raise = function() { raiseCalls++; return raise.apply(this, arguments); };
+  await delay(10);
+  task.resume();
+  await delay(10);
+  assert.equal(task.done, true);
+  p.reject(new Error('late failure'));
+  await delay(15);
+  assert.equal(raiseCalls, 0, 'obsolete promise rejection must not raise on done task');
+}
+
 async function testLateSleepWakeup() {
   const events = [];
   const task = l8.task(function() {
@@ -62,7 +80,8 @@ async function testLegitimateWaitAndSleep() {
 
 (async function main() {
   await testLateWaitResolution();
+  await testLateWaitRejection();
   await testLateSleepWakeup();
   await testLegitimateWaitAndSleep();
-  console.log('FBF stale wakeup tests passed (3 scenarios)');
+  console.log('FBF stale wakeup tests passed (4 scenarios)');
 })().catch(error => { console.error(error); process.exitCode = 1; });
