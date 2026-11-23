@@ -230,4 +230,55 @@ async function initiallyMissingConditionalAutodependency(){
   fallback(8);assert.equal(out(),8);
  }finally{prior.resume()}
 }
-(async()=>{for(const [name,fn] of [['race',race],['diamond',diamond],['dynamic',dynamic],['compaction',compaction],['cycles',cycles],['hold-release-submit',holdReleaseAndSubmitContract],['ready-effects',pendingEffectsNotReady],['machine-async',promisesKeepTheirMachine],['boxon-results',boxonValueCardinality],['dynamic-pruning',conditionalAutodependencyPruning],['inactive-async-branch',inactiveAsyncBranchIsNotPublished],['initially-missing-branch',initiallyMissingConditionalAutodependency]]){await fn();console.log('PASS',name)}})().catch(e=>{console.error('FAIL',e.stack);process.exitCode=1});
+async function staleSnapshot(){
+ // GPT-6 under Jean Hugues Noël Robert's direction, 2026-11-23:
+ // Snapshot is opt-in; ordinary water() reads keep their historical semantics.
+ const machine=W.machine({autodep:true}), previous=machine.resume();
+ try{
+  const upstream=W(1), computed=W(), downstream=W();
+  let complete;
+  computed(W,()=>{const n=upstream();return new Promise(resolve=>{complete=()=>resolve(n*10)})});
+  downstream(W,()=>computed()+1);
+  assert.deepEqual(W.snapshot(computed),{
+   value:undefined,hasValue:false,pending:true,stale:false
+  });
+  assert.equal(W.snapshot(downstream).pending,true);
+  complete();await Promise.resolve();await Promise.resolve();
+  assert.deepEqual(W.snapshot(computed),{
+   value:10,hasValue:true,pending:false,stale:false
+  });
+  assert.equal(downstream(),11);
+  upstream(2);
+  assert.equal(computed(),10,'ordinary read still returns old value');
+  assert.deepEqual(W.snapshot(computed),{
+   value:10,hasValue:true,pending:true,stale:true
+  });
+  assert.deepEqual(W.snapshot(downstream),{
+   value:11,hasValue:true,pending:true,stale:true
+  });
+  complete();await Promise.resolve();await Promise.resolve();
+  assert.equal(computed(),20);
+  assert.equal(downstream(),21);
+  assert.equal(W.snapshot(downstream).stale,false);
+  assert.equal(machine.ready(),true);
+  assert.throws(()=>W.snapshot({}),TypeError);
+  const failed=W(),failure=new Error('failure');
+  failed(W.fail(failure));
+  const errorState=W.snapshot(failed);
+  assert.equal(errorState.hasValue,false,'failure is not a usable value');
+  assert.equal(errorState.error,failure);
+  assert.equal(errorState.pending,false);
+  const lazy=W.demand();
+  const lazyState=W.snapshot(lazy);
+  assert.equal(lazyState.pending,true);
+  assert.equal(lazyState.hasValue,false);
+  // Cyclic graphs are legal in Water; snapshots must terminate.
+  const loop=W(), peer=W();
+  W.connect(loop,peer);
+  W.connect(peer,loop);
+  assert.equal(W.snapshot(loop).pending,false);
+  W.disconnect(loop,peer);
+  W.disconnect(peer,loop);
+ }finally{previous.resume()}
+}
+(async()=>{for(const [name,fn] of [['race',race],['diamond',diamond],['dynamic',dynamic],['compaction',compaction],['cycles',cycles],['stale-snapshot',staleSnapshot],['hold-release-submit',holdReleaseAndSubmitContract],['ready-effects',pendingEffectsNotReady],['machine-async',promisesKeepTheirMachine],['boxon-results',boxonValueCardinality],['dynamic-pruning',conditionalAutodependencyPruning],['inactive-async-branch',inactiveAsyncBranchIsNotPublished],['initially-missing-branch',initiallyMissingConditionalAutodependency]]){await fn();console.log('PASS',name)}})().catch(e=>{console.error('FAIL',e.stack);process.exitCode=1});

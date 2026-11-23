@@ -120,6 +120,24 @@ console.log( sink() ); // => 30
 
 l8 Water manages recursive dependencies, asynchronous refresh, lazy values and interop with boxons and promises.
 
+An optional read-only snapshot (GPT-6 under Jean Hugues Noël Robert's
+direction, 2026-11-23) exposes the distinction between a cached value and
+a computation still pending, without changing historical `water()` reads:
+
+```javascript
+var state = Water.snapshot( computed );
+state.value;    // most recent resolved value, or undefined
+state.hasValue; // false before a result or after an error
+state.pending;  // this node or an upstream dependency is pending
+state.stale;    // a previous value exists while recalculation is pending
+state.error;    // present only if the latest result is a Water failure
+```
+
+A snapshot does not compute or subscribe to anything; `stale` is advisory
+and no generation-token or cancellation policy is introduced. Sources
+marked as lazy and async promise/Boxon computations are included.
+
+
 Please find more documentation in in the wiki [about water](../../wiki/AboutWater) and [about fluids](../../wiki/AboutFluids)
 
 
