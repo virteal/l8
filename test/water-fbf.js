@@ -89,4 +89,49 @@ async function holdReleaseAndSubmitContract(){
   assert.equal(ran,true);
  }finally{previous.resume()}
 }
-(async()=>{for(const [name,fn] of [['race',race],['diamond',diamond],['dynamic',dynamic],['compaction',compaction],['cycles',cycles],['hold-release-submit',holdReleaseAndSubmitContract]]){await fn();console.log('PASS',name)}})().catch(e=>{console.error('FAIL',e.stack);process.exitCode=1});
+async function pendingEffectsNotReady(){
+ // FBF 2026-11-23 — GPT-6 under Jean Hugues Noël Robert's direction.
+ const m=W.machine({autodep:true}), prior=m.resume();
+ try{
+  const observed=[];
+  W.effect(()=>observed.push('effect'));
+  assert.equal(m.effects.length,1);
+  assert.equal(m.ready(),false);
+  W.fluid().hold().release();
+  assert.deepEqual(observed,['effect']);
+  assert.equal(m.ready(),true);
+ }finally{prior.resume()}
+}
+async function promisesKeepTheirMachine(){
+ // Completion must run in the original Machine, even if another is active.
+ const m1=W.machine({autodep:true}), m2=W.machine({autodep:true});
+ const prior=m1.resume();
+ try{
+  const a=W(1),b=W(), seen=[];
+  b(W,()=>{const val=a();return new Promise(resolve=>setTimeout(()=>resolve(val*10),8))});
+  W(b,v=>seen.push({v,context:W.Machine.current}));
+  m2.resume();
+  await delay(22);
+  assert.equal(b(),10);
+  assert.deepEqual(seen,[{v:10,context:m1}]);
+  assert.equal(W.Machine.current,m2,'completion must restore the active Machine');
+  assert.equal(m1.ready(),true);
+  assert.equal(m2.ready(),true);
+ }finally{prior.resume()}
+}
+async function boxonValueCardinality(){
+ // Both an ordinary Boxon result and multiple results must survive delivery.
+ const m=W.machine({autodep:true}), prior=m.resume();
+ try{
+  const single=W.boxon(), one=W();
+  one(W,()=>single,[]);
+  one(1); single(null,42);
+  assert.equal(one(),42);
+  const multi=W.boxon(),many=W();
+  many(W,()=>multi,[]);
+  many(1);multi(null,'alpha','beta');
+  assert.deepEqual(many(),['alpha','beta']);
+  assert.equal(m.ready(),true);
+ }finally{prior.resume()}
+}
+(async()=>{for(const [name,fn] of [['race',race],['diamond',diamond],['dynamic',dynamic],['compaction',compaction],['cycles',cycles],['hold-release-submit',holdReleaseAndSubmitContract],['ready-effects',pendingEffectsNotReady],['machine-async',promisesKeepTheirMachine],['boxon-results',boxonValueCardinality]]){await fn();console.log('PASS',name)}})().catch(e=>{console.error('FAIL',e.stack);process.exitCode=1});
