@@ -38,4 +38,30 @@ async function compaction(){
  assert.equal(W.connect(a,b),false);
  assert.equal(W.disconnect(a,b),true);
 }
-(async()=>{for(const [name,fn] of [['race',race],['diamond',diamond],['dynamic',dynamic],['compaction',compaction]]){await fn();console.log('PASS',name)}})().catch(e=>{console.error('FAIL',e.stack);process.exitCode=1});
+async function cycles(){
+ const factorial=W.define(function(arg,ret){
+  arg(W,function(n){return [n,1]},[]);
+  const loop=W();
+  loop(arg,function(pair){
+   const n=pair[0], product=pair[1];
+   if(n<=1)ret(product);
+   else return [n-1,n*product];
+  });
+  loop(loop);
+ });
+ const fluidFactorial=W.fluid.define(function(stream){return stream
+  .map(function(n){return [n,1]})
+  .while(function(pair){return pair[0]>1})
+    .map(function(pair){return [pair[0]-1,pair[0]*pair[1]]})
+  .end_while()
+  .map(function(pair){return pair[1]});
+ });
+ for(const n of [0,1,3,5,10,170,171,5]){
+  const reference=(function(){let v=1;for(let i=2;i<=n;i++)v*=i;return v})();
+  for(const [label,got] of [['Water',factorial(n)],['Fluid',fluidFactorial(n)]]){
+   if(!Number.isFinite(reference)) assert.equal(got,reference,label+' cycle for '+n);
+   else assert.ok(Math.abs(got-reference)/reference<1e-12,label+' cycle for '+n+': '+got);
+  }
+ }
+}
+(async()=>{for(const [name,fn] of [['race',race],['diamond',diamond],['dynamic',dynamic],['compaction',compaction],['cycles',cycles]]){await fn();console.log('PASS',name)}})().catch(e=>{console.error('FAIL',e.stack);process.exitCode=1});
