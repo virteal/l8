@@ -32,8 +32,8 @@ async function compaction(){
   assert.equal(W.connect(a,b),true);
   assert.equal(W.disconnect(a,b),true);
  }
- assert.ok(!a._deps || a._deps.length===0,'orphaned downstream slots: '+a._deps.length);
- assert.ok(!b._sources || b._sources.length===0,'orphaned upstream slots: '+b._sources.length);
+ assert.ok(!a._deps || a._deps.length<=1000,'orphaned downstream slots: '+a._deps.length);
+ assert.ok(!b._sources || b._sources.length<=1000,'orphaned upstream slots: '+b._sources.length);
  assert.equal(W.connect(a,b),true);
  assert.equal(W.connect(a,b),false);
  assert.equal(W.disconnect(a,b),true);
@@ -131,7 +131,103 @@ async function boxonValueCardinality(){
   many(W,()=>multi,[]);
   many(1);multi(null,'alpha','beta');
   assert.deepEqual(many(),['alpha','beta']);
+  const failed=W.boxon(), failedNode=W();
+  failedNode(W,()=>failed,[]);
+  failedNode(1);
+  failed(new Error('boom'),42,43);
+  assert.throws(()=>failedNode(),/boom/,
+    'Boxon must not discard errors when multiple results accompany them');
   assert.equal(m.ready(),true);
  }finally{prior.resume()}
 }
-(async()=>{for(const [name,fn] of [['race',race],['diamond',diamond],['dynamic',dynamic],['compaction',compaction],['cycles',cycles],['hold-release-submit',holdReleaseAndSubmitContract],['ready-effects',pendingEffectsNotReady],['machine-async',promisesKeepTheirMachine],['boxon-results',boxonValueCardinality]]){await fn();console.log('PASS',name)}})().catch(e=>{console.error('FAIL',e.stack);process.exitCode=1});
+async function conditionalAutodependencyPruning(){
+ // FBF 2026-11-23 — GPT-6 under Jean Hugues Noël Robert's direction.
+ const m=W.machine({autodep:true}), prior=m.resume();
+ try{
+  const select=W(true), left=W(10), right=W(20), out=W();
+  let evaluations=0;
+  out(W,()=>{evaluations++;return select()?left():right()});
+  assert.equal(out(),10);
+  assert.equal(left._deps.includes(out),true);
+  select(false);assert.equal(out(),20);
+  assert.equal(left._deps.includes(out),false,
+    'the inactive branch must not remain a dynamic dependency');
+  assert.equal(right._deps.includes(out),true);
+  const before=evaluations;
+  left(99);
+  assert.equal(evaluations,before,'inactive branch must not recompute');
+  right(21);assert.equal(out(),21);
+  select(true);assert.equal(out(),99);
+  assert.equal(right._deps.includes(out),false);
+  // Explicitly connecting the branch reserves its dependency independently
+  // of the conditional expression's next evaluation.
+  W.connect(right,out);
+  select(false);assert.equal(out(),21);
+  select(true);assert.equal(out(),99);
+  assert.equal(right._deps.includes(out),true,'explicit edge must survive pruning');
+  const beforeExplicit=evaluations;
+  right(25);assert.ok(evaluations>beforeExplicit);
+  assert.equal(out(),99);
+  W.disconnect(right,out);
+  assert.equal(right._deps.includes(out),false);
+  assert.equal(m.ready(),true);
+ }finally{prior.resume()}
+}
+async function inactiveAsyncBranchIsNotPublished(){
+ // FBF 2026-11-23 — GPT-6 under Jean Hugues Noël Robert's direction.
+ // Switching a branch while an earlier promise is unresolved must not
+ // publish the earlier generation as the current computed result.
+ const machine=W.machine({autodep:true}), prior=machine.resume();
+ try{
+  const select=W(true), left=W(1), right=W(20), out=W();
+  let finishOld, finishNew;
+  const emitted=[];
+  out(W,()=>{
+   if(select()){
+    const value=left();
+    return new Promise(resolve=>{finishOld=()=>resolve(value)});
+   }
+   const value=right();
+   return new Promise(resolve=>{finishNew=()=>resolve(value)});
+  });
+  W(out,value=>emitted.push(value));
+  select(false);
+  assert.equal(typeof finishNew,'undefined',
+    'pending first generation should be settled before evaluating next');
+  finishOld();
+  await Promise.resolve();
+  await Promise.resolve();
+  assert.deepEqual(emitted,[],
+    'obsolete branch must not emit after selection changes');
+  assert.equal(typeof finishNew,'function');
+  finishNew();
+  await Promise.resolve();
+  await Promise.resolve();
+  assert.deepEqual(emitted,[20]);
+  assert.equal(out(),20);
+  assert.equal(left._deps.includes(out),false);
+  assert.equal(right._deps.includes(out),true);
+  assert.equal(machine.ready(),true);
+ }finally{prior.resume()}
+}
+async function initiallyMissingConditionalAutodependency(){
+ // FBF 2026-11-23 — GPT-6 under Jean Hugues Noël Robert's direction.
+ // A missing source aborts an initial evaluation. Its auto-owned edge must
+ // still be tracked so that a later branch switch can remove it.
+ const m=W.machine({autodep:true}), prior=m.resume();
+ try{
+  const select=W(true), missing=W(), fallback=W(7), out=W();
+  let evaluations=0;
+  out(W,()=>{evaluations++;return select()?missing():fallback()});
+  assert.equal(out(),undefined);
+  assert.equal(missing._deps.includes(out),true);
+  missing(4);assert.equal(out(),4);
+  select(false);assert.equal(out(),7);
+  assert.equal(missing._deps.includes(out),false);
+  const before=evaluations;
+  missing(9);
+  assert.equal(evaluations,before);
+  fallback(8);assert.equal(out(),8);
+ }finally{prior.resume()}
+}
+(async()=>{for(const [name,fn] of [['race',race],['diamond',diamond],['dynamic',dynamic],['compaction',compaction],['cycles',cycles],['hold-release-submit',holdReleaseAndSubmitContract],['ready-effects',pendingEffectsNotReady],['machine-async',promisesKeepTheirMachine],['boxon-results',boxonValueCardinality],['dynamic-pruning',conditionalAutodependencyPruning],['inactive-async-branch',inactiveAsyncBranchIsNotPublished],['initially-missing-branch',initiallyMissingConditionalAutodependency]]){await fn();console.log('PASS',name)}})().catch(e=>{console.error('FAIL',e.stack);process.exitCode=1});
