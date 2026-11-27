@@ -335,7 +335,9 @@ l8 API at a glance
     .running            -- true if task not done nor paused
     .cancel             -- cancel task & its sub tasks, brutal
     .canceled           -- true if task failed because it was canceled
-    .stop               -- gentle cancel
+    .stop()             -- cooperative stop request, default reason true
+    .stopBecause(reason) -- cooperative stop request with explicit reason
+    .stopReason         -- reason of first stop request (undefined if none)
     .stopping           -- true after a gentle cancel, until task is done
     .stopped            -- true if done task was gently canceled (gracefull)
     .done               -- true if task done, else either running or paused
