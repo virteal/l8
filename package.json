@@ -30,7 +30,7 @@
   },
   "scripts": {
     "postinstall": "ln -s ../. node_modules/l8 || true",
-    "test": "node test/parole.js && mocha test/boxon.js -R spec && promises-aplus-tests test/promise.js && node test/suite.js && node test/actor.js && node test/node.js && node test/fbf-stale-wakeup.js && node test/water-fbf.js && node test/signal-fbf.js && node test/semaphore-fbf.js && node test/mutex-fbf.js && node test/lock-fbf.js && node test/boxon-fbf.js && node test/parole-fbf.js"
+    "test": "node test/parole.js && mocha test/boxon.js -R spec && promises-aplus-tests test/promise.js && node test/suite.js && node test/actor.js && node test/node.js && node test/fbf-stale-wakeup.js && node test/water-fbf.js && node test/signal-fbf.js && node test/semaphore-fbf.js && node test/mutex-fbf.js && node test/lock-fbf.js && node test/boxon-fbf.js && node test/parole-fbf.js && node test/aggregate-fbf.js"
   },
   "repository": {
     "type": "git",
