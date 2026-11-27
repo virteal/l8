@@ -27,6 +27,8 @@ See:
 
 The original code and history are preserved here as an important Rossignol / point of attestation.
 
+**Transport maintenance (2026-11-27).** The Actor adapter now uses Socket.IO 4.8.4 on both ends; Socket.IO 1.x peers are not wire-compatible. The transport dependency requires Node.js >= 10.2.0; the current full regression suite was validated on Node.js 26.13.1. No npm release or live service deployment is implied by this source update.
+
 ---
 
 [npm](https://npmjs.org/package/l8)
