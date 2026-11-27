@@ -19,3 +19,5 @@ node_modules
 
 # WebStorm IDE
 .idea
+# Generated browser test bundle
+l8_browser_test_suite.js

@@ -29,6 +29,8 @@ The original code and history are preserved here as an important Rossignol / poi
 
 **Transport maintenance (2026-11-27).** The Actor adapter now uses Socket.IO 4.8.4 on both ends; Socket.IO 1.x peers are not wire-compatible. The transport dependency requires Node.js >= 10.2.0; the current full regression suite was validated on Node.js 26.13.1. No npm release or live service deployment is implied by this source update.
 
+**Validation toolchain (2026-11-27).** Use a modern Node.js (Mocha 12 requires ^20.19.0 or >=22.12.0) and `npm ci`, then `npm test`. The historical Promises/A+ conformance suite still runs all 872 checks, with its Mocha and underscore dependencies overridden to maintained versions. The browser test now builds with `npm run build:browser-test` (esbuild), then open `l8_test_suite.html`. The obsolete unfunk reporter and Browserify crypto polyfills are no longer dependencies. The package lock pins the tested dependency tree. Node runtime minimum and development toolchain minimum are distinct.
+
 ---
 
 [npm](https://npmjs.org/package/l8)

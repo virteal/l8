@@ -22,15 +22,15 @@
     "socket.io-client": "^4.8.4"
   },
   "devDependencies": {
-    "browserify": "^8.1.1",
     "coffee-script": "^1.8.0",
-    "mocha": "^1.21.4",
-    "mocha-unfunk-reporter": "^0.4.0",
-    "promises-aplus-tests": "^2.1.0"
+    "mocha": "^12.0.3",
+    "promises-aplus-tests": "^2.1.0",
+    "esbuild": "^0.28.2"
   },
   "scripts": {
     "postinstall": "ln -s ../. node_modules/l8 || true",
-    "test": "node test/parole.js && mocha test/boxon.js -R spec && promises-aplus-tests test/promise.js && node test/suite.js && node test/actor.js && node test/node.js && node test/fbf-stale-wakeup.js && node test/water-fbf.js && node test/signal-fbf.js && node test/semaphore-fbf.js && node test/mutex-fbf.js && node test/lock-fbf.js && node test/boxon-fbf.js && node test/parole-fbf.js && node test/aggregate-fbf.js && node test/stop-because-fbf.js && node test/defer-fbf.js"
+    "test": "node test/parole.js && mocha test/boxon.js -R spec && promises-aplus-tests test/promise.js && node test/suite.js && node test/actor.js && node test/node.js && node test/fbf-stale-wakeup.js && node test/water-fbf.js && node test/signal-fbf.js && node test/semaphore-fbf.js && node test/mutex-fbf.js && node test/lock-fbf.js && node test/boxon-fbf.js && node test/parole-fbf.js && node test/aggregate-fbf.js && node test/stop-because-fbf.js && node test/defer-fbf.js && node test/call-fbf.js && node test/countdown-fbf.js",
+    "build:browser-test": "esbuild test/suite.js --bundle --platform=browser --define:global=globalThis --external:util --outfile=l8_browser_test_suite.js"
   },
   "repository": {
     "type": "git",
@@ -70,5 +70,13 @@
     "email": "jean_hugues_robert@yahoo.com",
     "url": "http://virteal.com"
   },
-  "license": "MIT"
+  "license": "MIT",
+  "overrides": {
+    "promises-aplus-tests": {
+      "mocha": "$mocha",
+      "underscore": "^1.13.8"
+    },
+    "glob@>=9": "^14.0.6",
+    "minimatch@>=7": "^11.0.9"
+  }
 }

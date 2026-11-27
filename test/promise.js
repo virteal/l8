@@ -16,12 +16,10 @@ module.exports.deferred = function(){
 // If debugging
 if( 0 ){
   var promisesAplusTests = require("promises-aplus-tests");
-  // The "unfunk" reporter is TTY friendly, ie not funky
-  require( "mocha-unfunk-reporter" );
   promisesAplusTests(
     module.exports,
     // Please change the grep expression to match the target test to debug
-    { reporter: "mocha-unfunk-reporter", grep: "" },
+    { reporter: "spec", grep: "" },
     function (err) {}
   );
 }
