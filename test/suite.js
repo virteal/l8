@@ -39,7 +39,8 @@ var test // current test id
   function t(){
     if( traces.length > 200 ){
       trace( "!!! too many traces, infinite loop? exiting...")
-      process.exit( 1)
+      if( l8.server ){ process.exit( 1 ) }
+      throw new Error( "too many traces" )
     }
     var buf = ["test" + (test ? " " + test : ""), "" + l8.current.currentStep]
     for( var ii = 0 ; ii < arguments.length ; ii++ ) buf.push( arguments[ii])
@@ -476,10 +477,11 @@ var test // current test id
 
   var test_last = function(){
     trace( "SUCCESS!!! All tests ok" );
-    process.exit( 0 );
+    cancel_countdown();
+    if( l8.server )process.exit( 0 );
   }
 
 
 trace( "starting l8, for tests" );
-l8.countdown( 10 );
+var cancel_countdown = l8.countdown( 10 );
 test_1();
